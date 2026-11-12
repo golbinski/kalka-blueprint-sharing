@@ -370,3 +370,30 @@ func TestPeerID(t *testing.T) {
 		t.Fatal("team string not mixed in")
 	}
 }
+
+// TestOfferShapeForPeerJSCloud pins the OFFER fields the public PeerJS
+// cloud requires: without label and serialization it drops the sender.
+func TestOfferShapeForPeerJSCloud(t *testing.T) {
+	var offer map[string]any
+	var mu sync.Mutex
+	srv := &rendezvous.Server{Intercept: func(m peerjs.Message) *peerjs.Message {
+		if m.Type == peerjs.Offer {
+			mu.Lock()
+			_ = json.Unmarshal(m.Payload, &offer)
+			mu.Unlock()
+		}
+		return &m
+	}}
+	h := newHarness(t, srv)
+	alice, bob := h.node(t, "alice@corp.com", Options{}), h.node(t, "bob@corp.com", Options{})
+	if _, _, errA, errB := connect(t, alice, bob); errA != nil || errB != nil {
+		t.Fatalf("%v / %v", errA, errB)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, k := range []string{"type", "connectionId", "sdp", "label", "serialization"} {
+		if _, ok := offer[k]; !ok {
+			t.Errorf("OFFER payload lacks %q: %v", k, offer)
+		}
+	}
+}

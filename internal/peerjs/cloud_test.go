@@ -11,9 +11,9 @@ import (
 
 // TestCloudRelay checks that the public PeerJS cloud relays a message
 // between two registered ids. It talks to 0.peerjs.com, so it runs only
-// with KALKA_CLOUD_TEST=1. On 2026-11-12 it failed: the cloud closed the
-// sender's socket (code 1000) on any relayed message, from Go and from
-// Node alike; see docs/m1-transport.md.
+// with KALKA_CLOUD_TEST=1. The cloud closes the sender's socket on an
+// OFFER whose payload lacks label or serialization, or whose SDP is not
+// well-formed (docs/m1-transport.md).
 func TestCloudRelay(t *testing.T) {
 	if os.Getenv("KALKA_CLOUD_TEST") == "" {
 		t.Skip("set KALKA_CLOUD_TEST=1 to probe the public PeerJS cloud")
@@ -33,7 +33,7 @@ func TestCloudRelay(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	defer b.Close()
-	if err := a.Send(ctx, Offer, idB, map[string]any{"type": "data", "connectionId": "dc_probe", "sdp": map[string]string{"type": "offer", "sdp": "v=0"}}); err != nil {
+	if err := a.Send(ctx, Offer, idB, map[string]any{"type": "data", "connectionId": "dc_probe", "label": "kalka/1", "serialization": "raw", "sdp": map[string]string{"type": "offer", "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"}}); err != nil {
 		t.Fatal(err)
 	}
 	select {

@@ -178,9 +178,7 @@ Choices made while implementing that the spec does not spell out:
 
 ## 6b. M1 status
 
-Done 2026-11-12, findings in `docs/m1-transport.md`. Stock `peerjs-server` sync passes; MITM detection passes; TURN/TCP relay-only passes in-process; `peerjs-go` not adopted. **The public PeerJS cloud registers clients but does not relay messages** (any client, any id format): `peerjs-cloud` mode is broken today — product decision pending (Q6). Still open: a run on a real UDP-blocked network, TURN over TLS.
-
-- **Q6** Drop `rendezvous: peerjs-cloud` and use `kalka rendezvous` for demos (recommended), or keep it labelled unreliable?
+Done 2026-11-12, findings in `docs/m1-transport.md`. Sync passes through stock `peerjs-server` and the public PeerJS cloud (the cloud requires `label` and `serialization` in OFFER payloads and well-formed SDP); MITM detection passes; TURN/TCP relay-only passes in-process; `peerjs-go` not adopted. Still open: a run on a real UDP-blocked network, TURN over TLS. M5 note: `kalka rendezvous` should enforce the cloud's OFFER rules.
 
 ## 7. Sequencing and rough size
 

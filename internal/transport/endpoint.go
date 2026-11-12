@@ -63,6 +63,10 @@ type sigPayload struct {
 	Candidate    *webrtc.ICECandidateInit   `json:"candidate,omitempty"`
 	Label        string                     `json:"label,omitempty"`
 	Reliable     bool                       `json:"reliable,omitempty"`
+	// Serialization is meaningless to kalka, but the public PeerJS cloud
+	// closes the sender's socket on an OFFER without label and
+	// serialization (found 2026-11-12, docs/m1-transport.md).
+	Serialization string `json:"serialization,omitempty"`
 }
 
 // NewEndpoint starts dispatching signaling messages from sig.
@@ -187,7 +191,7 @@ func (e *Endpoint) Dial(ctx context.Context, dst string) (*Conn, error) {
 	if err := pc.SetLocalDescription(offer); err != nil {
 		return nil, err
 	}
-	if err := e.send(peerjs.Offer, dst, sigPayload{ConnectionID: s.id, SDP: &offer, Label: Label, Reliable: true}); err != nil {
+	if err := e.send(peerjs.Offer, dst, sigPayload{ConnectionID: s.id, SDP: &offer, Label: Label, Reliable: true, Serialization: "raw"}); err != nil {
 		return nil, err
 	}
 

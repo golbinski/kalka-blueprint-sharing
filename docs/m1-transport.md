@@ -7,7 +7,7 @@ Date: 2026-11-12. Spec v0.3 §9, §16 M1.
 | Criterion | Result |
 |---|---|
 | Two CLI processes sync a file through stock `peerjs-server` | **Pass.** `peer` 1.0.2 from npm (run with Node; Docker was not installed), `kalka spike listen` / `kalka spike send`. Both directions, comment round trip, files byte-identical; 10 of 10 repeated runs succeeded after the close fix below. Data channel open in 20–90 ms on localhost. |
-| … through the public PeerJS cloud | **Fail, not caused by kalka.** Registration works; relaying does not. See below. |
+| … through the public PeerJS cloud | **Pass** after matching the official client's OFFER shape (see below). 5 of 5 runs; data channel open in 80–230 ms. |
 | `hello`/`auth` binding; a rendezvous that swaps SDP fingerprints is detected | **Pass.** `TestChannelBindingDetectsMITM`: a malicious rendezvous answers the offerer itself, dials the answerer with its own offer and relays bytes between the two DTLS sessions it terminates. Both data channels open through the relay; both sides refuse with "channel binding failed". Fingerprints are read from the DTLS transport (`GetLocalParameters`, `GetRemoteCertificate`), never from SDP. A plain SDP fingerprint rewrite without a relay is already stopped by DTLS itself. |
 | Note on `peerjs-go` | **Reimplemented**, see below. |
 | UDP-blocked network with TURN | **Partly done.** `TestTURNOverTCPRelayOnly` forces relay-only ICE over TURN/TCP through the embedded `pion/turn` server, with time-limited credentials fetched from `/kalka/ice`, and asserts the selected pair is `relay`. A run on a real UDP-blocked corporate network, and TURN over TLS on 443, are still to do (commands below). |
@@ -26,20 +26,17 @@ Protocol facts were taken from the `peer` 1.0.2 source, as the spec asks: endpoi
 
 ## Public PeerJS cloud
 
-- **The Go WebSocket handshake is accepted** (the past issue in spec §17.8 does not reproduce): both ids register and receive `OPEN`, heartbeats keep the socket open.
-- **But 0.peerjs.com closes the sender's socket (close code 1000) on any relayed message**, and the recipient receives nothing. This was reproduced with the same JSON sent from Node's built-in WebSocket, with and without an `Origin` header, and with UUID, hex and short ids. It is not specific to Go or to kalka's message shape.
-- `TestCloudRelay` (`KALKA_CLOUD_TEST=1 go test ./internal/peerjs/ -run Cloud`) re-checks this; it failed on 2026-11-12.
+- **The Go WebSocket handshake is accepted** (the past issue in spec §17.8 does not reproduce).
+- **The cloud is stricter than stock `peerjs-server` about OFFER.** It closes the sender's socket (close code 1000), without relaying, when the OFFER payload lacks `label` or `serialization`, or when its SDP is not well-formed. ANSWER and CANDIDATE pass in kalka's shape; `reliable` is optional. Stock `peerjs-server` 1.0.2 and 1.1.0-rc.2 check none of this.
+- **How it was found:** the official PeerJS 1.5.5 browser client, driven in two Chrome tabs, relayed fine through the cloud. Its WebSocket frames were captured and compared field by field with kalka's, then each field was toggled from a Node script against the cloud.
+- **Fix:** kalka's OFFER now carries `serialization: "raw"` next to `label: "kalka/1"`. `TestOfferShapeForPeerJSCloud` pins the fields; `TestCloudRelay` (`KALKA_CLOUD_TEST=1 go test ./internal/peerjs/ -run Cloud`) checks the live cloud.
+- The first version of this note concluded the cloud did not relay at all. That was wrong: my probes imitated the client's message shape rather than copying it.
 
-**Consequence:** `rendezvous: peerjs-cloud` does not work today. The spec presents it as the zero-setup demo option (§5, §9.7). Options for the product owner:
-
-1. Keep the option, label it "may not work", and point demos at a self-hosted server.
-2. Drop it and make `kalka rendezvous` the only demo path. The server already exists; a demo is `kalka rendezvous` on one laptop plus `rendezvous: ws://<laptop>:<port>/` on both.
-
-Recommendation: **2**, and pull the rest of M5 (flags, TLS, TURN wiring) forward to right after M2.
+**Consequence:** `rendezvous: peerjs-cloud` works and stays the zero-setup demo option, with the warnings of spec §9.7. The PeerJS protocol keeps its point: one client works against the cloud, stock `peerjs-server` and `kalka rendezvous`. Since the cloud enforces rules the stock server does not, `kalka rendezvous` should enforce the same OFFER rules in M5, so that a client passing kalka's own tests also passes the cloud.
 
 ## Offline detection (scenario 10)
 
-Dialing an absent peer through stock `peerjs-server` failed with "peer is offline" after **5.6 s** (5 s expire timeout + sweep). With `kalka rendezvous` the timeout is configurable (tests use 1 s). "Within a few seconds" holds with defaults; presence probing (§9.3) has the same latency.
+Dialing an absent peer failed with "peer is offline" after **5.6 s** through stock `peerjs-server` (5 s expire timeout + sweep) and after **39 ms** through the public cloud, which reports absent ids at once. With `kalka rendezvous` the timeout is configurable (tests use 1 s). "Within a few seconds" holds everywhere; presence probing (§9.3) has the same latency.
 
 ## Bugs found and fixed
 
