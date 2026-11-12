@@ -50,6 +50,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdComment(rest, stdin, stdout, stderr, now)
 	case "version":
 		return cmdVersion(rest, stdout, stderr)
+	case "spike":
+		return cmdSpike(rest, stdout, stderr)
 	case "send", "handoff", "peers", "verify", "rendezvous":
 		fmt.Fprintf(stderr, "%s %s: not implemented yet\n", name.Binary, cmd)
 		return exitProblems
