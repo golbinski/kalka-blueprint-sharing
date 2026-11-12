@@ -30,6 +30,9 @@ type Config struct {
 	Team       string      `yaml:"team,omitempty"`
 	UIPort     int         `yaml:"ui_port,omitempty"`
 	ICEServers []ICEServer `yaml:"ice_servers,omitempty"`
+	// RelayOnly forces TURN relay candidates (testing on restricted
+	// networks). Not part of setup.
+	RelayOnly bool `yaml:"relay_only,omitempty"`
 }
 
 // ICEServer is a manual ICE override entry.
@@ -88,4 +91,20 @@ func Load() (*Config, error) {
 		c.UIPort = DefaultUIPort
 	}
 	return &c, nil
+}
+
+// Save writes the config file, creating the config directory.
+func Save(c *Config) error {
+	dir, err := Dir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, FileName), data, 0o600)
 }

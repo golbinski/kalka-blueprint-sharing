@@ -22,6 +22,9 @@ var ErrOffline = errors.New("peer is offline")
 // Options configure an Endpoint.
 type Options struct {
 	ICEServers []webrtc.ICEServer
+	// ICE, if set, is called for every new connection instead of using
+	// ICEServers, so short-lived TURN credentials can be refreshed.
+	ICE func() []webrtc.ICEServer
 	// RelayOnly forces TURN (tests, and networks where only relay works).
 	RelayOnly bool
 	// Loopback allows loopback candidates (tests on one machine).
@@ -38,6 +41,7 @@ type Endpoint struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session // by connectionId
+	probes   map[string]*probe   // by connectionId
 	incoming chan *Conn
 	done     chan struct{}
 	closed   bool
@@ -82,6 +86,7 @@ func NewEndpoint(sig *peerjs.Client, opts Options) *Endpoint {
 		api:      webrtc.NewAPI(webrtc.WithSettingEngine(se)),
 		opts:     opts,
 		sessions: map[string]*session{},
+		probes:   map[string]*probe{},
 		incoming: make(chan *Conn, 8),
 		done:     make(chan struct{}),
 	}
@@ -91,6 +96,9 @@ func NewEndpoint(sig *peerjs.Client, opts Options) *Endpoint {
 
 func (e *Endpoint) config() webrtc.Configuration {
 	c := webrtc.Configuration{ICEServers: e.opts.ICEServers}
+	if e.opts.ICE != nil {
+		c.ICEServers = e.opts.ICE()
+	}
 	if e.opts.RelayOnly {
 		c.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
@@ -276,6 +284,9 @@ func (e *Endpoint) dispatch() {
 			if json.Unmarshal(m.Payload, &p) != nil {
 				continue
 			}
+			if m.Type == peerjs.Candidate && e.onProbe(m.Src, p.ConnectionID) {
+				continue
+			}
 			e.mu.Lock()
 			s := e.sessions[p.ConnectionID]
 			if s == nil || s.peer != m.Src {
@@ -307,6 +318,14 @@ func (e *Endpoint) dispatch() {
 				if s.peer == m.Src {
 					select {
 					case s.fail <- ErrOffline:
+					default:
+					}
+				}
+			}
+			for _, pr := range e.probes {
+				if pr.peer == m.Src {
+					select {
+					case pr.result <- Offline:
 					default:
 					}
 				}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/config"
 )
 
 func setup(t *testing.T, content string) string {
@@ -86,5 +87,27 @@ func TestCheckExitCodes(t *testing.T) {
 	}
 	if code, _, _ := call("", "check", filepath.Join(t.TempDir(), "missing.md")); code != 1 {
 		t.Fatalf("missing file: %d", code)
+	}
+}
+
+func TestSetupWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("KALKA_CONFIG_DIR", dir)
+	var out, errb strings.Builder
+	folder := filepath.Join(dir, "bp")
+	if code := run([]string{"setup", "--email", "bob", "--rendezvous", "peerjs-cloud", "--folder", folder}, nil, &out, &errb, time.Now); code != exitUsage {
+		t.Fatalf("bad email accepted: %d", code)
+	}
+	if code := run([]string{"setup", "--email", "bob@corp.com", "--rendezvous", "peerjs-cloud", "--folder", folder, "--ui-port", "7800"}, nil, &out, &errb, time.Now); code != exitOK {
+		t.Fatalf("setup: %d %s", code, errb.String())
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.Email != "bob@corp.com" || cfg.Folder != folder || cfg.UIPort != 7800 {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+	// Network commands without a daemon say how to start it.
+	errb.Reset()
+	if code := run([]string{"peers"}, nil, &out, &errb, time.Now); code != exitProblems || !strings.Contains(errb.String(), "not running") {
+		t.Fatalf("peers without daemon: %d %q", code, errb.String())
 	}
 }

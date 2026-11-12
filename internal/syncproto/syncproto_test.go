@@ -1,23 +1,30 @@
 package syncproto
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/merge"
+	"github.com/golbinski/kalka/internal/store"
 	"github.com/golbinski/kalka/internal/transport"
 )
 
 // pipe is an in-memory Channel pair.
-type pipe struct{ in, out chan []byte }
+type pipe struct {
+	in, out chan []byte
+}
 
 func pipes() (*pipe, *pipe) {
-	a, b := make(chan []byte, 8), make(chan []byte, 8)
+	a, b := make(chan []byte, 16), make(chan []byte, 16)
 	return &pipe{in: a, out: b}, &pipe{in: b, out: a}
 }
 
@@ -31,7 +38,10 @@ func (p *pipe) Send(v any) error {
 
 func (p *pipe) Receive(timeout time.Duration) (transport.Envelope, error) {
 	select {
-	case raw := <-p.in:
+	case raw, ok := <-p.in:
+		if !ok {
+			return transport.Envelope{}, io.EOF
+		}
 		var h struct{ Type string }
 		_ = json.Unmarshal(raw, &h)
 		return transport.Envelope{Type: h.Type, Raw: raw}, nil
@@ -40,74 +50,163 @@ func (p *pipe) Receive(timeout time.Duration) (transport.Envelope, error) {
 	}
 }
 
-type memStore struct {
-	doc    *bp.Document
-	accept bool
-	writes int
-}
-
-func (m *memStore) Find(id string) (*bp.Document, error) {
-	if m.doc != nil && m.doc.KalkaID() == id {
-		return m.doc, nil
-	}
-	return nil, nil
-}
-func (m *memStore) Write(d *bp.Document, _ string, _ bool) error { m.doc = d; m.writes++; return nil }
-func (m *memStore) AcceptNew(string, *bp.Document) bool          { return m.accept }
-
 func noKeys(string) (ed25519.PublicKey, bool) { return nil, false }
 
 const src = "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nowner: alice@corp.com\n---\n# T\n\n## Plan\nP\n"
 
-func parse(t *testing.T, s string) *bp.Document {
-	d, err := bp.Parse([]byte(s))
+func folder(t *testing.T, files map[string]string) *store.Store {
+	t.Helper()
+	dir := t.TempDir()
+	for n, c := range files {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d
+	return s
 }
 
-func run(t *testing.T, local *bp.Document, st *memStore, sender, responder string) (merge.Result, error, merge.Result, error) {
+func answer(ok bool, seen *[]Prompt) Prompter {
+	return func(_ context.Context, p Prompt) (bool, error) {
+		if seen != nil {
+			*seen = append(*seen, p)
+		}
+		return ok, nil
+	}
+}
+
+type side struct {
+	st    *store.Store
+	email string
+	ask   Prompter
+}
+
+func sync(t *testing.T, from, to side, file, intent string, offer *bp.Document) (Result, error, []Result, error) {
+	t.Helper()
 	a, b := pipes()
 	type out struct {
-		r   merge.Result
+		r   []Result
 		err error
 	}
 	done := make(chan out, 1)
-	go func() { r, err := Respond(b, st, sender, noKeys); done <- out{r, err} }()
-	var written *bp.Document
-	ri, erri := Initiate(a, local, "plan.md", responder, noKeys, func(d *bp.Document) error { written = d; return nil })
-	_ = written
+	go func() {
+		s := &Session{Ch: b, Self: to.email, Peer: from.email, Keys: noKeys, Store: to.st, Ask: to.ask}
+		r, err := s.Respond()
+		done <- out{r, err}
+	}()
+	f, err := from.st.Load(filepath.Join(from.st.Dir(), file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Ch: a, Self: from.email, Peer: to.email, Keys: noKeys, Store: from.st, Ask: from.ask}
+	ri, erri := s.Initiate(Request{File: f, Offer: offer, Intent: intent})
+	close(a.out)
 	o := <-done
 	return ri, erri, o.r, o.err
 }
 
-func TestNewThenReviewRoundTrip(t *testing.T) {
-	st := &memStore{accept: true}
-	_, err, rr, rerr := run(t, parse(t, src), st, "alice@corp.com", "bob@corp.com")
-	if err != nil || rerr != nil || rr.Outcome != merge.New || st.writes != 1 {
-		t.Fatalf("first send: %v %v %v writes=%d", err, rerr, rr.Outcome, st.writes)
+func read(t *testing.T, st *store.Store, name string) string {
+	b, err := os.ReadFile(filepath.Join(st.Dir(), name))
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Bob comments; Alice syncs again and receives the comment.
-	e, _ := bp.NewEntry(bp.KindComment, "bob@corp.com", time.Now(), "plan", st.doc.Rev(), "hm")
-	_ = st.doc.AddEntry(e)
-	st.doc, _ = st.doc.Reparse()
-	ri, err, _, rerr := run(t, parse(t, src), st, "alice@corp.com", "bob@corp.com")
-	if err != nil || rerr != nil || ri.Outcome != merge.Updated || !strings.Contains(string(ri.Doc.Bytes()), "hm") {
-		t.Fatalf("second sync: %v %v %v", err, rerr, ri.Outcome)
+	return string(b)
+}
+
+func TestNewDeclinedThenAccepted(t *testing.T) {
+	alice := side{folder(t, map[string]string{"plan.md": src}), "alice@corp.com", nil}
+	var seen []Prompt
+	bob := side{folder(t, nil), "bob@corp.com", answer(false, &seen)}
+	_, err, _, _ := sync(t, alice, bob, "plan.md", IntentSync, nil)
+	var rej *Rejected
+	if !errors.As(err, &rej) || rej.Reason != merge.Declined || len(seen) != 1 || seen[0].Kind != PromptNew {
+		t.Fatalf("declined: %v %+v", err, seen)
+	}
+	bob.ask = answer(true, nil)
+	ri, err, rr, rerr := sync(t, alice, bob, "plan.md", IntentSync, nil)
+	if err != nil || rerr != nil || rr[0].Status != "new" || ri.Status != "unchanged" {
+		t.Fatalf("%v %v %+v %+v", err, rerr, rr, ri)
+	}
+	if read(t, bob.st, "plan.md") != src {
+		t.Fatal("bob's file differs")
 	}
 }
 
-func TestDeclinedAndNotOwner(t *testing.T) {
-	_, err, _, _ := run(t, parse(t, src), &memStore{accept: false}, "alice@corp.com", "bob@corp.com")
-	var rej *Rejected
-	if !errors.As(err, &rej) || rej.Reason != merge.Declined {
-		t.Fatalf("declined: %v", err)
+func TestConvergenceSavesConflict(t *testing.T) {
+	edited := strings.Replace(src, "P\n", "Bob's edit\n", 1)
+	e, _ := bp.NewEntry(bp.KindComment, "bob@corp.com", time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC), "plan", "00000000", "keep me")
+	d, _ := bp.Parse([]byte(edited))
+	_ = d.AddEntry(e)
+	bob := side{folder(t, map[string]string{"plan.md": string(d.Bytes())}), "bob@corp.com", answer(true, nil)}
+	alice := side{folder(t, map[string]string{"plan.md": src}), "alice@corp.com", nil}
+	ri, err, rr, rerr := sync(t, bob, alice, "plan.md", IntentSync, nil)
+	if err != nil || rerr != nil {
+		t.Fatal(err, rerr)
 	}
-	st := &memStore{doc: parse(t, src)}
-	edited := parse(t, strings.Replace(src, "P\n", "Q\n", 1))
-	_, err, _, _ = run(t, edited, st, "bob@corp.com", "alice@corp.com")
-	if !errors.As(err, &rej) || rej.Reason != merge.NotOwner || rej.Content != src {
-		t.Fatalf("not-owner must carry the responder's file: %v", err)
+	if len(rr) != 2 || rr[0].Reason != merge.NotOwner || rr[1].Status != "updated" || ri.Conflict == "" {
+		t.Fatalf("%+v %+v", rr, ri)
+	}
+	b, a := read(t, bob.st, "plan.md"), read(t, alice.st, "plan.md")
+	if b != a || strings.Contains(b, "Bob's edit") || !strings.Contains(b, "keep me") {
+		t.Fatalf("not converged:\n%s\n---\n%s", b, a)
+	}
+	if c, _ := os.ReadFile(ri.Conflict); !strings.Contains(string(c), "Bob's edit") {
+		t.Fatal("conflict copy lacks the displaced edit")
+	}
+}
+
+func TestDiverged(t *testing.T) {
+	// Each side's copy names a different owner, and neither has a handoff
+	// chain: no one can accept the other's plan.
+	mine := strings.Replace(src, "P\n", "carol's plan\n", 1)
+	mine = strings.Replace(mine, "owner: alice", "owner: carol", 1)
+	carol := side{folder(t, map[string]string{"plan.md": mine}), "carol@corp.com", answer(true, nil)}
+	alice := side{folder(t, map[string]string{"plan.md": src}), "alice@corp.com", nil}
+	_, err, _, rerr := sync(t, carol, alice, "plan.md", IntentSync, nil)
+	var dv *Diverged
+	if !errors.As(err, &dv) || !strings.Contains(err.Error(), "plans diverged") {
+		t.Fatalf("initiator: %v", err)
+	}
+	if rerr != nil {
+		t.Fatalf("responder: %v", rerr)
+	}
+}
+
+func TestConfirmWithKeepalives(t *testing.T) {
+	old := [3]time.Duration{Silence, KeepaliveEvery, PromptTimeout}
+	Silence, KeepaliveEvery = 150*time.Millisecond, 30*time.Millisecond
+	defer func() { Silence, KeepaliveEvery, PromptTimeout = old[0], old[1], old[2] }()
+
+	a, b := pipes()
+	slow := func(context.Context, Prompt) (bool, error) { time.Sleep(500 * time.Millisecond); return true, nil }
+	marked := 0
+	errs := make(chan error, 1)
+	go func() {
+		s := &Session{Ch: b, Peer: "alice@corp.com", Ask: slow}
+		errs <- s.Confirm(false, "ABCD-EFGH", func() error { marked++; return nil })
+	}()
+	s := &Session{Ch: a, Peer: "bob@corp.com", Ask: answer(true, nil)}
+	if err := s.Confirm(true, "ABCD-EFGH", nil); err != nil {
+		t.Fatalf("waiting side gave up despite keep-alives: %v", err)
+	}
+	if err := <-errs; err != nil || marked != 1 {
+		t.Fatal(err, marked)
+	}
+
+	// A declined code fails both sides.
+	a, b = pipes()
+	go func() {
+		s := &Session{Ch: b, Peer: "alice@corp.com", Ask: answer(false, nil)}
+		errs <- s.Confirm(false, "X", nil)
+	}()
+	s = &Session{Ch: a, Peer: "bob@corp.com", Ask: answer(true, nil)}
+	if err := s.Confirm(false, "X", func() error { return nil }); !errors.Is(err, ErrNotVerified) {
+		t.Fatal(err)
+	}
+	if err := <-errs; !errors.Is(err, ErrNotVerified) {
+		t.Fatal(err)
 	}
 }

@@ -180,6 +180,31 @@ Choices made while implementing that the spec does not spell out:
 
 Done 2026-11-12, findings in `docs/m1-transport.md`. Sync passes through stock `peerjs-server` and the public PeerJS cloud (the cloud requires `label` and `serialization` in OFFER payloads and well-formed SDP); MITM detection passes; TURN/TCP relay-only passes in-process; `peerjs-go` not adopted. Still open: a run on a real UDP-blocked network, TURN over TLS. M5 note: `kalka rendezvous` should enforce the cloud's OFFER rules.
 
+## 6c. M2 status
+
+Done 2026-11-12. All ten §16.1 scenarios pass as tests (`internal/daemon/scenario_test.go`): several daemons in one process, each with its own config dir and folder, over the in-process PeerJS rendezvous and real WebRTC on loopback, with scripted prompts, a shared stepping clock and a fault hook that drops the connection after the responder writes (scenario 6). The suite passes with `-race`. Run by hand with two `kalka` processes over the public PeerJS cloud: first send (both sides showed the same code), comment round trip, signed handoff, `peers`, `verify`, and an offline report in 0.2 s.
+
+Packages: `identity` (key, `peers.yaml`, pinning, code), `store` (index, watcher, safe writes), `syncproto` (state machines), `daemon` (process, local API, client); `fsutil.WritePrivate` (0600, owner-only DACL on Windows). `kalka spike` is removed; `kalka` + `kalka send` replace it.
+
+Choices made while implementing that the spec does not spell out:
+
+- **Code verification is a protocol step**: after `auth`, each side sends `verify {status}`, `verified` or `pending`. A pending side asks its user, then sends `verified` or `declined`. The sync goes on only when both sides end `verified`. Confirming sets `verified: true` locally at once, even if the other side then declines.
+- **Keep-alives**: a side waiting on its user sends `keepalive` every 10 s. The other side's 30 s silence timer restarts on each one, and the prompt itself times out after 5 min.
+- **`bye` carries `reason` and `detail`**, so the other side can show why a sync ended: a changed key, a declined convergence, or diverged plans.
+- **Diverged is detected by both sides.** The responder computes the initiator's merge of the responder's file and replies `diverged` if that merge would fail. The initiator checks the `not-owner` content with its own keys and ends with `bye {reason: diverged}`.
+- **Convergence happens on the same channel**: after a `not-owner` reply and the user's yes, the initiator saves the conflict copy, writes the owner's plan with its own entries, and offers again. The responder answers up to three offers per connection.
+- **Handoff candidates are kept in memory** until the merged reply arrives. They are keyed by `kalka_id` and recipient and tied to a hash of the local file. A retry after a lost reply resends the identical candidate, so the recipient sees rule 3 and gets no prompt (scenario 6). A daemon restart forgets the candidate. A retry after a restart adds a second handoff entry. It is harmless, but the UI will mark it "unverified handoff" because Alice is no longer the owner at that point of the chain.
+- **A key change is recorded** in `peers.yaml` (`key_changed: {pubkey, seen}`). From then on syncs with that email are refused before dialing, even if the old key comes back, until `kalka peers forget <email>`. The refusing side tells the other side why in its `bye`.
+- **Presence probes** are a `CANDIDATE` with connection id `probe_<random>` and an end-of-candidates payload. A kalka peer answers `pong_<same>`, and an absent id gets `EXPIRE` from the server. The public cloud relays these probes (`TestCloudProbe`, opt-in). The result is `online`, `offline` or `unknown` (no answer within 8 s).
+- **Locking per `kalka_id`**: a responder waits up to 10 s for a blueprint that is busy in another sync, then replies `declined` with "busy, try again".
+- **Duplicate `kalka_id`** on the responder side is replied as `declined` with the explanation. The spec's reason list has no better fit.
+- **Files to send must be inside the blueprint folder.** Replies are matched by `kalka_id` in the folder, so a file outside it could never receive them.
+- **Local API**: `daemon.json` `{addr, token, pid}`, written 0600 and removed on exit. The CLI sends `Authorization: Bearer`. Browsers use the `kalka_token` cookie, and state-changing requests also need a matching `Origin`. Host must be `127.0.0.1:<port>` or `localhost:<port>`. `POST /api/sync` streams NDJSON events (`progress`, `prompt`, `prompt-closed`, `result`, `error` with a `kind` for agents). Prompts are answered with `POST /api/prompts/{id}`.
+- **Prompts for incoming syncs** are asked in the daemon's terminal and listed at `GET /api/prompts`; the first answer wins. This is M2's answer to Q3 until the UI exists.
+- **`setup` takes `--ui-port`**, needed to run two daemons on one machine. **`relay_only`** is a hidden config key for testing on restricted networks; it replaces the spike's `--relay-only`.
+
+Still open: the real UDP-blocked network run and TURN over TLS (from M1). `kalka setup` is a CLI command for now; the setup form comes with the UI in M3.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

@@ -39,8 +39,7 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "the daemon and web UI are not implemented yet (milestone M2/M3); available: check, comment, version")
-		return exitProblems
+		return cmdDaemon(stdin, stdout, stderr)
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
@@ -50,9 +49,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdComment(rest, stdin, stdout, stderr, now)
 	case "version":
 		return cmdVersion(rest, stdout, stderr)
-	case "spike":
-		return cmdSpike(rest, stdout, stderr)
-	case "send", "handoff", "peers", "verify", "rendezvous":
+	case "setup":
+		return cmdSetup(rest, stdout, stderr)
+	case "send", "handoff":
+		return cmdSync(cmd, rest, stdin, stdout, stderr)
+	case "peers":
+		return cmdPeers(rest, stdout, stderr)
+	case "verify":
+		return cmdVerify(rest, stdout, stderr)
+	case "rendezvous":
 		fmt.Fprintf(stderr, "%s %s: not implemented yet\n", name.Binary, cmd)
 		return exitProblems
 	case "help", "-h", "--help":
@@ -66,6 +71,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
+  %[1]s                       run the daemon (prompts for incoming syncs are asked here)
+  %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
+  %[1]s send <file> <email> [--json]
+  %[1]s handoff <file> <email> [--json]
+  %[1]s peers [--json] | peers add <email> | peers forget <email>
+  %[1]s verify <email> [--confirm] [--json]
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s version [--json]

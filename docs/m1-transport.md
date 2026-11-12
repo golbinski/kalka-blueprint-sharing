@@ -6,7 +6,7 @@ Date: 2026-11-12. Spec v0.3 §9, §16 M1.
 
 | Criterion | Result |
 |---|---|
-| Two CLI processes sync a file through stock `peerjs-server` | **Pass.** `peer` 1.0.2 from npm (run with Node; Docker was not installed), `kalka spike listen` / `kalka spike send`. Both directions, comment round trip, files byte-identical; 10 of 10 repeated runs succeeded after the close fix below. Data channel open in 20–90 ms on localhost. |
+| Two CLI processes sync a file through stock `peerjs-server` | **Pass.** `peer` 1.0.2 from npm (run with Node; Docker was not installed), `kalka spike listen` / `kalka spike send` (replaced by the daemon in M2). Both directions, comment round trip, files byte-identical; 10 of 10 repeated runs succeeded after the close fix below. Data channel open in 20–90 ms on localhost. |
 | … through the public PeerJS cloud | **Pass** after matching the official client's OFFER shape (see below). 5 of 5 runs; data channel open in 80–230 ms. |
 | `hello`/`auth` binding; a rendezvous that swaps SDP fingerprints is detected | **Pass.** `TestChannelBindingDetectsMITM`: a malicious rendezvous answers the offerer itself, dials the answerer with its own offer and relays bytes between the two DTLS sessions it terminates. Both data channels open through the relay; both sides refuse with "channel binding failed". Fingerprints are read from the DTLS transport (`GetLocalParameters`, `GetRemoteCertificate`), never from SDP. A plain SDP fingerprint rewrite without a relay is already stopped by DTLS itself. |
 | Note on `peerjs-go` | **Reimplemented**, see below. |
@@ -48,13 +48,15 @@ Dialing an absent peer failed with "peer is offline" after **5.6 s** through sto
 
 ## Still to do on a real network
 
-Run on the corporate network (UDP blocked), with a TURN server reachable on 443:
+The spike commands were replaced in M2 by the daemon. To repeat the run on the corporate network (UDP blocked), with a TURN server reachable on 443, set in each side's `config.yaml`:
 
-```
-kalka spike listen --email bob@corp.com --dir ./in --rendezvous wss://<server>/ \
-  --relay-only --turn 'turns:<server>:443?transport=tcp' --turn-user <u> --turn-pass <p>
-kalka spike send --email alice@corp.com --rendezvous wss://<server>/ \
-  --relay-only --turn 'turns:<server>:443?transport=tcp' --turn-user <u> --turn-pass <p> plan.md bob@corp.com
+```yaml
+rendezvous: wss://<server>/
+relay_only: true
+ice_servers:
+  - urls: ["turns:<server>:443?transport=tcp"]
+    username: <u>
+    credential: <p>
 ```
 
-The log line `path relay/... -> ...` shows which candidate pair carried the data. TURN over TLS is wired in `rendezvous.TLSListener` but not yet covered by a test.
+then run `kalka` on both machines and `kalka send plan.md bob@corp.com` on one. TURN over TLS is wired in `rendezvous.TLSListener` but not yet covered by a test.

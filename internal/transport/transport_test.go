@@ -397,3 +397,25 @@ func TestOfferShapeForPeerJSCloud(t *testing.T) {
 		}
 	}
 }
+
+func TestProbe(t *testing.T) {
+	h := newHarness(t, &rendezvous.Server{ExpireTimeout: 500 * time.Millisecond})
+	a := h.node(t, "alice@corp.com", Options{})
+	b := h.node(t, "bob@corp.com", Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	t0 := time.Now()
+	if p := a.ep.Probe(ctx, b.sig.ID()); p != Online {
+		t.Fatalf("online peer: %s", p)
+	}
+	if d := time.Since(t0); d > 500*time.Millisecond {
+		t.Fatalf("online probe took %v", d)
+	}
+	if p := a.ep.Probe(ctx, PeerID("", "nobody@corp.com")); p != Offline {
+		t.Fatalf("absent peer: %s", p)
+	}
+	// The probe must not disturb a real connection afterwards.
+	if _, _, ea, eb := connect(t, a, b); ea != nil || eb != nil {
+		t.Fatal(ea, eb)
+	}
+}
