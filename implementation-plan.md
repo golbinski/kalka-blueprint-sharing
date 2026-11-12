@@ -17,7 +17,7 @@ These fill in what the spec leaves to the implementer. Each one can be overturne
 | A5 | **Divergences are computed in Go; trace layout is computed in TypeScript.** | `kalka check --json` can report divergences to agents. Layout is presentation only. |
 | A6 | **Sync is a state machine with an injected transport**, tested over an in-memory pipe first and WebRTC second. | Scenarios §16.1 run in milliseconds in CI without a network. WebRTC gets its own smaller test set. |
 | A7 | **One lock per `kalka_id`** in the daemon. Syncs, CLI writes and watcher reloads of one blueprint are serialized. | §14 re-read-before-write is simpler when no two operations race inside the process. |
-| A8 | **Prompts are daemon objects** (`pending prompt`, with id, kind, timeout) pushed to the UI over SSE, answered by POST. If no UI tab is connected when a prompt arrives, the daemon opens the browser. | Responder-side prompts (accept, verify, handoff) can arrive while the UI is closed. *Open question Q3.* |
+| A8 | **Prompts are daemon objects** (`pending prompt`, with id, kind, timeout) pushed to the UI over SSE, answered by POST. If no UI tab is connected when a prompt arrives, the daemon shows a native popup offering to open the UI (see Q3). | Responder-side prompts (accept, verify, handoff) can arrive while the UI is closed. |
 | A9 | **Frontend: TypeScript + React + Vite**, `markdown-it` with `html: false`, `@xyflow/react` (MIT) for the canvas view only, hand-written SVG for the trace view, `mermaid` bundled. Fonts are embedded (no Google Fonts; the mockups' Inter and JetBrains Mono must ship as files or be replaced by system stacks). | xyflow is React-first. Trace layout is specific (lanes, level alignment, gaps) and simpler in plain SVG than bent into a node library. CSP forbids remote origins (§11.2). |
 | A10 | **YAML library: the maintained `go.yaml.in/yaml/v3` fork** (or `goccy/go-yaml`), not the archived `gopkg.in/yaml.v3`. Pin at implementation time. | §15. |
 
@@ -158,8 +158,8 @@ The spec gives no acceptance criteria. Proposed: every section and entry from th
 
 - ~~**Q1** Is A4 acceptable?~~ Yes (spec v0.3 §6.4).
 - ~~**Q2** Sign handoff entries in v1?~~ Yes: optional seventh header field `sig:`, verified against pinned keys (spec v0.3 §6.5, §7.2, §7.6).
-- **Q3** Responder side with no UI open: open the browser automatically, show an OS notification, or reject with `declined` after the timeout? *M3 answer for now:* the prompt is asked in the terminal, and the browser is opened (A8) at most once a minute. Revisit after use.
-- **Q4** Move Canvas review (M6) after Trace (M7)? The trace view has mockups and a clearer purpose; the canvas view repeats the linear view's data.
+- ~~**Q3** Responder side with no UI open?~~ Decided 2026-11-12: kalka runs per user, started at logon (not a Windows service, which runs in an isolated session and cannot reach the user's desktop or profile). A prompt with no kalka page connected shows a native popup, "Open kalka" or "Later". The answer is given in the UI, within the 5-minute prompt window; otherwise the sender gets "no answer" and retries. A background kalka tab raises a browser notification instead. Native notification-centre toasts need an app identity: on Windows, a Start-menu shortcut with an AppUserModelID; on macOS, a signed `.app` bundle. Both come with packaging (`kalka autostart`, installer), where the popup becomes the fallback.
+- ~~**Q4** Move Canvas review (M6) after Trace (M7)?~~ Yes (decided 2026-11-12): Trace comes next, then Canvas. The trace view has mockups and a clearer purpose; the canvas view repeats the linear view's data.
 - **Q5** Do the mockups' "Review log" tab and its view belong in v1?
 
 ## 6a. M0 implementation notes
@@ -222,7 +222,9 @@ Choices made while implementing that the spec does not spell out:
 - **Canvas and Trace tabs** are shown disabled until M6 and M7. The mockups' Review log tab is left out (Q5).
 - **Build**: `make` runs `npm ci && npm run build` into `internal/ui/dist`, which is embedded. The build output is not committed. A binary built without it serves a "UI not built" page.
 
-Still open: Q3 (revisit), Q4, Q5; the M1 network items.
+**Prompts with no terminal (Q3, after M3):** `internal/notify` shows a native dialog: AppleScript `display dialog` on macOS (the texts are passed as arguments, never put into the script), `MessageBoxW` on Windows (closed with `WM_CLOSE` when the prompt ends), and `zenity` on Linux. With no dialog available, the browser opens instead, at most once a minute. One popup shows at a time. It closes when its prompt is answered or times out, and "Later" is not asked again for that prompt. Terminal prompts remain only when stdin is a terminal. The page asks once for notification permission and notifies about prompts while hidden. Packaging to-do: `kalka autostart on|off` (Task Scheduler at logon or HKCU Run, with no console window; LaunchAgent on macOS), toasts with an AUMID shortcut on Windows, and an `.app` bundle on macOS. Not tested on a real Windows desktop yet.
+
+Still open: Q5; the M1 network items; the Windows popup run.
 
 ## 7. Sequencing and rough size
 

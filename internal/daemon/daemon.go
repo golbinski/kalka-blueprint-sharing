@@ -63,9 +63,12 @@ type Options struct {
 	Listener net.Listener
 	// Token, if set, is the API token; otherwise a random one is made.
 	Token string
-	// OpenUI, if set, is called with the UI's URL when a prompt for an
-	// incoming sync opens and no UI is connected (implementation plan A8).
+	// OpenUI, if set, opens the UI's URL in a browser.
 	OpenUI func(url string)
+	// Popup, if set, asks the user whether to open the UI; see popups.go.
+	// It returns true for "open", false for "later", and must close and
+	// return when ctx ends. An error falls back to OpenUI.
+	Popup func(ctx context.Context, title, message string) (bool, error)
 }
 
 // Daemon is one running kalka.
@@ -237,7 +240,8 @@ func (d *Daemon) forward(ctx context.Context) {
 	defer stopF()
 	prompts, stopP := d.Prompts.Subscribe("")
 	defer stopP()
-	var lastOpen time.Time
+	pop := newPopups(d)
+	defer pop.stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,13 +251,13 @@ func (d *Daemon) forward(ctx context.Context) {
 		case n := <-prompts:
 			if n.Closed {
 				d.bus.Publish(BusEvent{Type: "prompt-closed", Data: n.Prompt})
+				pop.closed(n.Prompt)
 				continue
 			}
 			d.bus.Publish(BusEvent{Type: "prompt", Data: n.Prompt})
-			if n.Prompt.Scope == "" && d.bus.Clients() == 0 && d.opts.OpenUI != nil && time.Since(lastOpen) > time.Minute {
-				lastOpen = time.Now()
-				d.opts.OpenUI(d.URL())
-			}
+			pop.opened(ctx, n.Prompt)
+		case r := <-pop.results:
+			pop.finished(ctx, r)
 		}
 	}
 }

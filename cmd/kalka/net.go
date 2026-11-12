@@ -30,12 +30,14 @@ import (
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/peerjs"
 )
 
-// cmdDaemon runs the daemon in the foreground and opens the UI. Without a
-// config it first serves the setup form on the same port. Prompts for
-// incoming syncs are asked in this terminal as well as in the UI.
+// cmdDaemon runs the daemon and opens the UI. Without a config it first
+// serves the setup form on the same port. A prompt for an incoming sync
+// shows in the UI; with no UI open, a native popup offers to open it. When
+// started from a terminal, prompts are asked there too.
 func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name.Binary, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -83,13 +85,19 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	d, err := daemon.New(daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open})
+	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open}
+	if !*noOpen {
+		opts.Popup = notify.Ask
+	}
+	d, err := daemon.New(opts)
 	if err != nil {
 		ln.Close()
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	go terminalPrompts(ctx, d.Prompts, stdin, stderr)
+	if isTerminal(stdin) {
+		go terminalPrompts(ctx, d.Prompts, stdin, stderr)
+	}
 	go func() {
 		select {
 		case <-d.Ready():
@@ -218,6 +226,17 @@ func terminalPrompts(ctx context.Context, hub *daemon.Hub, stdin io.Reader, out 
 			_ = hub.Answer(p.ID, yes(line))
 		}
 	}
+}
+
+// isTerminal reports whether r is an interactive terminal. At logon kalka
+// runs with no terminal, and there is no one to read answers from.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
 }
 
 func readLines(r io.Reader) chan string {

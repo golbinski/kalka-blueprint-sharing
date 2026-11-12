@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, events, type BlueprintInfo, type Doc, type Peer, type Prompt, type Status, type SyncResult } from './api'
 import { PromptCard, SyncDialog } from './Dialogs'
+import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
 import { Review } from './Review'
 import { Blueprints, Peers, Setup } from './Views'
 import { roleText, useRoute } from './util'
@@ -19,6 +20,14 @@ export function App() {
   const [dialog, setDialog] = useState<'sync' | 'handoff' | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [live, setLive] = useState(true)
+  const [notifyPerm, setNotifyPerm] = useState(permission)
+  const [notifyAsked, setNotifyAsked] = useState(() => {
+    try {
+      return localStorage.getItem('kalka.notify-dismissed') === '1'
+    } catch {
+      return false
+    }
+  })
   const docPath = route.view === 'doc' ? route.path : ''
   const docPathRef = useRef(docPath)
   docPathRef.current = docPath
@@ -78,12 +87,16 @@ export function App() {
             break
           case 'prompt': {
             const p = data as Prompt
-            if (!p.scope) setPrompts((ps) => (ps.some((x) => x.id === p.id) ? ps : [...ps, p]))
+            if (!p.scope) {
+              setPrompts((ps) => (ps.some((x) => x.id === p.id) ? ps : [...ps, p]))
+              notifyPrompt(p)
+            }
             break
           }
           case 'prompt-closed': {
             const p = data as Prompt
             setPrompts((ps) => ps.filter((x) => x.id !== p.id))
+            closePrompt(p.id)
             break
           }
           case 'sync': {
@@ -205,6 +218,29 @@ export function App() {
           <div className="banner danger">
             Not connected to the rendezvous server{status.error ? `: ${status.error}` : ''}. Syncs cannot start until it is back;
             kalka keeps retrying.
+          </div>
+        )}
+        {notifyPerm === 'default' && !notifyAsked && (
+          <div className="banner notice">
+            Turn on desktop notifications so you see a teammate's sync while this tab is in the background.{' '}
+            <button type="button" className="link" onClick={() => requestPermission().then(setNotifyPerm)}>
+              Turn on
+            </button>{' '}
+            ·{' '}
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setNotifyAsked(true)
+                try {
+                  localStorage.setItem('kalka.notify-dismissed', '1')
+                } catch {
+                  /* private window */
+                }
+              }}
+            >
+              Not now
+            </button>
           </div>
         )}
         {!live && <div className="banner danger">Lost the connection to kalka. Live updates resume when it is back.</div>}
