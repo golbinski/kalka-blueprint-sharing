@@ -1,0 +1,54 @@
+{
+  "kalka_id": "2d9f8e3a-4b6c-4e5d-8a7f-1c3d4e5f6a7b",
+  "owner": "alice@corp.com",
+  "title": "Parser rewrite",
+  "rev": "3275d942",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Parser rewrite",
+      "slug": "parser-rewrite",
+      "line": 6
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 8
+    }
+  ],
+  "entries": [
+    {
+      "line": 14,
+      "kind": "comment",
+      "author": "carol@corp.com",
+      "anchor": "plan",
+      "id": "5aca97415978",
+      "valid": true,
+      "unparsed_lines_after": 0
+    },
+    {
+      "line": 17,
+      "kind": "comment",
+      "author": "bob@corp.com",
+      "anchor": "plan",
+      "id": "bd60a5e93698",
+      "valid": true,
+      "unparsed_lines_after": 2
+    }
+  ],
+  "problems": [
+    {
+      "severity": "warning",
+      "code": "log-unparsed",
+      "line": 12,
+      "message": "content before the first entry is kept as unparsed content"
+    },
+    {
+      "severity": "warning",
+      "code": "log-unparsed",
+      "line": 21,
+      "message": "not an entry header, kept as unparsed content: entry header has 1 fields separated by \" · \", want 6 (7 with sig)"
+    }
+  ]
+}

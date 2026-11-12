@@ -1,0 +1,38 @@
+{
+  "kalka_id": "1c8e7d2f-3a5b-4d4c-9f6e-0b2c3d4e5f6a",
+  "owner": "alice@corp.com",
+  "title": "Size guard",
+  "rev": "9ab241f8",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Size guard",
+      "slug": "size-guard",
+      "line": 6
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 8
+    },
+    {
+      "level": 2,
+      "text": "Appendix",
+      "slug": "appendix",
+      "line": 16
+    }
+  ],
+  "entries": [
+    {
+      "line": 12,
+      "kind": "comment",
+      "author": "bob@corp.com",
+      "anchor": "plan",
+      "id": "29703135d57a",
+      "valid": true,
+      "unparsed_lines_after": 0
+    }
+  ],
+  "problems": null
+}

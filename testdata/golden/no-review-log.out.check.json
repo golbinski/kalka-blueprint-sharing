@@ -1,0 +1,28 @@
+{
+  "kalka_id": "0b7d6c1e-2f4a-4c3b-8e5d-9a1b2c3d4e5f",
+  "owner": "alice@corp.com",
+  "title": "Notify in batches",
+  "rev": "1927a7f0",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Notify in batches",
+      "slug": "notify-in-batches",
+      "line": 6
+    },
+    {
+      "level": 2,
+      "text": "Context",
+      "slug": "context",
+      "line": 8
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 11
+    }
+  ],
+  "entries": null,
+  "problems": null
+}

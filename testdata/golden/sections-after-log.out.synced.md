@@ -1,0 +1,20 @@
+---
+kalka_id: 1c8e7d2f-3a5b-4d4c-9f6e-0b2c3d4e5f6a
+owner: alice@corp.com
+---
+
+# Size guard
+
+## Plan
+Skip files larger than 20 MB.
+
+## Review log
+
+### comment · bob@corp.com · 2026-11-11T17:40:03Z · §plan · rev:9ab241f8 · id:29703135d57a
+Should the limit be configurable?
+
+### comment · bob@corp.com · 2026-11-12T12:00:00Z · §plan · rev:9ab241f8 · id:c27e9c3d75d4
+Golden comment.
+
+## Appendix
+Added by another tool after the log.

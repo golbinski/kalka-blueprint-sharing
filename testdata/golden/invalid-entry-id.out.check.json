@@ -1,0 +1,48 @@
+{
+  "kalka_id": "4f1b0a5c-6d8e-4a7f-8c9b-3e5f6a7b8c9d",
+  "owner": "alice@corp.com",
+  "title": "Classifier",
+  "rev": "995f39cc",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Classifier",
+      "slug": "classifier",
+      "line": 6
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 8
+    }
+  ],
+  "entries": [
+    {
+      "line": 12,
+      "kind": "comment",
+      "author": "bob@corp.com",
+      "anchor": "plan",
+      "id": "0acf6512a81b",
+      "valid": true,
+      "unparsed_lines_after": 0
+    },
+    {
+      "line": 15,
+      "kind": "comment",
+      "author": "bob@corp.com",
+      "anchor": "plan",
+      "id": "0123456789ab",
+      "valid": false,
+      "unparsed_lines_after": 0
+    }
+  ],
+  "problems": [
+    {
+      "severity": "error",
+      "code": "entry-id",
+      "line": 15,
+      "message": "entry id 0123456789ab does not match its content (want 538e924cfc74); peers drop it on merge"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "kalka_id": "",
+  "owner": "",
+  "title": "Retry uploads",
+  "rev": "fa73ea69",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Retry uploads",
+      "slug": "retry-uploads",
+      "line": 1
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 3
+    }
+  ],
+  "entries": null,
+  "problems": [
+    {
+      "severity": "info",
+      "code": "local",
+      "message": "no kalka_id: a local blueprint, given an id on first send"
+    }
+  ]
+}

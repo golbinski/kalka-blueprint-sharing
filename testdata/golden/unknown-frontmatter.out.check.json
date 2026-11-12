@@ -1,0 +1,22 @@
+{
+  "kalka_id": "5a2c1b6d-7e9f-4b8a-9d0c-4f6a7b8c9d0e",
+  "owner": "alice@corp.com",
+  "title": "Import pipeline refactor",
+  "rev": "766849ce",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Import pipeline refactor",
+      "slug": "import-pipeline-refactor",
+      "line": 23
+    },
+    {
+      "level": 2,
+      "text": "Plan",
+      "slug": "plan",
+      "line": 25
+    }
+  ],
+  "entries": null,
+  "problems": null
+}

@@ -1,0 +1,44 @@
+{
+  "kalka_id": "3e0a9f4b-5c7d-4f6e-9b8a-2d4e5f6a7b8c",
+  "owner": "alice@corp.com",
+  "title": "Two phases",
+  "rev": "f3654514",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Two phases",
+      "slug": "two-phases",
+      "line": 6
+    },
+    {
+      "level": 2,
+      "text": "Step",
+      "slug": "step",
+      "line": 8
+    },
+    {
+      "level": 2,
+      "text": "Step",
+      "slug": "step-1",
+      "line": 11
+    },
+    {
+      "level": 2,
+      "text": "Step",
+      "slug": "step-2",
+      "line": 14
+    }
+  ],
+  "entries": [
+    {
+      "line": 18,
+      "kind": "comment",
+      "author": "bob@corp.com",
+      "anchor": "step-1",
+      "id": "25e3aa0091e6",
+      "valid": true,
+      "unparsed_lines_after": 0
+    }
+  ],
+  "problems": null
+}
