@@ -118,6 +118,21 @@ type checkResult struct {
 	Rev      string       `json:"rev,omitempty"`
 	Entries  int          `json:"entries"`
 	Problems []bp.Problem `json:"problems"`
+	Traces   []traceInfo  `json:"traces,omitempty"`
+}
+
+// traceInfo summarizes a trace block for agents: where it is, whether it
+// is valid, and the divergences computed from its graph (spec 6.10).
+type traceInfo struct {
+	Index       int             `json:"index"`
+	Line        int             `json:"line"`
+	Section     string          `json:"section,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Valid       bool            `json:"valid"`
+	Lanes       []string        `json:"lanes,omitempty"`
+	Nodes       int             `json:"nodes"`
+	Divergences []bp.Divergence `json:"divergences"`
+	Errors      []bp.TraceError `json:"errors,omitempty"`
 }
 
 func cmdCheck(args []string, stdout, stderr io.Writer) int {
@@ -154,6 +169,17 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintf(stdout, "%s: %s: %s [%s]\n", loc, p.Severity, p.Message, p.Code)
 		}
+		if *verbose {
+			for _, t := range r.Traces {
+				for _, d := range t.Divergences {
+					fmt.Fprintf(stdout, "%s:%d: info: trace %d: %s %s", f, t.Line, t.Index+1, d.Class, d.Node)
+					if len(d.Nodes) > 0 {
+						fmt.Fprintf(stdout, " (%s)", strings.Join(d.Nodes, ", "))
+					}
+					fmt.Fprintln(stdout, " [divergence]")
+				}
+			}
+		}
 	}
 	if *asJSON {
 		writeJSON(stdout, results)
@@ -176,6 +202,14 @@ func checkFile(path string) checkResult {
 	r.OK = !d.HasErrors()
 	r.KalkaID, r.Owner, r.Title, r.Rev, r.Entries = d.KalkaID(), d.Owner(), d.Title(), d.Rev(), len(d.Items())
 	r.Problems = append(r.Problems, d.Problems()...)
+	for _, t := range d.Traces() {
+		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Valid: t.Valid(),
+			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors}
+		if ti.Divergences == nil {
+			ti.Divergences = []bp.Divergence{}
+		}
+		r.Traces = append(r.Traces, ti)
+	}
 	return r
 }
 

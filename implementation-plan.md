@@ -226,6 +226,43 @@ Choices made while implementing that the spec does not spell out:
 
 Still open: Q5; the M1 network items; the Windows popup run.
 
+## 6e. M7 status
+
+Done 2026-11-12, ahead of M4–M6 (Q4). `docs/example-trace.md` is a sample with two traces and a mermaid sketch.
+
+- **Library** (`blueprint/trace.go`): finds ```` ```trace ```` fences in the body, including those nested in lists or quotes, but not those inside log entries. It validates per §6.10 with the block number, node id and file line in every error. Unknown keys are ignored. Errors are reported as `trace-invalid` *warnings*, so a broken block never blocks a sync. The graph divergences are computed here, with a unit test per class, a three-lane block and a labelled branch. `kalka check --verbose` prints divergences; `--json` lists `traces[]` with them.
+- **Choices the spec leaves open:**
+  - *Scattered*: a node's realizers in one lane do not form a connected piece of that lane's flow, with edges taken both ways.
+  - *Reordered*: checked per pair A→B and per lower lane. A shared realizer does not count. The badge goes on A.
+  - A block's *title* is the text of the heading it sits under, since the spec has no title key.
+  - Node anchors are `§<slug>#<id>`, where the slug is the top-level heading the block sits under.
+  - The same id twice under one heading gives the warning `trace-ambiguous-id`.
+  - `Append` (CLI and UI) refuses unknown nodes. An entry becomes orphaned when its node is gone.
+- **Unverified and Stale** are added by the daemon from reference results (`daemon.Options.Resolver`, the seam for M4). Until plugins exist, every least-abstract step shows *unverified* with its reason ("no plugin installed for gh:", "not a plugin reference", "no reference"). These count separately from the graph divergences, and nodes with them are not orange.
+- **Layout** (`web/src/traceLayout.ts`, tested):
+  - Rows on a grid.
+  - A lower-lane node is level with the first node it realizes and stretches to the last (C3 spans B2+B3, as in the mockup).
+  - A node never moves above its predecessor.
+  - An implementation-only node inserts a row in the lanes to its left, labelled "not in the *lane* view".
+  - A flow arrow goes around the lane side when it skips nodes. Branch labels are drawn.
+- **Mockup points settled:**
+  - Lane headers show the lane name only; no `@sha` from the core.
+  - The link label is "Open source".
+  - The summary rows are built from the block's lane names.
+  - The Review log tab is still left out (Q5).
+- **Views:**
+  - Trace view: header with prev/next, counts, Diagram/Source, zoom ±/Fit, legend.
+  - Side panel: divergence cards with a summary, or node detail. Node detail has why, realizes / realized by, the reference box (the snippet is text only, the link only if http/https), comments on the node, and a composer locked to the node's anchor.
+  - The same block appears inline in the linear view, scaled to fit, and clicking a node opens the trace view on it.
+  - An invalid block shows as code with its errors beside it.
+- **Mermaid** 12.2.0 (MIT): its prebuilt browser bundle (5.5 MB) is served at `/mermaid/` and loaded only when a page has a diagram.
+  - It runs in a frame sandboxed by both the iframe attribute and a CSP `sandbox allow-scripts`. The frame has an opaque origin, no `connect-src`, and no cookie or API access, and talks to the page by `postMessage` only.
+  - Mermaid's SVG uses `<style>` elements, so only this frame allows `'unsafe-inline'` styles.
+  - The main page's CSP gained `frame-src 'self'`.
+- Checked in Chrome: inline and full views of both blocks, a node comment saved and shown on the node, Source, the invalid block, the mermaid sketch, and no CSP violations. `FuzzParse` was seeded with trace blocks and run for 60 s.
+
+Still open: Q5; references resolve only once M4 lands.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

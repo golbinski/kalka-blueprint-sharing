@@ -42,6 +42,18 @@ func TestUIServingAndTokenCookie(t *testing.T) {
 	if r.StatusCode != 200 || !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe-inline") || !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Fatalf("index: %d CSP %q", r.StatusCode, csp)
 	}
+	if !strings.Contains(csp, "frame-src 'self'") || r.Header.Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("index frame headers: %q %q", csp, r.Header.Get("X-Frame-Options"))
+	}
+	// The mermaid frame is always sandboxed (opaque origin, no API), may be
+	// framed only by this page, and is the only place inline styles work.
+	r = get(t, noRedirect, base+MermaidPath+"frame.html", nil)
+	r.Body.Close()
+	fcsp := r.Header.Get("Content-Security-Policy")
+	if !strings.Contains(fcsp, "sandbox allow-scripts") || strings.Contains(fcsp, "allow-same-origin") || strings.Contains(fcsp, "connect-src") ||
+		!strings.Contains(fcsp, "frame-ancestors 'self'") || strings.Contains(fcsp, "script-src 'self' 'unsafe") || r.Header.Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Fatalf("frame headers: %q %q", fcsp, r.Header.Get("X-Frame-Options"))
+	}
 	// A client-side route falls back to the page.
 	r = get(t, noRedirect, base+"/no/such/file", nil)
 	r.Body.Close()
@@ -95,7 +107,7 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	bob.mustSync("plan.md", alice, IntentSync)
 	alice.mustSync("plan.md", bob, IntentHandoff)
 
-	v, err := bob.d.Document("plan.md")
+	v, err := bob.d.Document(context.Background(), "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +126,7 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	if handoff == nil || handoff.Handoff != "verified" || handoff.HandoffTarget != bob.email {
 		t.Fatalf("handoff %+v", handoff)
 	}
-	if v2, _ := alice.d.Document("plan.md"); v2.Role != RoleReviewer {
+	if v2, _ := alice.d.Document(context.Background(), "plan.md"); v2.Role != RoleReviewer {
 		t.Fatalf("alice role %s", v2.Role)
 	}
 

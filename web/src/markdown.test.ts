@@ -49,3 +49,17 @@ describe('render', () => {
     expect(d.querySelector('script')).toBeNull()
   })
 })
+
+describe('renderParts', () => {
+  it('cuts out top-level trace and mermaid fences and keeps references working', async () => {
+    const { renderParts } = await import('./markdown')
+    const src = '## Plan\n\nSee [the ticket][t].\n\n```trace\nlanes: [a, b]\n```\n\n- item\n\n  ```trace\n  nested\n  ```\n\n```mermaid\ngraph LR\n```\n\nAfter [again][t].\n\n[t]: https://example.com/t\n'
+    const parts = renderParts(src, 10)
+    expect(parts.map((p) => p.kind)).toEqual(['html', 'trace', 'html', 'mermaid', 'html'])
+    expect(parts[1]).toEqual({ kind: 'trace', line: 14, source: 'lanes: [a, b]\n' })
+    const html = parts.filter((p) => p.kind === 'html').map((p) => (p as { html: string }).html)
+    expect(html[0]).toContain('href="https://example.com/t"')
+    expect(html[1]).toContain('<code class="language-trace">')
+    expect(html[2]).toContain('href="https://example.com/t"')
+  })
+})

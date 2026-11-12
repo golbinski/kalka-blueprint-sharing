@@ -69,6 +69,8 @@ type Options struct {
 	// It returns true for "open", false for "later", and must close and
 	// return when ctx ends. An error falls back to OpenUI.
 	Popup func(ctx context.Context, title, message string) (bool, error)
+	// Resolver, if set, resolves references with plugins (M4).
+	Resolver Resolver
 }
 
 // Daemon is one running kalka.

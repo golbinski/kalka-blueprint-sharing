@@ -1,0 +1,3 @@
+html, body { margin: 0; background: transparent; overflow: hidden; }
+#out { display: flex; justify-content: center; padding: 8px 0; }
+#out svg { max-width: 100%; height: auto; }

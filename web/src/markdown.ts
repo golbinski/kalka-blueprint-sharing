@@ -41,3 +41,34 @@ md.renderer.rules.image = (tokens, idx) => {
 export function render(src: string): string {
   return md.render(src)
 }
+
+// Part is a piece of a section: Markdown rendered to safe HTML, or a fence
+// the UI draws itself.
+export type Part =
+  | { kind: 'html'; html: string }
+  | { kind: 'trace'; line: number; source: string }
+  | { kind: 'mermaid'; source: string }
+
+// renderParts renders a section with its top-level ```trace and ```mermaid
+// fences cut out; line is the file line of the trace's opening fence, to
+// match the daemon's blocks. firstLine is the section's first file line.
+// Fences inside lists or quotes stay code.
+export function renderParts(src: string, firstLine: number): Part[] {
+  const env = {}
+  const tokens = md.parse(src, env)
+  const out: Part[] = []
+  let start = 0
+  const flush = (end: number) => {
+    if (end > start) out.push({ kind: 'html', html: md.renderer.render(tokens.slice(start, end), md.options, env) })
+  }
+  tokens.forEach((t, i) => {
+    if (t.type !== 'fence' || t.level !== 0 || !t.map) return
+    const info = t.info.trim().split(/\s+/)[0]
+    if (info !== 'trace' && info !== 'mermaid') return
+    flush(i)
+    out.push(info === 'trace' ? { kind: 'trace', line: firstLine + t.map[0], source: t.content } : { kind: 'mermaid', source: t.content })
+    start = i + 1
+  })
+  flush(tokens.length)
+  return out
+}

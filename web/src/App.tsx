@@ -4,7 +4,8 @@ import { PromptCard, SyncDialog } from './Dialogs'
 import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
 import { Review } from './Review'
 import { Blueprints, Peers, Setup } from './Views'
-import { roleText, useRoute } from './util'
+import { TracePage } from './Trace'
+import { docHref, roleText, traceHref, useRoute } from './util'
 
 type Toast = { id: number; text: string }
 
@@ -28,7 +29,7 @@ export function App() {
       return false
     }
   })
-  const docPath = route.view === 'doc' ? route.path : ''
+  const docPath = route.view === 'doc' || route.view === 'trace' ? route.path : ''
   const docPathRef = useRef(docPath)
   docPathRef.current = docPath
 
@@ -157,7 +158,7 @@ export function App() {
   if (status.setup) return <Setup status={status} />
 
   const changedKeys = peers.filter((p) => p.key_changed)
-  const inDoc = route.view === 'doc'
+  const inDoc = route.view === 'doc' || route.view === 'trace'
 
   return (
     <>
@@ -185,15 +186,21 @@ export function App() {
         {inDoc && doc && (
           <>
             <nav className="tabs" aria-label="Views">
-              <a className="active" href={location.hash}>
+              <a className={route.view === 'doc' ? 'active' : ''} href={docHref(doc.rel)}>
                 Document
               </a>
               <span className="disabled" title="Canvas review comes in a later milestone">
                 Canvas
               </span>
-              <span className="disabled" title="The trace view comes in a later milestone">
-                Trace
-              </span>
+              {doc.traces.length > 0 ? (
+                <a className={route.view === 'trace' ? 'active' : ''} href={traceHref(doc.rel, route.view === 'trace' ? route.index : 0)}>
+                  Trace
+                </a>
+              ) : (
+                <span className="disabled" title="This blueprint has no trace blocks">
+                  Trace
+                </span>
+              )}
             </nav>
             {doc.role === 'owner' && (
               <button type="button" onClick={() => setDialog('handoff')}>
@@ -285,7 +292,8 @@ export function App() {
             <div className="error-box">{docErr}</div>
           </div>
         )}
-        {inDoc && doc && <Review doc={doc} reload={loadDoc} />}
+        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} />}
+        {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 
       {prompts.length > 0 && (

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -40,6 +41,10 @@ type DocView struct {
 	Problems    []bp.Problem `json:"problems"`
 	OwnerEdited bool         `json:"owner_edited,omitempty"`
 	Duplicate   bool         `json:"duplicate,omitempty"`
+	// Traces are the body's trace blocks; Refs the references in them, as
+	// the reader's plugins resolved them.
+	Traces []TraceView        `json:"traces"`
+	Refs   map[string]RefView `json:"refs"`
 }
 
 // EntryView is one review log entry with its derived states (spec 6.7).
@@ -77,7 +82,7 @@ func (d *Daemon) resolve(p string) string {
 }
 
 // Document builds the view of one blueprint.
-func (d *Daemon) Document(path string) (*DocView, error) {
+func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return nil, err
@@ -119,6 +124,7 @@ func (d *Daemon) Document(path string) (*DocView, error) {
 			v.Duplicate = true
 		}
 	}
+	v.Traces, v.Refs = d.traceViews(ctx, doc)
 	v.LogLead = strings.TrimSpace(bp.Normalize(strings.Join(doc.Lead(), "")))
 
 	rev := doc.Rev()
@@ -133,7 +139,7 @@ func (d *Daemon) Document(path string) (*DocView, error) {
 			Outdated: e.Rev != rev, Valid: e.Valid(),
 			Unparsed: strings.TrimSpace(bp.Normalize(strings.Join(it.Trailing, ""))),
 		}
-		ev.Orphaned = ev.Section != "" && !doc.HasSection(ev.Section)
+		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		v.Entries = append(v.Entries, ev)
 	}
 	d.handoffStates(v.KalkaID, doc, v.Entries)

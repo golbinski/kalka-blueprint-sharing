@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Doc, type Entry, type Section } from './api'
-import { render } from './markdown'
+import { render, renderParts } from './markdown'
+import { Mermaid } from './Mermaid'
+import { TraceInline } from './Trace'
 import { localTime, plural } from './util'
 
-function Markdown({ src, className }: { src: string; className?: string }) {
+export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
   // is safe to insert.
   const html = useMemo(() => render(src), [src])
   return <div className={'md ' + (className ?? '')} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-interface Draft {
+export interface Draft {
   anchor: string
   re?: string
   quote?: string
@@ -20,7 +22,7 @@ function Badges({ e }: { e: Entry }) {
   return (
     <>
       {e.orphaned && (
-        <span className="badge warn" title={`§${e.anchor} matches no heading in the current plan`}>
+        <span className="badge warn" title={e.node ? `§${e.anchor}: the plan has no trace step ${e.node} under that heading any more` : `§${e.anchor} matches no heading in the current plan`}>
           orphaned
         </span>
       )}
@@ -43,13 +45,18 @@ function Badges({ e }: { e: Entry }) {
   )
 }
 
-function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Map<string, Entry[]>; byId: Map<string, Entry>; onReply: (e: Entry) => void }) {
+export function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Map<string, Entry[]>; byId: Map<string, Entry>; onReply: (e: Entry) => void }) {
   const kids = replies.get(e.id) ?? []
   return (
     <div className={'entry kind-' + e.kind} id={'e-' + e.id}>
       <div className="entry-head">
         <span className={'kind kind-' + e.kind}>{e.kind}</span>
         <span className="author">{e.author}</span>
+        {e.node && (
+          <span className="mono small muted" title={`on trace step ${e.node}`}>
+            #{e.node}
+          </span>
+        )}
         <time dateTime={e.timestamp} title={e.timestamp}>
           {localTime(e.timestamp)}
         </time>
@@ -87,7 +94,20 @@ function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Map<strin
   )
 }
 
-function Composer({ doc, draft, onCancel, onSaved }: { doc: Doc; draft: Draft; onCancel: () => void; onSaved: () => void }) {
+export function Composer({
+  doc,
+  draft,
+  onCancel,
+  onSaved,
+  lockAnchor,
+}: {
+  doc: Doc
+  draft: Draft
+  onCancel: () => void
+  onSaved: () => void
+  // lockAnchor shows the anchor instead of offering a choice (trace steps).
+  lockAnchor?: boolean
+}) {
   const [kind, setKind] = useState('comment')
   const [anchor, setAnchor] = useState(draft.anchor)
   const [quote, setQuote] = useState(draft.quote ?? '')
@@ -128,14 +148,19 @@ function Composer({ doc, draft, onCancel, onSaved }: { doc: Doc; draft: Draft; o
           <option value="comment">Comment</option>
           <option value="deviation">Deviation</option>
         </select>
-        <select value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="Section">
-          <option value="">General (whole plan)</option>
-          {doc.headings.map((h) => (
-            <option key={h.slug} value={h.slug}>
-              {'  '.repeat(Math.max(0, h.level - 1))}§{h.slug}
-            </option>
-          ))}
-        </select>
+        {lockAnchor ? (
+          <span className="mono small muted anchor-fixed">§{anchor}</span>
+        ) : (
+          <select value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="Section">
+            <option value="">General (whole plan)</option>
+            {anchor.includes('#') && <option value={anchor}>§{anchor}</option>}
+            {doc.headings.map((h) => (
+              <option key={h.slug} value={h.slug}>
+                {'  '.repeat(Math.max(0, h.level - 1))}§{h.slug}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {quote && (
         <div className="quote-edit">
@@ -168,6 +193,28 @@ function Composer({ doc, draft, onCancel, onSaved }: { doc: Doc; draft: Draft; o
         </button>
       </div>
     </form>
+  )
+}
+
+// SectionBody renders a section with its trace and mermaid blocks drawn,
+// not shown as code.
+function SectionBody({ s, doc }: { s: Section; doc: Doc }) {
+  const parts = useMemo(() => renderParts(s.markdown, s.line), [s.markdown, s.line])
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.kind === 'html') return <div key={i} className="md" dangerouslySetInnerHTML={{ __html: p.html }} />
+        if (p.kind === 'mermaid') return <Mermaid key={i} source={p.source} />
+        const t = doc.traces.find((x) => x.line === p.line)
+        if (!t)
+          return (
+            <pre key={i} className="md-pre">
+              <code>{p.source}</code>
+            </pre>
+          )
+        return <TraceInline key={i} t={t} doc={doc} />
+      })}
+    </>
   )
 }
 
@@ -231,7 +278,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
     return (
       <section className="sec" key={i} id={s.heading ? 's-' + slug : undefined}>
         <div className="sec-body" onMouseUp={() => s.heading && captureSelection(slug)}>
-          <Markdown src={s.markdown} />
+          <SectionBody s={s} doc={doc} />
         </div>
         <aside className="sec-notes">
           {s.heading && (

@@ -72,6 +72,68 @@ export interface Problem {
 
 export type Role = 'owner' | 'reviewer' | 'local'
 
+export interface TraceNext {
+  to: string
+  label?: string
+}
+
+export interface TraceNode {
+  id: string
+  lane: string
+  text: string
+  next?: TraceNext[]
+  realizes?: string[]
+  ref?: string
+  why?: string
+  line: number
+}
+
+export type DivClass =
+  | 'implementation-only'
+  | 'unrealized'
+  | 'merged'
+  | 'expanded'
+  | 'scattered'
+  | 'reordered'
+  | 'unverified'
+  | 'stale'
+
+export interface Divergence {
+  class: DivClass
+  node: string
+  nodes?: string[]
+  lane?: string
+  detail?: string
+}
+
+export interface Trace {
+  index: number
+  line: number
+  section?: string
+  title?: string
+  nested?: boolean
+  source: string
+  lanes?: string[]
+  nodes?: TraceNode[]
+  errors?: { node?: string; line: number; message: string }[]
+  divergences: Divergence[]
+  // graph is how many of divergences come from the graph alone.
+  graph: number
+}
+
+export interface RefView {
+  ref: string
+  scheme?: string
+  payload?: string
+  ok: boolean
+  error?: string
+  title?: string
+  url?: string
+  status?: string
+  snippet?: { lang?: string; start_line?: number; text: string }
+  warnings?: { text: string }[]
+}
+
 export interface Doc {
   path: string
   rel: string
@@ -89,6 +151,8 @@ export interface Doc {
   problems: Problem[]
   owner_edited?: boolean
   duplicate?: boolean
+  traces: Trace[]
+  refs: Record<string, RefView>
 }
 
 export interface Peer {
@@ -188,7 +252,8 @@ export const api = {
   status: () => call<Status>('GET', '/api/status'),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: () => call<BlueprintInfo[] | null>('GET', '/api/blueprints').then((l) => l ?? []),
-  doc: (path: string) => call<Doc>('GET', '/api/doc?path=' + enc(path)),
+  doc: (path: string) =>
+    call<Doc>('GET', '/api/doc?path=' + enc(path)).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
   addEntry: (e: { path: string; kind: string; anchor: string; re?: string; quote?: string; body: string }) =>
     call<{ id: string }>('POST', '/api/entries', e),
   peers: () => call<Peer[] | null>('GET', '/api/peers').then((l) => l ?? []),

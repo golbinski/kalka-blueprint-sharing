@@ -274,6 +274,7 @@ func TestSectionsAfterLog(t *testing.T) {
 func FuzzParse(f *testing.F) {
 	f.Add(sample)
 	f.Add("---\r\nowner: a@b\r\n---\r\n## Review log\r\n### x\r\n")
+	f.Add("# T\n\n## Plan\n\n" + specTrace + "\n- x\n\n  ```trace\n  lanes: [a, b]\n  nodes: [{id: X, lane: a, text: t, next: [{to: X}]}]\n  ```\n")
 	f.Fuzz(func(t *testing.T, s string) {
 		d, err := Parse([]byte(s))
 		if err != nil {

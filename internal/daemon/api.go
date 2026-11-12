@@ -305,7 +305,7 @@ func (d *Daemon) apiAnswer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) apiDoc(w http.ResponseWriter, r *http.Request) {
-	v, err := d.Document(r.URL.Query().Get("path"))
+	v, err := d.Document(r.Context(), r.URL.Query().Get("path"))
 	if err != nil {
 		fail(w, http.StatusNotFound, err)
 		return

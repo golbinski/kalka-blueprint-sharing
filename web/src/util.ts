@@ -8,17 +8,34 @@ export function localTime(utc: string): string {
   return isNaN(d.getTime()) ? utc : fmt.format(d)
 }
 
-export type Route = { view: 'list' } | { view: 'doc'; path: string } | { view: 'peers' }
+export type Route =
+  | { view: 'list' }
+  | { view: 'doc'; path: string }
+  | { view: 'trace'; path: string; index: number; node?: string }
+  | { view: 'peers' }
 
 export function parseRoute(hash: string): Route {
-  const h = hash.replace(/^#\/?/, '')
+  const [h, query] = hash.replace(/^#\/?/, '').split('?')
+  const q = new URLSearchParams(query ?? '')
   if (h.startsWith('doc/')) return { view: 'doc', path: decodeURIComponent(h.slice(4)) }
+  if (h.startsWith('trace/')) {
+    const rest = h.slice(6)
+    const i = rest.lastIndexOf('/')
+    const index = Number(rest.slice(i + 1)) - 1
+    return { view: 'trace', path: decodeURIComponent(rest.slice(0, i)), index: Number.isInteger(index) && index >= 0 ? index : 0, node: q.get('node') ?? undefined }
+  }
   if (h === 'peers') return { view: 'peers' }
   return { view: 'list' }
 }
 
 export function docHref(rel: string): string {
   return '#/doc/' + encodeURIComponent(rel)
+}
+
+// traceHref names trace block `index` (0-based) of a blueprint; the URL
+// counts from 1, as the view does.
+export function traceHref(rel: string, index: number): string {
+  return '#/trace/' + encodeURIComponent(rel) + '/' + (index + 1)
 }
 
 export function useRoute(): Route {

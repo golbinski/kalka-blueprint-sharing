@@ -94,6 +94,7 @@ type Document struct {
 	modified bool
 	preLine  int // 1-based file line of pre[0]
 	tailLine int // 1-based file line of tail[0]
+	traces   []Trace
 }
 
 var (
@@ -187,6 +188,10 @@ func Parse(data []byte) (*Document, error) {
 		d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + ln + 1, Nested: h.Parent() != root})
 		return ast.WalkSkipChildren, nil
 	})
+	lineAt := func(starts []int) func(int) int {
+		return func(off int) int { return sort.Search(len(starts), func(i int) bool { return starts[i] > off }) - 1 }
+	}
+	fences := findFences(root, []byte(lf), lineAt(starts), base, func(l int) bool { return logStart < 0 || l < logStart })
 	if len(d.tail) > 0 {
 		tlf, tstarts := lfText(d.tail)
 		troot := goldmark.DefaultParser().Parse(text.NewReader([]byte(tlf)))
@@ -200,7 +205,9 @@ func Parse(data []byte) (*Document, error) {
 			d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + logEnd + ln + 1, Nested: h.Parent() != troot})
 			return ast.WalkSkipChildren, nil
 		})
+		fences = append(fences, findFences(troot, []byte(tlf), lineAt(tstarts), base+logEnd, func(int) bool { return true })...)
 	}
+	d.buildTraces(fences)
 
 	if !d.hasLog && !logAppendable(d.pre) {
 		d.problem(Error, "body-open-block", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")
@@ -382,8 +389,12 @@ func (d *Document) checkEntries() {
 		if hasShallowHeading(e.Body) {
 			d.problem(Warning, "entry-heading", it.Line, "headings inside an entry must be level 4 or deeper")
 		}
-		if e.Anchor != "" && !d.HasSection(e.Section()) {
-			d.problem(Warning, "orphaned", it.Line, "anchor §"+e.Anchor+" matches no heading")
+		if e.Anchor != "" && !d.HasAnchor(e.Anchor) {
+			what := "no heading"
+			if e.Node() != "" && d.HasSection(e.Section()) {
+				what = "no trace node under that heading"
+			}
+			d.problem(Warning, "orphaned", it.Line, "anchor §"+e.Anchor+" matches "+what)
 		}
 		if e.Rev != rev {
 			d.problem(Info, "outdated", it.Line, "entry was written against rev "+e.Rev+", the body is now "+rev)

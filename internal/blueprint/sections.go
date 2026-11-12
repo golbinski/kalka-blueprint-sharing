@@ -74,13 +74,16 @@ func Append(d *Document, kind, author string, at time.Time, anchor, re, quote, b
 	}
 	anchor = strings.TrimPrefix(strings.TrimSpace(anchor), "§")
 	if anchor != "" {
-		slug, _, _ := strings.Cut(anchor, "#")
+		slug, node, hasNode := strings.Cut(anchor, "#")
 		if !d.HasSection(slug) {
 			var s []string
 			for _, h := range d.headings {
 				s = append(s, h.Slug)
 			}
 			return nil, fmt.Errorf("%w %q; headings are: %s", ErrNoAnchor, slug, strings.Join(s, ", "))
+		}
+		if hasNode && !d.HasNode(slug, node) {
+			return nil, fmt.Errorf("%w: no trace node %q under §%s", ErrNoAnchor, node, slug)
 		}
 	}
 	text := body

@@ -22,7 +22,22 @@ import (
 // origins. React sets styles through the CSSOM, which style-src does not
 // restrict, so no 'unsafe-inline' is needed.
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; " +
-	"connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	"connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// MermaidPath holds the frame that draws ```mermaid blocks (spec 6.10).
+// Mermaid is a large library working on untrusted text, so it runs in a
+// sandboxed frame with an opaque origin: it cannot read the page, send the
+// token cookie or reach the API, and talks to the page only by
+// postMessage. The CSP sandbox directive keeps it sandboxed even when the
+// frame is opened on its own. Mermaid's SVG carries <style> elements, which
+// only this frame allows.
+const MermaidPath = "/mermaid/"
+
+func frameCSP(port string) string {
+	self := "http://127.0.0.1:" + port + " http://localhost:" + port
+	return "default-src 'none'; script-src 'self' " + self + "; style-src 'self' 'unsafe-inline' " + self +
+		"; img-src data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts"
+}
 
 // gate guards one listener (spec 13).
 type gate struct {
@@ -57,9 +72,14 @@ func (g gate) wrap(api http.Handler) http.Handler {
 	static := staticHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", CSP)
+		if strings.HasPrefix(r.URL.Path, MermaidPath) {
+			h.Set("Content-Security-Policy", frameCSP(g.port()))
+			h.Set("X-Frame-Options", "SAMEORIGIN")
+		} else {
+			h.Set("Content-Security-Policy", CSP)
+			h.Set("X-Frame-Options", "DENY")
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
 		if !g.allowedHost(r.Host) {
