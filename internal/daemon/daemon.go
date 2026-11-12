@@ -58,6 +58,14 @@ type Options struct {
 	// APIAddr is where the local API listens; empty means
 	// 127.0.0.1:<ui_port>. "-" disables the API.
 	APIAddr string
+	// Listener, if set, is used instead of listening on APIAddr (the
+	// setup server hands over its port).
+	Listener net.Listener
+	// Token, if set, is the API token; otherwise a random one is made.
+	Token string
+	// OpenUI, if set, is called with the UI's URL when a prompt for an
+	// incoming sync opens and no UI is connected (implementation plan A8).
+	OpenUI func(url string)
 }
 
 // Daemon is one running kalka.
@@ -76,6 +84,7 @@ type Daemon struct {
 	Peers   *identity.Peers
 	Store   *store.Store
 	Prompts *Hub
+	bus     *Bus
 
 	token string
 
@@ -132,8 +141,12 @@ func New(opts Options) (*Daemon, error) {
 		return nil, fmt.Errorf("blueprint folder: %w", err)
 	}
 	srv, _ := peerjs.ParseRendezvous(cfg.Rendezvous)
-	tok := make([]byte, 32)
-	_, _ = rand.Read(tok)
+	token := opts.Token
+	if token == "" {
+		tok := make([]byte, 32)
+		_, _ = rand.Read(tok)
+		token = hex.EncodeToString(tok)
+	}
 	log := opts.Log
 	if log == nil {
 		log = io.Discard
@@ -144,8 +157,8 @@ func New(opts Options) (*Daemon, error) {
 		pub:    key.Public().(ed25519.PublicKey),
 		peerID: transport.PeerID(cfg.Team, cfg.Email),
 		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
-		Peers: peers, Store: st, Prompts: newHub(),
-		token:     hex.EncodeToString(tok),
+		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(),
+		token:     token,
 		presence:  map[string]presence{},
 		addresses: map[string]bool{},
 		pending:   map[string]candidate{},
@@ -184,15 +197,17 @@ func (d *Daemon) logf(format string, a ...any) {
 
 // Run serves until ctx ends.
 func (d *Daemon) Run(ctx context.Context) error {
-	var ln net.Listener
-	if d.opts.APIAddr != "-" {
+	ln := d.opts.Listener
+	if ln != nil || d.opts.APIAddr != "-" {
 		addr := d.opts.APIAddr
 		if addr == "" {
 			addr = fmt.Sprintf("127.0.0.1:%d", d.cfg.UIPort)
 		}
 		var err error
-		if ln, err = net.Listen("tcp", addr); err != nil {
-			return fmt.Errorf("local API on %s: %w (is %s already running?)", addr, err, name.Binary)
+		if ln == nil {
+			if ln, err = net.Listen("tcp", addr); err != nil {
+				return fmt.Errorf("local API on %s: %w (is %s already running?)", addr, err, name.Binary)
+			}
 		}
 		d.apiAddr = ln.Addr().String()
 		if err := d.writeDaemonFile(); err != nil {
@@ -204,6 +219,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		go func() { _ = hs.Serve(ln) }()
 		defer hs.Close()
 	}
+	go d.forward(ctx)
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); _ = d.Store.Watch(ctx) }()
@@ -213,6 +229,37 @@ func (d *Daemon) Run(ctx context.Context) error {
 	wg.Wait()
 	return nil
 }
+
+// forward relays folder changes and prompts to the UI's event streams, and
+// brings the UI up for a prompt nobody can see.
+func (d *Daemon) forward(ctx context.Context) {
+	folder, stopF := d.Store.Subscribe()
+	defer stopF()
+	prompts, stopP := d.Prompts.Subscribe("")
+	defer stopP()
+	var lastOpen time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-folder:
+			d.bus.Publish(BusEvent{Type: "folder", Data: e})
+		case n := <-prompts:
+			if n.Closed {
+				d.bus.Publish(BusEvent{Type: "prompt-closed", Data: n.Prompt})
+				continue
+			}
+			d.bus.Publish(BusEvent{Type: "prompt", Data: n.Prompt})
+			if n.Prompt.Scope == "" && d.bus.Clients() == 0 && d.opts.OpenUI != nil && time.Since(lastOpen) > time.Minute {
+				lastOpen = time.Now()
+				d.opts.OpenUI(d.URL())
+			}
+		}
+	}
+}
+
+// URL is the UI address with the token, as `kalka open` uses it.
+func (d *Daemon) URL() string { return "http://" + d.apiAddr + "/?token=" + d.token }
 
 // APIAddr is the address the local API listens on, once Run started it.
 func (d *Daemon) APIAddr() string { return d.apiAddr }
@@ -295,6 +342,7 @@ func (d *Daemon) setOnline(ep *transport.Endpoint, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.ep, d.online = ep, ep != nil
+	defer d.bus.Publish(BusEvent{Type: "status"})
 	if err == nil {
 		d.sigErr = ""
 		return
@@ -362,7 +410,9 @@ func (d *Daemon) serve(c *transport.Conn) {
 		return
 	}
 	results, err := s.Respond()
+	d.bus.Publish(BusEvent{Type: "peers"})
 	for _, r := range results {
+		d.bus.Publish(BusEvent{Type: "sync", Data: r})
 		msg := r.Status
 		if r.Reason != "" {
 			msg += " (" + string(r.Reason) + ")"
@@ -433,7 +483,7 @@ func (d *Daemon) Sync(ctx context.Context, req SyncRequest, scope string, progre
 	d.addresses[strings.ToLower(to)] = true
 	d.mu.Unlock()
 
-	f, err := d.Store.Load(req.Path)
+	f, err := d.Store.Load(d.resolve(req.Path))
 	if err != nil {
 		return res, err
 	}
@@ -501,6 +551,7 @@ func (d *Daemon) Sync(ctx context.Context, req SyncRequest, scope string, progre
 		return res, err
 	}
 	res, err = s.Initiate(syncproto.Request{File: f, Offer: offer, Intent: intent})
+	d.bus.Publish(BusEvent{Type: "peers"})
 	if err == nil && intent == IntentHandoff {
 		d.mu.Lock()
 		delete(d.pending, pendingKey(id, to))
@@ -570,8 +621,12 @@ func newUUID() string {
 
 func (d *Daemon) markPresence(email string, p transport.Presence) {
 	d.mu.Lock()
+	old := d.presence[strings.ToLower(email)].State
 	d.presence[strings.ToLower(email)] = presence{State: p, Checked: time.Now()}
 	d.mu.Unlock()
+	if old != p {
+		d.bus.Publish(BusEvent{Type: "peers"})
+	}
 }
 
 // Probe checks one peer now (spec 9.3, on demand).
@@ -651,7 +706,7 @@ type PeerView struct {
 
 // PeerList lists pinned peers and addresses typed this session.
 func (d *Daemon) PeerList() []PeerView {
-	var out []PeerView
+	out := []PeerView{}
 	for _, e := range d.probeTargets() {
 		v := PeerView{Email: e, Presence: transport.Unknown}
 		if p, ok := d.Peers.Get(e); ok {

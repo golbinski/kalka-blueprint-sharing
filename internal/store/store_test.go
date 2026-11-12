@@ -141,3 +141,25 @@ func TestWatchSuppressesOwnWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnerEditedByHand(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte(doc1), 0o644)
+	s, _ := Open(dir)
+	p := filepath.Join(s.Dir(), "a.md")
+	os.WriteFile(p, []byte(strings.Replace(doc1, "owner: alice", "owner: bob", 1)), 0o644)
+	s.refresh(p)
+	if i, _ := s.Info(p); !i.OwnerEdited {
+		t.Fatal("manual owner change not flagged")
+	}
+	os.WriteFile(p, []byte(strings.Replace(doc1, "owner: alice", "owner: bob", 1)+"more\n"), 0o644)
+	s.refresh(p)
+	if i, _ := s.Info(p); !i.OwnerEdited {
+		t.Fatal("flag lost on a later edit")
+	}
+	f, _ := s.Load(p)
+	s.Update(f, parse(t, doc1))
+	if i, _ := s.Info(p); i.OwnerEdited {
+		t.Fatal("flag survived kalka's own write")
+	}
+}

@@ -6,12 +6,19 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,26 +33,62 @@ import (
 	"github.com/golbinski/kalka/internal/peerjs"
 )
 
-// cmdDaemon runs the daemon in the foreground. Prompts for incoming syncs
-// are asked in this terminal (and through the API).
-func cmdDaemon(stdin io.Reader, stdout, stderr io.Writer) int {
-	cfg, err := config.Load()
-	if errors.Is(err, config.ErrMissing) {
-		fmt.Fprintf(stderr, "%s is not set up yet. Run:\n  %s setup --email you@corp.com --rendezvous <wss://server/ or peerjs-cloud> --folder <path>\n", name.Product, name.Binary)
+// cmdDaemon runs the daemon in the foreground and opens the UI. Without a
+// config it first serves the setup form on the same port. Prompts for
+// incoming syncs are asked in this terminal as well as in the UI.
+func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet(name.Binary, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	noOpen := fs.Bool("no-open", false, "do not open the UI in a browser")
+	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
-	}
-	dir, _ := config.Dir()
-	d, err := daemon.New(daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr})
+	dir, err := config.Dir()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	tok := make([]byte, 32)
+	_, _ = rand.Read(tok)
+	token := hex.EncodeToString(tok)
+	open := func(url string) {
+		if !*noOpen {
+			if err := openBrowser(url); err != nil {
+				fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
+			}
+		}
+	}
+
+	cfg, err := config.Load()
+	if errors.Is(err, config.ErrMissing) {
+		if cfg, err = runSetup(ctx, token, open, stdout, stderr); err != nil || cfg == nil {
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return exitProblems
+			}
+			return exitOK
+		}
+		if cfg, err = config.Load(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitProblems
+		}
+	} else if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	ln, err := listen(cfg.UIPort)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	d, err := daemon.New(daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open})
+	if err != nil {
+		ln.Close()
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
 	go terminalPrompts(ctx, d.Prompts, stdin, stderr)
 	go func() {
 		select {
@@ -54,13 +97,95 @@ func cmdDaemon(stdin io.Reader, stdout, stderr io.Writer) int {
 			return
 		}
 		st := d.State()
-		fmt.Fprintf(stdout, "%s running as %s, folder %s\nlocal API http://%s\n", name.Product, st.Email, st.Folder, d.APIAddr())
+		fmt.Fprintf(stdout, "%s running as %s, folder %s\nUI: %s\n", name.Product, st.Email, st.Folder, d.URL())
 		if st.Notice != "" {
 			fmt.Fprintln(stdout, "NOTICE: "+st.Notice)
 		}
+		open(d.URL())
 	}()
 	if err := d.Run(ctx); err != nil {
 		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	return exitOK
+}
+
+func listen(port int) (net.Listener, error) {
+	if port == 0 {
+		port = config.DefaultUIPort
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on %s: %w (is %s already running? `%s open` opens its UI)", addr, err, name.Product, name.Binary)
+	}
+	return ln, nil
+}
+
+// runSetup serves the setup form until it is saved; it returns nil when ctx
+// ends first.
+func runSetup(ctx context.Context, token string, open func(string), stdout, stderr io.Writer) (*config.Config, error) {
+	ln, err := listen(config.DefaultUIPort)
+	if err != nil {
+		return nil, err
+	}
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	done := make(chan *config.Config, 1)
+	srv := &http.Server{Handler: daemon.SetupHandler(token, func() string { return port }, done), ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	url := "http://127.0.0.1:" + port + "/?token=" + token
+	fmt.Fprintf(stdout, "%s is not set up yet. Finish setup in the browser: %s\n(or run `%s setup --email ... --rendezvous ... --folder ...`)\n", name.Product, url, name.Binary)
+	open(url)
+	var cfg *config.Config
+	select {
+	case cfg = <-done:
+		time.Sleep(200 * time.Millisecond) // let the response reach the browser
+	case <-ctx.Done():
+	}
+	sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(sctx)
+	return cfg, nil
+}
+
+// openBrowser opens url in the default browser.
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
+}
+
+// cmdOpen opens the running daemon's UI.
+func cmdOpen(args []string, stdout, stderr io.Writer) int {
+	dir, err := config.Dir()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, daemon.DaemonFile))
+	if err != nil {
+		fmt.Fprintln(stderr, daemon.ErrNotRunning)
+		return exitProblems
+	}
+	var e daemon.Endpoint
+	if err := json.Unmarshal(raw, &e); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	url := "http://" + e.Addr + "/?token=" + e.Token
+	if len(args) > 0 && args[0] == "--print" {
+		fmt.Fprintln(stdout, url)
+		return exitOK
+	}
+	if err := openBrowser(url); err != nil {
+		fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
 		return exitProblems
 	}
 	return exitOK

@@ -158,7 +158,7 @@ The spec gives no acceptance criteria. Proposed: every section and entry from th
 
 - ~~**Q1** Is A4 acceptable?~~ Yes (spec v0.3 §6.4).
 - ~~**Q2** Sign handoff entries in v1?~~ Yes: optional seventh header field `sig:`, verified against pinned keys (spec v0.3 §6.5, §7.2, §7.6).
-- **Q3** Responder side with no UI open: open the browser automatically, show an OS notification, or reject with `declined` after the timeout?
+- **Q3** Responder side with no UI open: open the browser automatically, show an OS notification, or reject with `declined` after the timeout? *M3 answer for now:* the prompt is asked in the terminal, and the browser is opened (A8) at most once a minute. Revisit after use.
 - **Q4** Move Canvas review (M6) after Trace (M7)? The trace view has mockups and a clearer purpose; the canvas view repeats the linear view's data.
 - **Q5** Do the mockups' "Review log" tab and its view belong in v1?
 
@@ -204,6 +204,25 @@ Choices made while implementing that the spec does not spell out:
 - **`setup` takes `--ui-port`**, needed to run two daemons on one machine. **`relay_only`** is a hidden config key for testing on restricted networks; it replaces the spike's `--relay-only`.
 
 Still open: the real UDP-blocked network run and TURN over TLS (from M1). `kalka setup` is a CLI command for now; the setup form comes with the UI in M3.
+
+## 6d. M3 status
+
+Done 2026-11-12. `kalka` with no arguments starts the daemon and opens the UI. With no config, it first serves a setup form on port 7717. The web UI (`web/`: React 19, Vite, TypeScript, markdown-it) has these views: Setup, Blueprints, Review (linear), Peers, sync and handoff dialogs, live prompts, and toasts. Tested by hand in Chrome across two daemons over the public PeerJS cloud: setup, first send with the same code on both sides, accepting a new blueprint, commenting on a selection with a quote, sync back, Peers, the hostile `import.md`, and the page after a daemon restart.
+
+Choices made while implementing that the spec does not spell out:
+
+- **Token handling**: each daemon start makes a new token. `/?token=` sets an HttpOnly, SameSite=Strict cookie and redirects to `/`, so the token leaves the URL and the history. After a restart the old page shows "Open kalka from its link". `kalka open [--print]` reopens the UI from `daemon.json`.
+- **Static files need no token. The API always does.** Pages accept only GET or HEAD. Every response carries the CSP (`default-src 'none'; script-src 'self'; …; frame-ancestors 'none'`), so there is no inline script and no inline style.
+- **Document model** (`GET /api/doc`): the body is split into sections at top-level headings. Headings inside blockquotes or lists do not start a section. Each section carries its Markdown. Entries carry their state: outdated, orphaned, damaged, and verified or unverified handoff. A handoff chain counts as verified when each link has a valid signature and its author was the owner at that point; the first author is taken as the original owner.
+- **`POST /api/entries`** and `kalka comment` share `blueprint.Append`. It validates the anchor and the reply target, puts a quote in a leading `> ` block, and refuses `handoff`; handoffs go through sync.
+- **`owner:` edited by hand** is detected by the store: the owner changed in an external edit with no new handoff entry. It shows as a banner until kalka next writes the file.
+- **Live updates** use SSE (`/api/events`), with these events: `folder`, `status`, `peers`, `prompt`, `prompt-closed`, `sync`. When a prompt arrives and no UI is connected, the daemon opens the browser (A8), at most once a minute.
+- **Rendering untrusted Markdown**: raw HTML is escaped. Only `http`, `https` and `#` links are kept, and external links open in a new tab with `noopener noreferrer`. Images become links, since the CSP blocks remote images and they could track readers.
+- **Fonts**: system font stacks, no embedded fonts.
+- **Canvas and Trace tabs** are shown disabled until M6 and M7. The mockups' Review log tab is left out (Q5).
+- **Build**: `make` runs `npm ci && npm run build` into `internal/ui/dist`, which is embedded. The build output is not committed. A binary built without it serves a "UI not built" page.
+
+Still open: Q3 (revisit), Q4, Q5; the M1 network items.
 
 ## 7. Sequencing and rough size
 

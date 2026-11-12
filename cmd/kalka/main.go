@@ -38,8 +38,8 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {
-	if len(args) == 0 {
-		return cmdDaemon(stdin, stdout, stderr)
+	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && args[0] != "-h" && args[0] != "--help") {
+		return cmdDaemon(args, stdin, stdout, stderr)
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
@@ -49,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdComment(rest, stdin, stdout, stderr, now)
 	case "version":
 		return cmdVersion(rest, stdout, stderr)
+	case "open":
+		return cmdOpen(rest, stdout, stderr)
 	case "setup":
 		return cmdSetup(rest, stdout, stderr)
 	case "send", "handoff":
@@ -71,7 +73,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
-  %[1]s                       run the daemon (prompts for incoming syncs are asked here)
+  %[1]s [--no-open]           run the daemon and open the UI (prompts for incoming syncs are asked here too)
+  %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
   %[1]s send <file> <email> [--json]
   %[1]s handoff <file> <email> [--json]
@@ -217,10 +220,6 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 		}
 		text = string(b)
 	}
-	if *re != "" {
-		text = "re: " + *re + "\n" + text
-	}
-
 	path := files[0]
 	// Re-read and redo if the file changes while we write (spec 14).
 	for attempt := 0; ; attempt++ {
@@ -234,31 +233,12 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 			fmt.Fprintf(stderr, "comment: %s: %v\n", path, err)
 			return exitProblems
 		}
-		if *anchor != "" {
-			slug, _, _ := strings.Cut(*anchor, "#")
-			if !d.HasSection(slug) {
-				fmt.Fprintf(stderr, "comment: no heading with slug %q; headings are: %s\n", slug, slugList(d))
-				return exitProblems
-			}
-		}
-		if *re != "" && !hasEntry(d, *re) {
-			fmt.Fprintf(stderr, "comment: no entry with id %q\n", *re)
-			return exitProblems
-		}
-		e, err := bp.NewEntry(*kind, cfg.Email, now(), *anchor, d.Rev(), text)
+		e, err := bp.Append(d, *kind, cfg.Email, now(), *anchor, *re, "", text)
 		if err != nil {
-			fmt.Fprintln(stderr, "comment:", err)
-			return exitProblems
-		}
-		if err := d.AddEntry(e); err != nil {
 			fmt.Fprintf(stderr, "comment: %s: %v\n", path, err)
 			return exitProblems
 		}
 		out := d.Bytes()
-		if len(out) > bp.MaxFile {
-			fmt.Fprintf(stderr, "comment: %s would exceed %d bytes\n", path, bp.MaxFile)
-			return exitProblems
-		}
 		err = fsutil.WriteAtomic(path, out, raw)
 		if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
 			continue
@@ -276,25 +256,6 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 	}
 }
 
-func slugList(d *bp.Document) string {
-	var s []string
-	for _, h := range d.Headings() {
-		s = append(s, h.Slug)
-	}
-	if len(s) == 0 {
-		return "(none)"
-	}
-	return strings.Join(s, ", ")
-}
-
-func hasEntry(d *bp.Document, id string) bool {
-	for _, it := range d.Items() {
-		if it.Entry.ID == id {
-			return true
-		}
-	}
-	return false
-}
 
 func cmdVersion(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)

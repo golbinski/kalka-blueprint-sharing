@@ -177,11 +177,11 @@ func TestDiverged(t *testing.T) {
 
 func TestConfirmWithKeepalives(t *testing.T) {
 	old := [3]time.Duration{Silence, KeepaliveEvery, PromptTimeout}
-	Silence, KeepaliveEvery = 150*time.Millisecond, 30*time.Millisecond
+	Silence, KeepaliveEvery = 400*time.Millisecond, 40*time.Millisecond
 	defer func() { Silence, KeepaliveEvery, PromptTimeout = old[0], old[1], old[2] }()
 
 	a, b := pipes()
-	slow := func(context.Context, Prompt) (bool, error) { time.Sleep(500 * time.Millisecond); return true, nil }
+	slow := func(context.Context, Prompt) (bool, error) { time.Sleep(time.Second); return true, nil }
 	marked := 0
 	errs := make(chan error, 1)
 	go func() {

@@ -66,6 +66,8 @@ type Heading struct {
 	Text  string `json:"text"`
 	Slug  string `json:"slug"`
 	Line  int    `json:"line"` // 1-based
+	// Nested is true for a heading inside a block quote or list item.
+	Nested bool `json:"nested,omitempty"`
 }
 
 // Item is one entry of the review log with the unparsed content that
@@ -90,6 +92,8 @@ type Document struct {
 	headings []Heading
 	problems []Problem
 	modified bool
+	preLine  int // 1-based file line of pre[0]
+	tailLine int // 1-based file line of tail[0]
 }
 
 var (
@@ -120,6 +124,7 @@ func Parse(data []byte) (*Document, error) {
 		d.fm = &Frontmatter{Lines: fmLines}
 	}
 	base := len(fmLines) // index of rest[0] among all lines
+	d.preLine = base + 1
 
 	lf, starts := lfText(rest)
 	root := goldmark.DefaultParser().Parse(text.NewReader([]byte(lf)))
@@ -160,6 +165,7 @@ func Parse(data []byte) (*Document, error) {
 		}
 		d.pre = rest[:logStart]
 		d.tail = rest[logEnd:]
+		d.tailLine = base + logEnd + 1
 		d.parseLog(rest[logStart+1:logEnd], base+logStart+1)
 	} else {
 		d.pre = rest
@@ -178,7 +184,7 @@ func Parse(data []byte) (*Document, error) {
 			return ast.WalkStop, nil
 		}
 		t := strings.TrimSpace(inlineText(h, []byte(lf)))
-		d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + ln + 1})
+		d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + ln + 1, Nested: h.Parent() != root})
 		return ast.WalkSkipChildren, nil
 	})
 	if len(d.tail) > 0 {
@@ -191,7 +197,7 @@ func Parse(data []byte) (*Document, error) {
 			}
 			ln := sort.Search(len(tstarts), func(i int) bool { return tstarts[i] > h.Pos() }) - 1
 			t := strings.TrimSpace(inlineText(h, []byte(tlf)))
-			d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + logEnd + ln + 1})
+			d.headings = append(d.headings, Heading{Level: h.Level, Text: t, Slug: sl.Slug(t), Line: base + logEnd + ln + 1, Nested: h.Parent() != troot})
 			return ast.WalkSkipChildren, nil
 		})
 	}

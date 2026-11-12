@@ -57,7 +57,12 @@ type Info struct {
 	ParseError string    `json:"parse_error,omitempty"`
 	Duplicate  bool      `json:"duplicate,omitempty"`
 	Modified   time.Time `json:"modified"`
-	hash       [32]byte
+	// OwnerEdited means owner: changed in an edit outside kalka with no new
+	// handoff entry, so it is a manual change without the protection of a
+	// handoff (spec 7.4). It clears on kalka's next write.
+	OwnerEdited bool `json:"owner_edited,omitempty"`
+	hash        [32]byte
+	handoffs    int
 }
 
 // Event reports a change in the folder.
@@ -174,6 +179,9 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		for _, it := range d.Items() {
 			if it.Entry != nil {
 				info.Entries++
+				if it.Entry.Kind == bp.KindHandoff {
+					info.handoffs++
+				}
 			}
 		}
 		for _, pr := range d.Problems() {
@@ -182,8 +190,24 @@ func (s *Store) refresh(p string) (changed, external bool) {
 			}
 		}
 	}
+	external = !(wasOwn && own == h)
+	if external && old != nil && old.KalkaID != "" && old.KalkaID == info.KalkaID {
+		edited := !bp.SameEmail(old.Owner, info.Owner) && info.handoffs <= old.handoffs
+		info.OwnerEdited = edited || (old.OwnerEdited && bp.SameEmail(old.Owner, info.Owner))
+	}
 	s.index[p] = info
-	return true, !(wasOwn && own == h)
+	return true, external
+}
+
+// Info returns the index entry for an absolute path.
+func (s *Store) Info(path string) (Info, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, ok := s.index[path]
+	if !ok {
+		return Info{}, false
+	}
+	return *i, true
 }
 
 // List returns the indexed files sorted by relative path, with duplicates

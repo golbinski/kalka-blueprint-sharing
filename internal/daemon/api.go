@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
@@ -62,44 +60,13 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sync", d.apiSync)
 	mux.HandleFunc("GET /api/prompts", d.apiPrompts)
 	mux.HandleFunc("POST /api/prompts/{id}", d.apiAnswer)
-	return d.guard(mux)
-}
-
-// guard enforces spec 13: a Host naming this loopback listener (defeats
-// DNS rebinding), the token as bearer or cookie, and for browser requests
-// that change state an Origin of this listener.
-func (d *Daemon) guard(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !d.allowedHost(r.Host) {
-			http.Error(w, "forbidden host", http.StatusForbidden)
-			return
-		}
-		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		switch {
-		case bearer != "" && bearer != r.Header.Get("Authorization") && d.tokenOK(bearer):
-			// CLI: no cookie, so no cross-site request can carry this.
-		case d.cookieOK(r):
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && !d.allowedOrigin(r.Header.Get("Origin")) {
-				http.Error(w, "forbidden origin", http.StatusForbidden)
-				return
-			}
-		default:
-			http.Error(w, "missing or wrong token", http.StatusForbidden)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		next.ServeHTTP(w, r)
+	mux.HandleFunc("GET /api/doc", d.apiDoc)
+	mux.HandleFunc("POST /api/entries", d.apiEntry)
+	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.bus, w, r) })
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
+		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
-}
-
-func (d *Daemon) tokenOK(t string) bool {
-	return subtle.ConstantTimeCompare([]byte(t), []byte(d.token)) == 1
-}
-
-func (d *Daemon) cookieOK(r *http.Request) bool {
-	c, err := r.Cookie(CookieName)
-	return err == nil && d.tokenOK(c.Value)
+	return gate{token: d.token, port: d.port}.wrap(mux)
 }
 
 func (d *Daemon) port() string {
@@ -107,18 +74,7 @@ func (d *Daemon) port() string {
 	return p
 }
 
-func (d *Daemon) allowedHost(host string) bool {
-	h, p, err := net.SplitHostPort(host)
-	if err != nil || p != d.port() {
-		return false
-	}
-	return h == "127.0.0.1" || h == "localhost"
-}
-
-func (d *Daemon) allowedOrigin(origin string) bool {
-	o, ok := strings.CutPrefix(origin, "http://")
-	return ok && d.allowedHost(o)
-}
+func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -346,4 +302,27 @@ func (d *Daemon) apiAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"answered": true})
+}
+
+func (d *Daemon) apiDoc(w http.ResponseWriter, r *http.Request) {
+	v, err := d.Document(r.URL.Query().Get("path"))
+	if err != nil {
+		fail(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (d *Daemon) apiEntry(w http.ResponseWriter, r *http.Request) {
+	var req EntryRequest
+	if err := readBody(r, &req); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	e, err := d.AddEntry(req)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": e.ID, "anchor": e.Anchor, "kind": e.Kind})
 }

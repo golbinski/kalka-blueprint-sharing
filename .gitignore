@@ -3,3 +3,5 @@
 /dist/
 /web/node_modules/
 /web/dist/
+/internal/ui/dist/*
+!/internal/ui/dist/.gitkeep
