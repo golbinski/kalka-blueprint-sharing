@@ -139,12 +139,12 @@ nodes:
 		// the middle lane can be both implementation-only and unrealized.
 		{"three lanes", `lanes: [business, service, code]
 nodes:
-  - {id: B1, lane: business, text: Take orders, next: [B2]}
-  - {id: B2, lane: business, text: Ship}
-  - {id: S1, lane: service, text: Order API, realizes: [B1], next: [S2]}
-  - {id: S2, lane: service, text: Fraud check}
+  - {id: B1, lane: business, text: Accept parcels, next: [B2]}
+  - {id: B2, lane: business, text: Deliver}
+  - {id: S1, lane: service, text: Parcel intake API, realizes: [B1], next: [S2]}
+  - {id: S2, lane: service, text: Address validation}
   - {id: C1, lane: code, text: handler, realizes: [S1], next: [C2]}
-  - {id: C2, lane: code, text: shipping job, realizes: [B2]}
+  - {id: C2, lane: code, text: delivery job, realizes: [B2]}
 `, []string{"implementation-only:S2", "unrealized:S2"}},
 		// A labelled branch: the two arms do not order each other, so their
 		// realizers may come in any order.

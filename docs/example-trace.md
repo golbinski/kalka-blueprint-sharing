@@ -45,7 +45,7 @@ nodes:
   - {id: S2, lane: service, text: Dead-letter queue, realizes: [R2]}
   - {id: K1, lane: code, text: Exponential backoff worker, realizes: [S1], ref: "gh:src/retry/worker.py#L1-L80", next: [K2]}
   - {id: K2, lane: code, text: Alert on DLQ depth, realizes: [S2, R2], next: [K3]}
-  - {id: K3, lane: code, text: Purge after 7 days, why: storage costs}
+  - {id: K3, lane: code, text: Purge after 7 days, why: storage quota}
 ```
 
 ## Sketch

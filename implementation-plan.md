@@ -341,6 +341,28 @@ Done 2026-11-13. The user guide is `docs/install.md`.
 - **Release** (`tools/release`, `make release VERSION=x.y.z`): archives for windows/amd64 and arm64, darwin/arm64 and amd64, linux/amd64 and arm64, plus `SHA256SUMS`. They are reproducible: `-trimpath`, no build id or VCS stamp, and entries sorted with the commit time and fixed owners. Two runs gave identical checksums. `kalka-plugin-gh` now takes its version from the build as well.
 - **CI** (`.github/workflows/ci.yml`) runs web tests, vet and `go test -race` on Linux, Windows and macOS, and publishes a GitHub release on a `v*` tag. It has not run yet: the repository has no remote.
 
+## 6i. R0 status: spec v0.4
+
+Done 2026-11-13. The second feature request (teams, roles, replication, domains, seeds, blueprint reference) was triaged in `docs/plan-teams-replication.md`, which replaces `docs/plan-domains-seeds-reference.md`. The product owner accepted the defaults to all eight questions.
+
+`specification.md` is now v0.4:
+
+- New sections were appended so that existing numbers, cited throughout the code, stay valid: §19 Teams and roles, §20 Team replication, §21 Threat model. Inside §6 there are new subsections: §6.11 Seeds, §6.12 Domain documents, §6.13 Blueprint reference and hints.
+- Amended:
+  - §1 non-goals, and §2 with two new principles (content never blocks; brainless).
+  - §3 glossary, §5 config files.
+  - §6.2: the table of frontmatter keys kalka reads and writes.
+  - §6.5: v2 signatures on every entry; `release` and `budded` kinds.
+  - §7.2 (the verified copy wins in the union) and §7.6, rewritten.
+  - §8 (team keys, invites), §9.2 (email ID and key ID), §9.3, §9.5 (`caps`, `invite`, the `team_*` messages), §9.6 (key-ID proof), §9.7.
+  - §11.1 views, §12 CLI, §14 files.
+  - §16: acceptance criteria for M6 and R1–R8, and scenarios 11–15.
+  - §17 items 17–19.
+  - §18, now open questions plus a table of fifteen decisions.
+- The four financial examples (`internal/blueprint/trace_test.go`, `docs/example-trace.md`) were replaced with parcel logistics.
+
+Order from here: R1 reference and hints, R2 team log library, R3 signed entries and releases, R4 seeds, M6 Canvas, R5 key IDs, R6 teams and invites, R7 replication, R8 domains (about 18 weeks).
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |
