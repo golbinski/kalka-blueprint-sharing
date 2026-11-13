@@ -386,6 +386,32 @@ Order from here: R1 reference and hints, R2 team log library, R3 signed entries 
 - Tests: every required and added case of the plan, as scenario tests (`replay_test.go`); decoder fuzzing (`FuzzDecode`); invite tokens: expired, tampered, wrong team, relayed proof.
 - The harness (`sim_test.go`) plays random honest, back-dated, ground and pointless operations, with partial gossip. It checks the invariants on every replica and on the union, and checks that the roster and owner order do not depend on the visiting order. The R2 exit run: 100 000 histories, 2.37 million operations, no failure, in 13 minutes on 4 cores. The harness found two problems while the rules were being settled: concurrent grants made the owner order depend on visiting order, and the greedy decision alone could leave no owner. Both are fixed. `go test` runs 400 histories; `KALKA_SIM_N` sets more.
 
+## 6l. R3 status: signed entries, releases and tombstones
+
+- **Entries.** `Entry.Digest`, `Sign`, and `Verify(kalkaID, key, allowV1)` returning unsigned / invalid / v1 / v2 (`internal/blueprint/entry.go`). `VerifySig` keeps the private-document rule: v2, or v1 on handoffs. New handoffs are signed with v2, so a v0.3 peer shows them as unverified (D3).
+- **Who signs.** `blueprint.Append` takes a signer. The daemon signs everything it writes, and so does `kalka comment`, which loads `identity.key` from the config directory. A file without a `kalka_id` cannot be signed.
+- **Releases.** Release entries (`release.go`): `Entry.Release()`, `NewRelease`, `Document.PlanHash`, `Team`, `Deleted`. The release body names the plan's owner, so ownership follows the chain. Spec §20.4 now says so.
+- **Merge.** The classic merge keeps the copy of an entry whose signature verifies against the pinned key. `merge.MergeTeam`/`DocsTeam` apply §20.4 for documents with `team:` through the `merge.Team` interface (keys ever bound, plus the override from reassignment or domain assignment):
+  - the release chain;
+  - plan selection by the head, with unreleased local edits kept and a void local release replaced;
+  - incoming entries filtered to team keys, with local ones kept;
+  - tombstone stubs that keep only releases;
+  - new documents only with a valid release.
+  Nothing calls `MergeTeam` yet; replication (R7) will.
+- **Rule change.** Two different releases of one version freeze the document ("ownership disputed") instead of picking the lower id. Otherwise any member could hijack a document with a forged version 1 and a searched-for id. A reassignment with `after: 0` settles a dispute.
+- **CLI and UI.** `kalka check` reports signature counts (verified / unchecked / invalid / unsigned) in JSON and with `--verbose`, using the installation's own key and pinned peers when a config exists. The UI shows "unsigned" and "signature invalid" badges and renders release entries in words. The "by a removed member" badge needs the team log locally and comes with R6/R7.
+- **Tests.** v2 sign and verify, moved signature, v1 only where allowed, release round trip, plan hash independent of log and line endings. At merge level:
+  - relay of a release taken, relay of an unreleased edit refused;
+  - a non-owner's release void;
+  - ownership following releases;
+  - reassignment cut-off, and a discarded reassignment restoring the old owner's release;
+  - a tombstone beating a stale copy both ways and keeping only releases;
+  - the entry filter and restored signatures (team and private);
+  - new documents needing a release;
+  - a forged version 1 freezing the document until a reassignment settles it;
+  - a property test over random histories: idempotent, direction-independent plan and entries, version never down.
+  The existing scenarios and golden files pass unchanged.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

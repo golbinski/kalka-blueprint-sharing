@@ -34,24 +34,24 @@ func TestSections(t *testing.T) {
 func TestAppend(t *testing.T) {
 	d, _ := Parse([]byte("# T\n\n## Plan\nP\n"))
 	at := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
-	if _, err := Append(d, KindComment, "a@b.co", at, "nope", "", "", "x"); err == nil {
+	if _, err := Append(d, KindComment, "a@b.co", at, "nope", "", "", "x", nil); err == nil {
 		t.Fatal("unknown anchor accepted")
 	}
-	if _, err := Append(d, KindHandoff, "a@b.co", at, "", "", "", "x"); err == nil {
+	if _, err := Append(d, KindHandoff, "a@b.co", at, "", "", "", "x", nil); err == nil {
 		t.Fatal("handoff accepted")
 	}
-	e1, err := Append(d, KindComment, "a@b.co", at, "§plan", "", "P\nand more", "Why?")
+	e1, err := Append(d, KindComment, "a@b.co", at, "§plan", "", "P\nand more", "Why?", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if e1.Quote() != "P\nand more" || e1.Anchor != "plan" {
 		t.Fatalf("quote %q anchor %q", e1.Quote(), e1.Anchor)
 	}
-	e2, err := Append(d, KindDeviation, "b@b.co", at.Add(time.Second), "plan", e1.ID, "", "Because")
+	e2, err := Append(d, KindDeviation, "b@b.co", at.Add(time.Second), "plan", e1.ID, "", "Because", nil)
 	if err != nil || e2.ReplyTo() != e1.ID {
 		t.Fatal(e2, err)
 	}
-	if _, err := Append(d, KindComment, "a@b.co", at, "", "000000000000", "", "x"); err == nil {
+	if _, err := Append(d, KindComment, "a@b.co", at, "", "000000000000", "", "x", nil); err == nil {
 		t.Fatal("unknown reply target accepted")
 	}
 	r, err := Parse(d.Bytes())

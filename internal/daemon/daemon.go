@@ -601,7 +601,7 @@ func (d *Daemon) candidate(f *store.File, to string) (*bp.Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	e, err := bp.NewHandoff(doc.KalkaID(), d.self.Email, to, d.now(), doc.Rev(), func(m []byte) []byte { return ed25519.Sign(d.self.Key, m) })
+	e, err := bp.NewHandoff(doc.KalkaID(), d.self.Email, to, d.now(), doc.Rev(), d.signer())
 	if err != nil {
 		return nil, err
 	}
@@ -761,4 +761,10 @@ func (d *Daemon) State() Status {
 		s.Notice = CloudNotice
 	}
 	return s
+}
+
+// signer signs with the local identity key: every entry this kalka writes
+// carries a v2 signature (spec 6.5).
+func (d *Daemon) signer() bp.Signer {
+	return func(m []byte) []byte { return ed25519.Sign(d.self.Key, m) }
 }

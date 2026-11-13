@@ -111,3 +111,33 @@ func TestSetupWritesConfig(t *testing.T) {
 		t.Fatalf("peers without daemon: %d %q", code, errb.String())
 	}
 }
+
+// `kalka comment` signs with the identity key (spec 6.5), and `kalka
+// check` counts the signature as verified with that key.
+func TestCommentSigns(t *testing.T) {
+	path := setup(t, "---\nkalka_id: 6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40\nowner: bob@corp.com\n---\n# Locker pickup\n\n## Plan\nAdd a pickup code.\n")
+	if code, _, errs := call("", "comment", path, "--anchor", "plan", "-m", "Codes expire after 48 hours."); code != 0 {
+		t.Fatalf("comment: %d %s", code, errs)
+	}
+	raw, _ := os.ReadFile(path)
+	d, _ := bp.Parse(raw)
+	if e := d.Items()[0].Entry; e.Sig == "" {
+		t.Fatalf("unsigned:\n%s", raw)
+	}
+	// A hand-written entry next to it is unsigned.
+	e, _ := bp.NewEntry(bp.KindComment, "bob@corp.com", time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC), "plan", d.Rev(), "Typed by hand.")
+	d.AddEntry(e)
+	os.WriteFile(path, d.Bytes(), 0o644)
+
+	code, out, _ := call("", "check", path, "--json")
+	var res []checkResult
+	if err := json.Unmarshal([]byte(strings.ReplaceAll(out, `"severity": "info"`, `"severity": 0`)), &res); code != 0 || err != nil {
+		t.Fatalf("check: %d %v %s", code, err, out)
+	}
+	if s := res[0].Signatures; s.Verified != 1 || s.Unsigned != 1 || s.Invalid != 0 {
+		t.Fatalf("counts %+v", s)
+	}
+	if code, out, _ := call("", "check", path, "--verbose"); code != 0 || !strings.Contains(out, "signatures: 1 verified") {
+		t.Fatalf("verbose: %s", out)
+	}
+}

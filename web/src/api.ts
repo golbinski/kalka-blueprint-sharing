@@ -57,6 +57,8 @@ export interface Entry {
   outdated?: boolean
   orphaned?: boolean
   valid: boolean
+  /** Signature state (spec 6.5). */
+  sig?: 'unsigned' | 'invalid' | 'unknown' | 'verified'
   handoff?: 'verified' | 'unverified'
   handoff_target?: string
   handoff_note?: string

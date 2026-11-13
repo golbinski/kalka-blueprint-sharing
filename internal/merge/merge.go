@@ -84,7 +84,14 @@ func Docs(local, in *bp.Document, sender string, keys Keys) Result {
 	}
 
 	var res Result
-	union := entryUnion(local, in)
+	// Of two copies of one entry, the one whose signature verifies against
+	// the author's pinned key wins, so a relay cannot strip a signature.
+	verified := func(e *bp.Entry) bool {
+		pub, ok := keys(e.Author)
+		return ok && e.Verify(in.KalkaID(), pub, true) >= bp.SigV1
+	}
+	all := func(*bp.Entry, bool) bool { return true }
+	union := unionWith(local, in, all, verified)
 	switch {
 	case local.Plan() == in.Plan():
 		// Rule 3: same plan.
@@ -111,7 +118,7 @@ func Docs(local, in *bp.Document, sender string, keys Keys) Result {
 	if res.PlanFromIncoming {
 		plan, other = in, local
 	}
-	lead, items, notes := assemble(plan, other, local)
+	lead, items, notes := assembleWith(plan, other, local, all, verified)
 	res.Notes = append(res.Notes, notes...)
 
 	doc, err := bp.Compose(plan, local.EOL(), lead, items)
@@ -151,13 +158,18 @@ func malformed(d *bp.Document) string {
 	return ""
 }
 
-// entryUnion returns all valid entries of both documents, de-duplicated by
-// id, in canonical order.
-func entryUnion(a, b *bp.Document) []*bp.Entry {
+// unionWith returns the valid entries of local and in that keep accepts,
+// de-duplicated by id, in canonical order. Of two copies of one id the
+// first wins, unless only a later one is verified.
+func unionWith(local, in *bp.Document, keep func(e *bp.Entry, fromLocal bool) bool, verified func(*bp.Entry) bool) []*bp.Entry {
 	seen := map[string]*bp.Entry{}
-	for _, d := range []*bp.Document{a, b} {
+	for _, d := range []*bp.Document{local, in} {
 		for _, it := range d.Items() {
-			if e := it.Entry; e.Valid() && seen[e.ID] == nil {
+			e := it.Entry
+			if !e.Valid() || !keep(e, d == local) {
+				continue
+			}
+			if cur := seen[e.ID]; cur == nil || (!verified(cur) && verified(e)) {
 				seen[e.ID] = e
 			}
 		}
@@ -218,7 +230,7 @@ type slot struct {
 // content comes from the plan side (spec 7.2 step 6). Invalid entries of the
 // local file are kept as unparsed content so nothing typed locally is lost;
 // invalid incoming entries are dropped with a note.
-func assemble(plan, other, local *bp.Document) (lead []string, items []*bp.Item, notes []string) {
+func assembleWith(plan, other, local *bp.Document, keep func(e *bp.Entry, fromLocal bool) bool, verified func(*bp.Entry) bool) (lead []string, items []*bp.Item, notes []string) {
 	slots := map[string]*slot{}
 	var order []*slot
 
@@ -240,11 +252,16 @@ func assemble(plan, other, local *bp.Document) (lead []string, items []*bp.Item,
 				}
 				continue
 			}
+			if !keep(e, d == local) {
+				continue
+			}
 			s := slots[e.ID]
 			if s == nil {
 				s = &slot{e: e}
 				slots[e.ID] = s
 				order = append(order, s)
+			} else if !verified(s.e) && verified(e) {
+				s.e = e
 			}
 			last = s
 			if keepUnparsed {

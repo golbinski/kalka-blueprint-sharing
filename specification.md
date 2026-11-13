@@ -216,7 +216,7 @@ Header line, strict:
   - **v2**, written by `kalka` on every entry it creates, of every kind, in the UI and in `kalka comment`: `"kalka-entry-v2\n" + kalka_id + "\n" + hex(SHA-256 of the id input)`. It covers the full 256-bit digest, so it cannot be moved to another text.
   - **v1**, written by v0.3 on handoff entries only: `"kalka-handoff-v1\n" + kalka_id + "\n" + id`. It covers only the 48-bit `id`, for which a second header and body can be found by brute force. It is still accepted for handoffs on private documents, as the limit it always was, and never for anything in a team (20.4).
 
-  Verification tries v2, then v1 where v1 is allowed. An entry without `sig` is legal and shown as *unsigned*. An entry whose `sig` does not verify against the key `kalka` holds for its author (8.2, 19) is shown as *signature invalid* and has no effect. `kalka` never signs an entry it did not write, except when the user explicitly asks it to sign their own earlier entries; otherwise a teammate could write an entry in my name and my own `kalka` would sign it.
+  Verification tries v2, then v1 where v1 is allowed. A signature covers the `kalka_id`, so entries written in a file that has none yet stay unsigned. An entry without `sig` is legal and shown as *unsigned*. An entry whose `sig` does not verify against the key `kalka` holds for its author (8.2, 19) is shown as *signature invalid* and has no effect. `kalka` never signs an entry it did not write, except when the user explicitly asks it to sign their own earlier entries; otherwise a teammate could write an entry in my name and my own `kalka` would sign it.
 
 Entry body: Markdown up to the next entry header or the end of the log.
 
@@ -959,13 +959,23 @@ Members trust each other through the team log: the keys it binds are verified fo
 
 ```
 ### release · alice@corp.com · 2026-11-20T09:00:00Z · § · rev:<8 hex> · id:<12 hex> · sig:<base64url>
-v7 · plan:<64 hex SHA-256 of the normalized frontmatter and body>
+v7 · plan:<64 hex SHA-256 of the normalized frontmatter and body> · owner:alice@corp.com
 incorporates: 7c2e91ab04f3, a41b77c09e12
 Renamed "consignment" to "parcel"; added the invariant on redelivery attempts.
 ```
 
-- The v2 signature covers the entry's full digest, which includes the version and plan hash.
-- **Rule.** For a published document of a team whose log the local peer holds, the incoming plan (frontmatter and body) replaces the local one when the entry union holds a release that names the incoming plan's hash, has a version higher than the local plan's release, and is signed by the document's effective owner for that version (19.5). The sender does not matter. An incoming plan with no such release is not taken, and its entries are still merged. The version never goes down.
+- The first line is `v<N> · plan:<hash> · owner:<email>`, followed by ` · deleted` for a tombstone (20.6). `owner` is the `owner:` of the released plan: the one who may release the next version. `incorporates` and the note are optional.
+- The v2 signature covers the entry's full digest, which includes the version, the plan hash and the owner.
+- **The release chain.** The valid releases of a document form a chain:
+  - version 1 counts if it is signed by the owner it names (the publisher);
+  - version n+1 counts if it is signed by the owner that version n names;
+  - an effective reassignment (19.5) or domain assignment (19.6) with cut-off `after` makes its new owner the signer of version `after`+1, and voids releases by anyone else from that version on;
+  - every release needs a v2 signature by a key the team log has bound to its author;
+  - nothing above a gap, or above a tombstone, counts.
+
+  This makes the chain the effective owner of 19.5. A handoff of a published document is a release naming the new owner, made by `kalka` when the owner hands off.
+- **Disputed versions.** If one version has two different valid releases, neither counts, and nothing above them does; the document is shown as *ownership disputed*. Choosing one would let the signer of the second win by searching for a lower id. For version 1, that signer could be any member. A team owner settles a dispute by removing the member who caused it and reassigning the document (19.5); with `after: 0` the reassignment names the signer of version 1.
+- **Rule.** For a published document of a team whose log the local peer holds, the incoming plan (frontmatter and body) replaces the local one when the head of the chain names the incoming plan's hash and has a higher version than the local plan's release. The sender does not matter. A local plan that is not released (the owner's unreleased edits) counts as the highest version the local file already held a release of. A local plan whose only release is void (a discarded reassignment) is replaced by the head. An incoming plan that is not the head is not taken, and its entries are still merged. The version never goes down. A new document is accepted only with a valid release of its plan.
 - Domain documents also carry `version:` in frontmatter; blueprints and seeds carry the version only in their releases.
 - **Releases are made on an action, not on save.** *Release* for a domain document, *Publish* and *Publish update* for a blueprint or seed. `kalka`'s own changes to a published document (promotion, handoff, reassignment) release automatically. An owner with unreleased edits sees a banner.
 
@@ -980,7 +990,7 @@ Documents received from members are created in `<folder>/<team>/`, with the sani
 - Only a document's effective owner deletes it for the team: *Delete for the team* or `kalka delete <file>`. This makes a release with the next version, marked as a deletion, whose plan is a **stub**: the frontmatter with `deleted: true` and nothing else.
 - It spreads like any release, and no release above a tombstone is valid. A tombstone beats any older copy, in both directions of a merge.
 - On each peer the file leaves the folder. The stub goes to `<folder>/<team>/.kalka/tombstones/<kalka_id>.md` and the last full copy to `<folder>/<team>/.kalka/trash/`. Replication reads the tombstone directory, so an offer of an older copy is answered with the tombstone.
-- The stub keeps only its tombstone entry. This is the one place where valid entries are dropped (2).
+- The stub keeps only its release entries, the tombstone included, so that every peer can check the chain that leads to it. This is the one place where valid entries are dropped (2).
 - Tombstones are kept forever; each is a few hundred bytes.
 - A plain file deletion is not a tombstone (14).
 

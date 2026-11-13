@@ -75,6 +75,35 @@ export interface Draft {
   quote?: string
 }
 
+const releaseRe = /^v(\d+) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted)?$/
+
+// ReleaseBody renders a release entry (spec 20.4) in words; a body that is
+// not a release is shown as written.
+function ReleaseBody({ body }: { body: string }) {
+  const [first, ...rest] = body.split('\n')
+  const m = releaseRe.exec(first)
+  if (!m) return <Markdown src={body} className="entry-body" />
+  const note = rest.filter((l) => !l.startsWith('incorporates: ')).join('\n').trim()
+  const inc = rest.find((l) => l.startsWith('incorporates: '))
+  return (
+    <div className="entry-body">
+      {m[4] ? (
+        <b>Deleted for the team at version {m[1]}</b>
+      ) : (
+        <>
+          Released <b>version {m[1]}</b>, owner {m[3]}
+        </>
+      )}
+      <span className="mono small muted" title={`plan hash ${m[2]}`}>
+        {' '}
+        · plan {m[2].slice(0, 8)}
+      </span>
+      {inc && <div className="muted small">{inc}</div>}
+      {note && <Markdown src={note} />}
+    </div>
+  )
+}
+
 function Badges({ e }: { e: Entry }) {
   return (
     <>
@@ -91,6 +120,16 @@ function Badges({ e }: { e: Entry }) {
       {!e.valid && (
         <span className="badge warn" title="the entry id does not match its content">
           damaged
+        </span>
+      )}
+      {e.valid && e.sig === 'unsigned' && (
+        <span className="badge" title="no signature: written by hand or by an older kalka. It stays in local files and is not shared with a team.">
+          unsigned
+        </span>
+      )}
+      {e.valid && e.sig === 'invalid' && (
+        <span className="badge warn" title={`the signature does not match the key held for ${e.author}; the entry has no effect`}>
+          signature invalid
         </span>
       )}
       {e.handoff === 'unverified' && (
@@ -119,7 +158,9 @@ export function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Ma
         </time>
         <Badges e={e} />
       </div>
-      {e.kind === 'handoff' ? (
+      {e.kind === 'release' ? (
+        <ReleaseBody body={e.body} />
+      ) : e.kind === 'handoff' ? (
         <div className="entry-body">
           Ownership passed to <b>{e.handoff_target ?? '?'}</b>
           {e.handoff === 'verified' ? <span className="muted"> · signature verified</span> : null}

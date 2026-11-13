@@ -19,6 +19,8 @@ const (
 	KindComment   = "comment"
 	KindDeviation = "deviation"
 	KindHandoff   = "handoff"
+	KindRelease   = "release" // spec 20.4
+	KindBudded    = "budded"  // spec 6.11
 )
 
 // Sep separates header fields: space, U+00B7, space.
@@ -131,10 +133,14 @@ func (e *Entry) Header() string {
 
 // ComputeID returns the content hash the id field must equal (spec 6.5).
 // The anchor is hashed without its § prefix and the author as written.
-func (e *Entry) ComputeID() string {
+func (e *Entry) ComputeID() string { return e.Digest()[:12] }
+
+// Digest is the full SHA-256 of the id input, in hex: what a v2
+// signature covers.
+func (e *Entry) Digest() string {
 	in := strings.Join([]string{e.Kind, e.Author, e.Timestamp, e.Anchor, e.Rev, Normalize(e.Body)}, "\n")
 	sum := sha256.Sum256([]byte(in))
-	return hex.EncodeToString(sum[:])[:12]
+	return hex.EncodeToString(sum[:])
 }
 
 // Valid reports whether the id matches the content.
@@ -198,21 +204,62 @@ func (e *Entry) HandoffTarget() (string, bool) {
 	return m[1], true
 }
 
-// SigMessage is the message a handoff signature covers (spec 6.5).
+// SigMessage is the message a v1 handoff signature covers (spec 6.5).
+// It covers only the 48-bit id; v0.4 writes SigMessageV2 instead.
 func SigMessage(kalkaID, entryID string) []byte {
 	return []byte(name.HandoffSigContext + "\n" + kalkaID + "\n" + entryID)
 }
 
-// VerifySig checks the handoff signature against pub.
-func (e *Entry) VerifySig(kalkaID string, pub ed25519.PublicKey) bool {
-	if e.Sig == "" || len(pub) != ed25519.PublicKeySize {
-		return false
+// SigMessageV2 is the message every entry signature written by v0.4
+// covers (spec 6.5): the full digest of the entry.
+func SigMessageV2(kalkaID, digest string) []byte {
+	return []byte(name.EntrySigContext + "\n" + kalkaID + "\n" + digest)
+}
+
+// SigState is the result of checking an entry's signature.
+type SigState int
+
+const (
+	Unsigned SigState = iota // no sig field
+	SigBad                   // a sig that verifies under no allowed message
+	SigV1                    // a v1 handoff signature (weak; private documents only)
+	SigV2                    // a v2 signature
+)
+
+func (s SigState) String() string {
+	return [...]string{"unsigned", "invalid", "v1", "v2"}[s]
+}
+
+// Verify checks the signature against pub: v2 first, then, if allowV1 and
+// the entry is a handoff, v1. An entry whose id does not match its content
+// never verifies.
+func (e *Entry) Verify(kalkaID string, pub ed25519.PublicKey, allowV1 bool) SigState {
+	if e.Sig == "" {
+		return Unsigned
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(e.Sig)
-	if err != nil {
-		return false
+	if err != nil || len(pub) != ed25519.PublicKeySize || !e.Valid() {
+		return SigBad
 	}
-	return ed25519.Verify(pub, SigMessage(kalkaID, e.ID), sig)
+	if ed25519.Verify(pub, SigMessageV2(kalkaID, e.Digest()), sig) {
+		return SigV2
+	}
+	if allowV1 && e.Kind == KindHandoff && ed25519.Verify(pub, SigMessage(kalkaID, e.ID), sig) {
+		return SigV1
+	}
+	return SigBad
+}
+
+// VerifySig reports whether a handoff's signature verifies against pub
+// under v2 or v1: the rule for private documents (spec 7.2).
+func (e *Entry) VerifySig(kalkaID string, pub ed25519.PublicKey) bool {
+	return e.Verify(kalkaID, pub, true) >= SigV1
+}
+
+// Sign sets a v2 signature. Only entries the local user writes are signed
+// (spec 6.5).
+func (e *Entry) Sign(kalkaID string, sign Signer) {
+	e.Sig = base64.RawURLEncoding.EncodeToString(sign(SigMessageV2(kalkaID, e.Digest())))
 }
 
 // Signer signs a message with the local identity key.
@@ -254,7 +301,7 @@ func NewHandoff(kalkaID, author, target string, at time.Time, rev string, sign S
 	if err != nil {
 		return nil, err
 	}
-	e.Sig = base64.RawURLEncoding.EncodeToString(sign(SigMessage(kalkaID, e.ID)))
+	e.Sign(kalkaID, sign)
 	return e, nil
 }
 

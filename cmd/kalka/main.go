@@ -2,18 +2,21 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/reference"
 )
@@ -127,6 +130,17 @@ type checkResult struct {
 	Entries  int          `json:"entries"`
 	Problems []bp.Problem `json:"problems"`
 	Traces   []traceInfo  `json:"traces,omitempty"`
+	// Signatures counts entry signatures (spec 6.5). Signed entries whose
+	// author has no key here (no config, or not a pinned peer) are
+	// unchecked.
+	Signatures sigCounts `json:"signatures"`
+}
+
+type sigCounts struct {
+	Verified  int `json:"verified"`
+	Unchecked int `json:"unchecked"`
+	Invalid   int `json:"invalid"`
+	Unsigned  int `json:"unsigned"`
 }
 
 // traceInfo summarizes a trace block for agents: where it is, whether it
@@ -158,8 +172,9 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	code := exitOK
 	var results []checkResult
+	keys := localKeys()
 	for _, f := range files {
-		r := checkFile(f)
+		r := checkFile(f, keys)
 		if !r.OK {
 			code = exitProblems
 		}
@@ -195,7 +210,38 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-func checkFile(path string) checkResult {
+// localKeys returns the keys this installation knows, its own and its
+// pinned peers', without creating a config or a key. With no config, no
+// signature can be checked.
+func localKeys() func(string) (ed25519.PublicKey, bool) {
+	none := func(string) (ed25519.PublicKey, bool) { return nil, false }
+	dir, err := config.Dir()
+	if err != nil {
+		return none
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return none
+	}
+	var own ed25519.PublicKey
+	if _, err := os.Stat(filepath.Join(dir, identity.KeyFile)); err == nil {
+		if k, err := identity.LoadOrCreateKey(dir); err == nil {
+			own = k.Public().(ed25519.PublicKey)
+		}
+	}
+	peers, _ := identity.OpenPeers(dir, nil)
+	return func(email string) (ed25519.PublicKey, bool) {
+		if own != nil && bp.SameEmail(email, cfg.Email) {
+			return own, true
+		}
+		if peers == nil {
+			return nil, false
+		}
+		return peers.Key(email)
+	}
+}
+
+func checkFile(path string, keys func(string) (ed25519.PublicKey, bool)) checkResult {
 	r := checkResult{File: path, Problems: []bp.Problem{}}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -213,6 +259,26 @@ func checkFile(path string) checkResult {
 	// Hints (spec 6.13) are information: shown with --verbose, never
 	// counted against OK.
 	r.Problems = append(r.Problems, bp.Hints(d)...)
+	for _, it := range d.Items() {
+		e := it.Entry
+		if !e.Valid() {
+			continue
+		}
+		switch k, ok := keys(e.Author); {
+		case e.Sig == "":
+			r.Signatures.Unsigned++
+		case !ok:
+			r.Signatures.Unchecked++
+		case e.Verify(r.KalkaID, k, e.Kind == bp.KindHandoff) == bp.SigBad:
+			r.Signatures.Invalid++
+		default:
+			r.Signatures.Verified++
+		}
+	}
+	if s := r.Signatures; s != (sigCounts{}) {
+		r.Problems = append(r.Problems, bp.Problem{Severity: bp.Info, Code: "signatures",
+			Message: fmt.Sprintf("signatures: %d verified, %d unchecked (no key here for the author), %d invalid, %d unsigned", s.Verified, s.Unchecked, s.Invalid, s.Unsigned)})
+	}
 	for _, t := range d.Traces() {
 		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Valid: t.Valid(),
 			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors}
@@ -256,6 +322,20 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 		return exitProblems
 	}
 
+	// Entries written here are signed with this installation's identity
+	// key (spec 6.5), as in the UI.
+	dir, err := config.Dir()
+	if err != nil {
+		fmt.Fprintln(stderr, "comment:", err)
+		return exitProblems
+	}
+	key, err := identity.LoadOrCreateKey(dir)
+	if err != nil {
+		fmt.Fprintln(stderr, "comment:", err)
+		return exitProblems
+	}
+	sign := func(m []byte) []byte { return ed25519.Sign(key, m) }
+
 	text := *msg
 	if text == "" {
 		b, err := io.ReadAll(io.LimitReader(stdin, bp.MaxEntryBody+1))
@@ -278,7 +358,7 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 			fmt.Fprintf(stderr, "comment: %s: %v\n", path, err)
 			return exitProblems
 		}
-		e, err := bp.Append(d, *kind, cfg.Email, now(), *anchor, *re, "", text)
+		e, err := bp.Append(d, *kind, cfg.Email, now(), *anchor, *re, "", text, sign)
 		if err != nil {
 			fmt.Fprintf(stderr, "comment: %s: %v\n", path, err)
 			return exitProblems

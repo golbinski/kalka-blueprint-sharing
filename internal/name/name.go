@@ -29,6 +29,10 @@ const (
 	// HandoffSigContext prefixes the message signed in a handoff entry (spec 6.5).
 	HandoffSigContext = Product + "-handoff-v1"
 
+	// EntrySigContext prefixes the message signed in any entry (spec 6.5,
+	// v2): it covers the full digest of the entry, not the 48-bit id.
+	EntrySigContext = Product + "-entry-v2"
+
 	// TeamLogSigContext prefixes the message signed by a team log
 	// operation (spec 19.1).
 	TeamLogSigContext = Product + "-teamlog-v1"

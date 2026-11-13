@@ -230,14 +230,14 @@ func TestTracePlacementAndNodeAnchors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := Append(d, KindComment, "bob@corp.com", time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC), "first#Y", "", "", "Why here?\n\n```trace\nlanes: [a]\n```")
+	e, err := Append(d, KindComment, "bob@corp.com", time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC), "first#Y", "", "", "Why here?\n\n```trace\nlanes: [a]\n```", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Append(d, KindComment, "bob@corp.com", time.Now(), "first#Z", "", "", "x"); !errors.Is(err, ErrNoAnchor) {
+	if _, err := Append(d, KindComment, "bob@corp.com", time.Now(), "first#Z", "", "", "x", nil); !errors.Is(err, ErrNoAnchor) {
 		t.Fatalf("unknown node accepted: %v", err)
 	}
-	if _, err := Append(d, KindComment, "bob@corp.com", time.Now(), "second#X", "", "", "x"); !errors.Is(err, ErrNoAnchor) {
+	if _, err := Append(d, KindComment, "bob@corp.com", time.Now(), "second#X", "", "", "x", nil); !errors.Is(err, ErrNoAnchor) {
 		t.Fatalf("node under the wrong heading accepted: %v", err)
 	}
 	d, _ = d.Reparse()

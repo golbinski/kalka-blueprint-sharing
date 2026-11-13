@@ -66,6 +66,9 @@ type EntryView struct {
 	Outdated bool   `json:"outdated,omitempty"`
 	Orphaned bool   `json:"orphaned,omitempty"`
 	Valid    bool   `json:"valid"`
+	// Sig is "unsigned", "invalid", "unknown" (no key held for the author
+	// yet) or "verified" (spec 6.5).
+	Sig string `json:"sig"`
 	// Handoff is set for handoff entries: "verified" when it is a link of
 	// the ownership chain with a good signature, otherwise "unverified".
 	Handoff       string `json:"handoff,omitempty"`
@@ -147,10 +150,27 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 			Unparsed: strings.TrimSpace(bp.Normalize(strings.Join(it.Trailing, ""))),
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
+		ev.Sig = d.sigState(v.KalkaID, e)
 		v.Entries = append(v.Entries, ev)
 	}
 	d.handoffStates(v.KalkaID, doc, v.Entries)
 	return v, nil
+}
+
+// sigState checks an entry's signature against the key held for its
+// author. Team keys (spec 20.4) take over once the team log is held (R7).
+func (d *Daemon) sigState(kalkaID string, e *bp.Entry) string {
+	if e.Sig == "" {
+		return "unsigned"
+	}
+	key, ok := d.keys(e.Author)
+	if !ok {
+		return "unknown"
+	}
+	if e.Verify(kalkaID, key, e.Kind == bp.KindHandoff) == bp.SigBad {
+		return "invalid"
+	}
+	return "verified"
 }
 
 func displayBody(e *bp.Entry) string {
@@ -246,7 +266,7 @@ func (d *Daemon) AddEntry(req EntryRequest) (*bp.Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		e, err := bp.Append(doc, req.Kind, d.self.Email, d.now(), req.Anchor, req.Re, req.Quote, req.Body)
+		e, err := bp.Append(doc, req.Kind, d.self.Email, d.now(), req.Anchor, req.Re, req.Quote, req.Body, d.signer())
 		if err != nil {
 			return nil, err
 		}
