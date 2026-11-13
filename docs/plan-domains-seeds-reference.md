@@ -1,5 +1,7 @@
 # Plan: team domains, seeds and the blueprint reference
 
+> **Superseded** on 2026-11-13 by `docs/plan-teams-replication.md`, which maps every item of this plan (its section 7).
+
 Triage and implementation plan for the feature request "extend kalka with team domains, seeds, and a blueprint reference". Written 2026-11-13 against `specification.md` v0.3 and the code on `main` (b8e932f). Nothing here is implemented.
 
 `§n` points into `specification.md`. `IP §n` points into `implementation-plan.md`. Code is cited as `path:line`.
