@@ -370,6 +370,22 @@ Order from here: R1 reference and hints, R2 team log library, R3 signed entries 
 - `blueprint.Hints(d)` returns info-level problems with `hint-*` codes, only for documents that opt in. They are never part of `Problems()`. `kalka check` lists them only with `--verbose` and in JSON, and they never change the exit code.
 - The daemon's document view has a separate `hints` field. The Review page shows a quiet strip: each hint can be dismissed, the dismissal is kept in `localStorage` (`kalka.hint-dismissed.<kalka_id>.<code>`), and a "Show dismissed hints" link brings them back. The Blueprints list does not show hints.
 
+## 6k. R2 status: team log library and harness
+
+- New package `internal/teamlog`, with no I/O and no clock:
+  - operations, their canonical encoding, hash, signature and strict decoder (`op.go`);
+  - `Replay` (`replay.go`);
+  - builders, where `Signer.Remove` returns the removal followed by its reassignments (`build.go`);
+  - invite tokens, ids, proofs and `Check` (`invite.go`).
+  - `internal/name` gains `TeamLogSigContext` and `InviteContext`.
+- `docs/teamlog.md` fixes the encoding and the replay rules. Spec §19.1, §19.4, §19.5 and §21 were updated to match:
+  - "dependants fall with their parent" was replaced by support checks, because the old rule let a removed owner poison the log;
+  - seniority is a chain of grants, so nobody can appoint an owner senior to themselves;
+  - self-removal is refused;
+  - `reassign-document` names `from`.
+- Tests: every required and added case of the plan, as scenario tests (`replay_test.go`); decoder fuzzing (`FuzzDecode`); invite tokens: expired, tampered, wrong team, relayed proof.
+- The harness (`sim_test.go`) plays random honest, back-dated, ground and pointless operations, with partial gossip. It checks the invariants on every replica and on the union, and checks that the roster and owner order do not depend on the visiting order. The R2 exit run: 100 000 histories, 2.37 million operations, no failure, in 13 minutes on 4 cores. The harness found two problems while the rules were being settled: concurrent grants made the owner order depend on visiting order, and the greedy decision alone could leave no owner. Both are fixed. `go test` runs 400 histories; `KALKA_SIM_N` sets more.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

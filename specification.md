@@ -862,7 +862,7 @@ A team is a **signed, append-only set of operations**, not an editable document.
   - `prev`: the hashes of the operations it builds on: the heads of the signer's log when it was made. These links make the log a causal graph.
   - `signer`: the signer's public key. `at`: the signer's clock, for display only; it plays no part in replay.
   - `sig`: an ed25519 signature over `"kalka-teamlog-v1\n" + hash`.
-- An operation's hash is SHA-256 over its canonical encoding without `sig`: UTF-8 JSON with keys in lexicographic order, no insignificant whitespace, no floating-point numbers. The exact encoding is fixed with the R2 implementation in `docs/teamlog.md` and is part of rule version 1.
+- An operation's hash is SHA-256 over its canonical encoding without `sig`: UTF-8 JSON with keys in lexicographic order, no insignificant whitespace, no floating-point numbers, `prev` sorted. The exact encoding is fixed in `docs/teamlog.md` and is part of rule version 1. Keys and signatures are base64url without padding.
 - An operation is *known* once a peer holds it and has checked its signature. Operations are exchanged by hash (20.3), never as a whole file.
 
 | Operation | `args` | Who may sign |
@@ -873,7 +873,7 @@ A team is a **signed, append-only set of operations**, not an editable document.
 | `add-owner` | `email` (must be a member) | A team owner |
 | `remove-owner` | `email` | A team owner |
 | `assign-domain` | `domain`, `owner` (email), `after` (version) | A team owner |
-| `reassign-document` | `doc` (`kalka_id`), `owner` (email), `after` (version) | A team owner (19.5) |
+| `reassign-document` | `doc` (`kalka_id`), `from` (the removed owner's email), `owner` (email), `after` (version) | A team owner (19.5) |
 
 ### 19.2 Team identity
 
@@ -889,24 +889,25 @@ The roles answer who may *change* what: the roster, domain releases, ownership. 
 
 ### 19.4 Replay and validity
 
-The state is a pure function of the set of known operations, so every peer holding the same set computes the same state, without coordination. The rules:
+The state is a pure function of the set of known operations, so every peer holding the same set computes the same state, without coordination. `docs/teamlog.md` gives the precise rules and how they are computed; in short:
 
-1. **Causal validity.** An operation is considered only when all operations in its `prev` are known and considered, and its signer held the required role in the state built from its own ancestors.
-2. **Removal wins.** When the removal of X is effective, every operation signed by X that is not an ancestor of that removal is discarded, including operations concurrent with it. Back-dating an operation therefore gains nothing.
-3. **A mutual removal goes to the senior owner.** Removals are evaluated in order of their signers' seniority. A removal is effective if its signer has not already been removed by an effective removal that precedes it or is concurrent with it, and if it leaves at least one owner. Seniority is the position of the operation that made the signer an owner: the creator first, then by causal depth, then by hash. The signer of a removal cannot influence it.
-4. **Dependants fall with their parent.** An operation with a discarded operation in its `prev` is discarded.
-5. **Same subject, different values.** For two operations on one subject (two `assign-domain` for one domain, two `add-member` for one email with different keys), the one later in the replay order wins. The replay order extends the causal order with seniority, and then hash, among concurrent operations. Only here does a hash decide, and nothing of value is gained by searching for one.
-6. **Re-adding.** An `add-member` or `add-owner` after a removal starts a new term; seniority counts from the new operation.
-7. **Invites.** A second `add-member` naming an invite id already used is discarded.
-8. Removing the last owner is invalid, alone or together with concurrent removals.
+1. **Authority in view.** An operation counts only if its signer holds an owner term granted by one of its ancestors and not ended by one. Operations whose predecessors are not all known are pending, not discarded.
+2. **Removal wins.** When the removal of X is effective, every non-removal operation X signed under the ended term that is not an ancestor of the removal is discarded, including operations concurrent with it. Back-dating an operation therefore gains nothing.
+3. **Seniority decides between removals.** Removals are decided in order of their signers' seniority. A removal is blocked if an already accepted removal ended its signer's term without having seen it. An accepted removal stands even if a less senior owner removes its signer concurrently.
+4. **Support, not ancestry.** An operation stands or falls on its own support: the signer's owner term, the target's member term, and the removal a reassignment relies on must be effective and in its view. Having a discarded operation among one's predecessors does not discard an operation. Otherwise a removed owner's back-dated operation, once merged, would void every later honest operation.
+5. **Seniority** is the chain of owner grants from the creator: the creator first; an appointee directly after their appointer, ordered among the appointer's other appointees by causal depth and then hash. Nobody can appoint an owner senior to themselves. With two grants for one owner, the better counts. Re-adding starts a new term, and seniority counts from the new grant.
+6. **Never without an owner.** If the effective removals together would leave no owner, the least senior of them is discarded.
+7. **No self-removal.** An owner cannot remove themselves; another owner removes them.
+8. **Same subject.** An `add-member` for an email that is a member in the signer's view is discarded. Of concurrent `add-member` operations for one email, one key, or one invite id, the first in replay order counts. For `assign-domain` and `reassign-document` on one subject, the last counts. The replay order is causal depth, then hash. These are the only places where a hash decides, and nothing of value is gained by searching for one.
 
-Resulting behaviour: in a mutual removal the senior owner stays; a ring of three removals leaves at least one owner; two concurrent removals of the last two owners keep the senior one; a member added by an owner who is concurrently being removed is not a member.
+Resulting behaviour: in a mutual removal the senior owner stays. In a ring of three, the most senior remover's removal stands, and at least one owner remains. A member added by an owner who is concurrently being removed is not a member. A reassignment falls when the removal it relies on is discarded.
 
 Replay reports the discarded operations with their reasons, and the Team view shows them.
 
 ### 19.5 Removing a member and reassigning documents
 
 - A team owner removes a member with `remove-member`. Together with it, the owner's `kalka` emits one `reassign-document` per published document it holds whose effective owner is the removed member, giving each to the removing owner. These operations name the removal in their `prev`, so if the removal is discarded (19.4), they are discarded with it, and ownership stays where it was.
+- Each `reassign-document` names `from`, the removed owner. Replay accepts it only with an effective `remove-member` of `from` among its ancestors (19.4 rule 4). The document layer checks that `from` is the document's effective owner.
 - `after` names the last released version of the document the removing owner had seen. Releases by the previous owner above that version are void.
 - A team owner may reassign a document only with the removal of its current owner as an ancestor, or when its current owner is not a member (a document the remover had not received at removal time). A team owner cannot take a present member's document; that member hands it off as usual.
 - **Effective owner of version n** of a published document: start from its first owner; signed handoff entries move ownership as in 7.2; an effective `reassign-document` (or, for a domain document, `assign-domain`) moves it for all versions above its `after`. For a published document this chain, log included, is the authority. The `owner:` line is what people read: when the new owner's `kalka` sees an effective reassignment, it rewrites the `owner:` line and makes a release. Until then the UI shows "owner: X, reassigned to Y, pending". A document whose effective owner is not a member shows "owner is no longer a member".
@@ -925,7 +926,7 @@ Replay reports the discarded operations with their reasons, and the Team view sh
 5. The owner's `kalka` approves automatically (the invite is the approval), appends `add-member {email, pubkey, invite}` with the email *from the invite*, marks the invite used, and sends the log on the same connection. The joiner checks that the log starts at the team hash in its token and contains its own `add-member`.
 6. A bad proof, an expired invite, a used invite, or an email other than the one invited ends the connection with a `bye` naming the reason, and the joiner's UI shows it.
 
-Single use holds in two places: the issuing owner's `invites.yaml`, and the replay rule that discards a second `add-member` for the same invite id (19.4 rule 7). Only the issuing installation can redeem an invite, because the joiner dials its key ID.
+Single use holds in two places: the issuing owner's `invites.yaml`, and the replay rule that discards a second `add-member` for the same invite id (19.4 rule 8). Only the issuing installation can redeem an invite, because the joiner dials its key ID.
 
 ---
 
@@ -995,7 +996,7 @@ What the design protects, and what it does not:
 
 - **Roles protect against unauthorized changes, not against reading.** The roster, domain releases and ownership can only be changed by the roles allowed to (19.3), and every peer checks this itself. Reading is not restricted within a team: every member holds a full replica. Replicas cannot be recalled: a removed member keeps everything they already received.
 - **A leaked invite token** lets its holder join until it is used or expires, but only under the email the owner named (19.7), and only once. Short expiry and single use limit the window; an owner who suspects a leak removes the member.
-- **A team owner's key compromises the team.** Its holder can change the roster and reassign documents. The most senior owner's key is the root of the team: an owner can be removed by a more senior one, but a removed owner who is senior to the remover can still counter-remove (19.4). Key rotation is future work (18.1).
+- **A team owner's key compromises the team.** Its holder can change the roster and reassign documents. The most senior owner's key is the root of the team: an owner can be removed by a more senior one, but a removed owner who is senior to the remover can still counter-remove (19.4). Nobody can appoint an owner senior to themselves, so the creator's key outranks every other. Key rotation is future work (18.1).
 - **The rendezvous server is not trusted.** It can refuse service, keep a peer offline by occupying its ID (on servers other than `kalka rendezvous`, 9.2), and see who connects to whom. It cannot read or alter a sync (channel binding, 8.4) or impersonate a member (pinned keys and the team log).
 - **Members can comment in their own name only.** Entries are signed (6.5); a forged entry does not enter the replica (7.6). Entries written outside `kalka` stay unsigned and local.
 - **Private documents stay private.** One function decides what replicates (20.1); a private document never appears in an inventory, and requests for it look like requests for unknown ids.

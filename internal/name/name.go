@@ -28,4 +28,12 @@ const (
 
 	// HandoffSigContext prefixes the message signed in a handoff entry (spec 6.5).
 	HandoffSigContext = Product + "-handoff-v1"
+
+	// TeamLogSigContext prefixes the message signed by a team log
+	// operation (spec 19.1).
+	TeamLogSigContext = Product + "-teamlog-v1"
+
+	// InviteContext prefixes the invite token and the hashes derived from
+	// its secret (spec 19.7).
+	InviteContext = Product + "-invite-v1"
 )
