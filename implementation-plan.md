@@ -261,7 +261,38 @@ Done 2026-11-12, ahead of M4–M6 (Q4). `docs/example-trace.md` is a sample with
   - The main page's CSP gained `frame-src 'self'`.
 - Checked in Chrome: inline and full views of both blocks, a node comment saved and shown on the node, Source, the invalid block, the mermaid sketch, and no CSP violations. `FuzzParse` was seeded with trace blocks and run for 60 s.
 
-Still open: Q5; references resolve only once M4 lands.
+Still open: Q5.
+
+## 6f. M4 status
+
+Done 2026-11-13.
+
+- **Library:** `blueprint.PluginRef` recognizes `scheme:payload` (never http, https, mailto, file, javascript, data, blob or about). `Document.References()` lists the plugin refs in the body and in trace nodes, in order. `Frontmatter.Map()` is the context sent to plugins.
+- **Host** (`internal/plugin`):
+  - It looks for `kalka-plugin-<scheme>` in `<config>/plugins` first, then on PATH.
+  - Each call is one process with no arguments, the JSON request on stdin, a 10 s timeout, and `WaitDelay` 1 s for children such as `gh`.
+  - Stdout is capped at 8 MB, stderr at 64 KB (stderr is logged). Text is capped at 500 chars, a snippet at 64 KB, warnings at 20. A URL that is not http(s) is dropped.
+  - Any failure of the plugin as a whole becomes an error on each of its refs.
+  - The output buffer must not embed `bytes.Buffer`: the promoted `ReadFrom` let `io.Copy` skip the cap (found by a test).
+- **Daemon:**
+  - Resolution runs in the background, one batch per scheme. The page gets "resolving…" at once, and a `refs` SSE event when results arrive, which makes it reload.
+  - Results are cached by frontmatter and ref: 5 min, or 1 min for failures.
+  - A missing plugin is reported at once and not cached, so installing one takes effect on the next look.
+  - `Options.Resolver` became `Options.Plugins`.
+- **`kalka-plugin-gh`** (built and shipped alongside `kalka`):
+  - It calls `gh api` with no shell and prompts disabled. Frontmatter needs `repo`; `base_sha` and `host` (GitHub Enterprise) are optional, and all three are validated before use.
+  - Payload: `path[#La[-Lb]]`. `.`/`..` segments, absolute paths and odd characters are refused.
+  - Round 1, in parallel: the repo (default branch) and the `base_sha` commit. An unknown `base_sha` (an unpushed commit?) or no `base_sha` gives a warning and shows the default branch.
+  - Round 2, in parallel: one compare call for the whole batch, and contents 4 at a time, once per path.
+  - Staleness is per file: "changed on *branch* since *sha* (*branch* is N commits ahead)". A per-file commit count would cost one call per file.
+  - The snippet holds at most 200 lines, or the first 30 when no lines are named. The link is a blob permalink at the commit.
+  - The opt-in live test runs against `cli/cli`.
+- **UI:**
+  - Inline plugin refs render as spans, not links. Their states are ok, stale, pending and error; a ref with no plugin is plain text.
+  - Click or Enter opens a reference card (snippet as text, warnings, "Open source", "Resolved on your machine by …").
+  - Trace nodes use the same box. The trace summary names the plugins that resolved references.
+- **Limits:** a path with spaces cannot be referenced in the body, since CommonMark link destinations and autolinks cannot contain spaces. A trace node's `ref:` has no such limit.
+- Checked in Chrome against `cli/cli`: pending → resolved without reload, README ok, go.mod stale, a missing file, a scheme with no plugin, node detail in the trace view, and no console errors. The check found two UI bugs, now fixed: a CSS class clash that blew up snippet text, and stale refs shown as errors.
 
 ## 7. Sequencing and rough size
 

@@ -69,8 +69,8 @@ type Options struct {
 	// It returns true for "open", false for "later", and must close and
 	// return when ctx ends. An error falls back to OpenUI.
 	Popup func(ctx context.Context, title, message string) (bool, error)
-	// Resolver, if set, resolves references with plugins (M4).
-	Resolver Resolver
+	// Plugins resolves references (spec 10); nil means none installed.
+	Plugins Plugins
 }
 
 // Daemon is one running kalka.
@@ -90,6 +90,7 @@ type Daemon struct {
 	Store   *store.Store
 	Prompts *Hub
 	bus     *Bus
+	refs    *refCache
 
 	token string
 
@@ -162,7 +163,7 @@ func New(opts Options) (*Daemon, error) {
 		pub:    key.Public().(ed25519.PublicKey),
 		peerID: transport.PeerID(cfg.Team, cfg.Email),
 		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
-		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(),
+		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(), refs: newRefCache(opts.Plugins, now),
 		token:     token,
 		presence:  map[string]presence{},
 		addresses: map[string]bool{},
@@ -202,6 +203,7 @@ func (d *Daemon) logf(format string, a ...any) {
 
 // Run serves until ctx ends.
 func (d *Daemon) Run(ctx context.Context) error {
+	d.refs.ctx = ctx // plugin calls end with the daemon
 	ln := d.opts.Listener
 	if ln != nil || d.opts.APIAddr != "-" {
 		addr := d.opts.APIAddr

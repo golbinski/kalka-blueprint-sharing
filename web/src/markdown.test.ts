@@ -63,3 +63,16 @@ describe('renderParts', () => {
     expect(html[2]).toContain('href="https://example.com/t"')
   })
 })
+
+describe('plugin references', () => {
+  it('render as spans keyed by the reference as written, never as links', () => {
+    const html = render('See [parse](gh:src/a.py#L1-L9) and <jira:ABC-12>, [js](javascript:alert(1)), [d](data:text/html,x), [JS](JavaScript:alert(1)).')
+    expect(html).toContain('<span class="ref" data-ref="gh:src/a.py#L1-L9">parse</span>')
+    expect(html).toContain('<span class="ref" data-ref="jira:ABC-12">jira:ABC-12</span>')
+    expect(html).not.toMatch(/href="(javascript|data|JavaScript):/i)
+    expect(html).not.toContain('data-ref="javascript')
+    expect(html).not.toContain('data-ref="data')
+    const quoted = render('[x](gh:a"onmouseover="alert(1))')
+    expect(quoted).not.toMatch(/data-ref="[^"]*"onmouseover/)
+  })
+})

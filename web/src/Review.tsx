@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Doc, type Entry, type Section } from './api'
 import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
+import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
 import { localTime, plural } from './util'
 
@@ -304,7 +305,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
   }
 
   return (
-    <div className="review">
+    <RefLayer doc={doc} className="review">
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
       {doc.sections.map(sectionView)}
       <section className="sec general">
@@ -342,6 +343,6 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
           </aside>
         </section>
       )}
-    </div>
+    </RefLayer>
   )
 }

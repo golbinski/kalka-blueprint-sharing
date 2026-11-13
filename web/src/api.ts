@@ -125,6 +125,8 @@ export interface RefView {
   ref: string
   scheme?: string
   payload?: string
+  plugin?: string
+  pending?: boolean
   ok: boolean
   error?: string
   title?: string
@@ -304,13 +306,13 @@ export const api = {
   },
 }
 
-export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers'
+export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers']
+  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

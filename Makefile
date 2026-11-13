@@ -10,6 +10,7 @@ web:
 
 build:
 	go build -o kalka ./cmd/kalka
+	go build -o kalka-plugin-gh ./cmd/kalka-plugin-gh
 
 test: test-web
 	go test -race ./...
@@ -18,4 +19,4 @@ test-web:
 	cd web && npm test
 
 clean:
-	rm -rf kalka internal/ui/dist/assets internal/ui/dist/index.html
+	rm -rf kalka kalka-plugin-gh internal/ui/dist/assets internal/ui/dist/index.html

@@ -86,6 +86,12 @@ export function App() {
           case 'peers':
             loadPeers()
             break
+          case 'refs': {
+            // Background resolution finished for a blueprint.
+            const p = (data as { path?: string } | undefined)?.path
+            if (p && p === docPathRef.current) loadDoc()
+            break
+          }
           case 'prompt': {
             const p = data as Prompt
             if (!p.scope) {

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Divergence, Doc, Entry, RefView, Trace, TraceNode } from './api'
 import { Composer, EntryCard } from './Review'
-import { allowedLink } from './markdown'
+import { RefBox, RefLayer } from './refs'
 import { CARD_H, CARD_W, layout, type Layout } from './traceLayout'
 import { plural, traceHref } from './util'
 
@@ -25,6 +25,8 @@ export function badgeText(d: Divergence): string {
       return `${d.class} in ${d.lane}`
     case 'stale':
       return d.detail && d.detail.length <= 32 ? d.detail : 'stale'
+    case 'unverified':
+      return d.detail === 'resolving…' ? 'resolving…' : 'unverified'
     default:
       return d.class
   }
@@ -286,7 +288,7 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
   const lastNodes = (t.nodes ?? []).filter((n) => n.lane === last)
   const reasons = new Map<string, string[]>()
   for (const d of unverified) reasons.set(d.detail ?? '', [...(reasons.get(d.detail ?? '') ?? []), d.node])
-  const resolved = Object.values(doc.refs).some((r) => r.ok)
+  const by = [...new Set(Object.values(doc.refs).filter((r) => r.ok && r.plugin).map((r) => r.plugin))]
   return (
     <>
       <div>
@@ -339,9 +341,13 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
       </dl>
       <div className="grow" />
       <div className="muted small">
-        {resolved
-          ? 'References resolved on your machine by your plugins, with your own credentials.'
-          : 'No plugin on this machine resolved the references. They are shown as written.'}
+        {by.length > 0 ? (
+          <>
+            References resolved on your machine by <span className="mono">{by.join(', ')}</span> with your own credentials.
+          </>
+        ) : (
+          'No plugin on this machine resolved the references. They are shown as written.'
+        )}
       </div>
     </>
   )
@@ -349,53 +355,6 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
-function RefBox({ info: r, raw }: { info?: RefView; raw: string }) {
-  if (!r?.ok) {
-    return (
-      <div className="refbox">
-        <div className="refbox-head">
-          <span className="mono">{raw}</span>
-        </div>
-        <div className="refbox-foot">
-          <span className="muted">Not resolved: {r?.error ?? 'no result'}</span>
-        </div>
-      </div>
-    )
-  }
-  const start = r.snippet?.start_line ?? 1
-  const url = r.url && allowedLink(r.url) && !r.url.startsWith('#') ? r.url : ''
-  return (
-    <div className="refbox">
-      <div className="refbox-head">
-        <span className="mono">{r.title || raw}</span>
-      </div>
-      {r.snippet && (
-        <div className="snippet" role="figure" aria-label="Source snippet">
-          {r.snippet.text.replace(/\n$/, '').split('\n').map((line, i) => (
-            <div key={i} className="snippet-line">
-              <span className="ln">{start + i}</span>
-              <span className="code">{line}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {(r.warnings ?? []).map((w, i) => (
-        <div key={i} className="refbox-warn">
-          {w.text}
-        </div>
-      ))}
-      <div className="refbox-foot">
-        <span className="muted">{r.status || (r.warnings?.length ? '' : 'No warnings')}</span>
-        {url && (
-          <a href={url} target="_blank" rel="noopener noreferrer">
-            Open source
-          </a>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: string; onClose: () => void; reload: () => void }) {
@@ -576,13 +535,13 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
         )}
       </div>
       {t.nodes && (
-        <aside className="trace-panel">
+        <RefLayer doc={doc} className="trace-panel">
           {selected && node(t, selected) ? (
             <NodePanel t={t} doc={doc} id={selected} onClose={() => setSelected(undefined)} reload={reload} />
           ) : (
             <Summary t={t} doc={doc} onSelect={setSelected} />
           )}
-        </aside>
+        </RefLayer>
       )}
     </div>
   )

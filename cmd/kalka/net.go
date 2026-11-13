@@ -18,8 +18,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,6 +32,7 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/peerjs"
+	"github.com/golbinski/kalka/internal/plugin"
 )
 
 // cmdDaemon runs the daemon and opens the UI. Without a config it first
@@ -85,7 +86,8 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open}
+	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open,
+		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
 	if !*noOpen {
 		opts.Popup = notify.Ask
 	}

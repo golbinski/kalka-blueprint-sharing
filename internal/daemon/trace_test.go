@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
-	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/plugin"
 )
 
 const tracePlan = "# Import pipeline refactor\n\n## Plan\n\n```trace\n" + `lanes: [business, code]
@@ -100,15 +102,23 @@ func TestTraceViewReferences(t *testing.T) {
 		t.Fatalf("ref %+v", r)
 	}
 
-	// With a plugin: resolved refs verify; a warning makes a step stale.
-	alice.d.opts.Resolver = func(_ context.Context, doc *bp.Document, refs []string) map[string]RefView {
-		if doc.Title() != "Import pipeline refactor" || len(refs) != 2 {
-			t.Errorf("resolver got %v", refs)
+	// With a plugin: the first look shows the refs resolving, in the
+	// background; the UI hears about it, and the next look has results.
+	fp := &fakePlugins{t: t}
+	alice.d.refs = newRefCache(fp, w.now)
+	events, stop := alice.d.bus.Subscribe()
+	defer stop()
+	v, _ = alice.d.Document(ctx, "plan.md")
+	if r := v.Refs["gh:src/notify.py"]; !r.Pending || r.Plugin != "kalka-plugin-gh" {
+		t.Fatalf("not pending: %+v", r)
+	}
+	select {
+	case e := <-events:
+		if e.Type != "refs" {
+			t.Fatalf("event %+v", e)
 		}
-		return map[string]RefView{
-			"gh:src/upload.py#L1-L9": {OK: true, Title: "src/upload.py · L1–9", Snippet: &Snippet{StartLine: 1, Text: "<script>x</script>"}},
-			"gh:src/notify.py":       {OK: true, Warnings: []RefWarning{{Text: "File changed in 3 commits since base_sha"}}},
-		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no refs event")
 	}
 	v, _ = alice.d.Document(ctx, "plan.md")
 	got = nil
@@ -123,7 +133,48 @@ func TestTraceViewReferences(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("with plugin\n got %q\nwant %q", got, want)
 	}
-	if r := v.Refs["gh:src/upload.py#L1-L9"]; !r.OK || r.Snippet.Text != "<script>x</script>" || r.Ref == "" {
+	if r := v.Refs["gh:src/upload.py#L1-L9"]; !r.OK || r.Snippet.Text != "<script>x</script>" || r.Ref == "" || r.Pending {
 		t.Fatalf("resolved ref %+v", r)
 	}
+	// Cached: a second look calls no plugin.
+	if fp.calls != 1 {
+		t.Fatalf("%d plugin calls", fp.calls)
+	}
+	alice.d.Document(ctx, "plan.md")
+	time.Sleep(50 * time.Millisecond)
+	if fp.calls != 1 {
+		t.Fatalf("cache missed: %d calls", fp.calls)
+	}
+}
+
+type fakePlugins struct {
+	t     *testing.T
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *fakePlugins) Find(scheme string) (string, error) {
+	if scheme != "gh" {
+		return "", plugin.ErrNotFound
+	}
+	return "/x/kalka-plugin-gh", nil
+}
+
+func (f *fakePlugins) Resolve(_ context.Context, scheme string, fm map[string]any, refs []plugin.Ref) []plugin.Result {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	if scheme != "gh" || len(refs) != 2 || fm == nil {
+		f.t.Errorf("resolve %s %v %v", scheme, refs, fm)
+	}
+	var out []plugin.Result
+	for _, r := range refs {
+		switch r.Ref {
+		case "gh:src/upload.py#L1-L9":
+			out = append(out, plugin.Result{Ref: r.Ref, OK: true, Title: "src/upload.py · L1–9", Snippet: &plugin.Snippet{StartLine: 1, Text: "<script>x</script>"}})
+		default:
+			out = append(out, plugin.Result{Ref: r.Ref, OK: true, Warnings: []plugin.Warning{{Text: "File changed in 3 commits since base_sha"}}})
+		}
+	}
+	return out
 }

@@ -1,8 +1,11 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 
 	"github.com/golbinski/kalka/internal/name"
 )
@@ -11,7 +14,8 @@ import (
 //
 // kalka reads and writes only two top-level keys and does it line by line:
 // the block is never parsed into a structure and re-serialized, so every
-// other key, comment and blank line keeps its bytes (spec 6.2).
+// other key, comment and blank line keeps its bytes (spec 6.2). Map parses
+// a copy, read-only, for plugins.
 type Frontmatter struct {
 	// Lines are the raw lines, terminators included, from the opening fence
 	// to the closing fence inclusive.
@@ -118,4 +122,24 @@ func scalar(v string) string {
 // newFrontmatter creates an empty block.
 func newFrontmatter(eol string) *Frontmatter {
 	return &Frontmatter{Lines: []string{"---" + eol, "---" + eol}}
+}
+
+// Map returns the frontmatter as an opaque map for plugins (spec 6.2:
+// pass-through keys are handed to plugins as they are). Invalid YAML gives
+// an empty map; keys whose values cannot be expressed as JSON are left out.
+func (f *Frontmatter) Map() map[string]any {
+	out := map[string]any{}
+	if f == nil {
+		return out
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(f.Inner()), &m); err != nil {
+		return out
+	}
+	for k, v := range m {
+		if _, err := json.Marshal(v); err == nil {
+			out[k] = v
+		}
+	}
+	return out
 }

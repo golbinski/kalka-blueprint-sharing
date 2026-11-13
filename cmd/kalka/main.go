@@ -290,7 +290,6 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 	}
 }
 
-
 func cmdVersion(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	fs.SetOutput(stderr)

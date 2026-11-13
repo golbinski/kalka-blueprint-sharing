@@ -1,6 +1,6 @@
 // Markdown rendering for untrusted blueprints (spec 11.2): raw HTML is off,
-// so markdown-it escapes it; links are limited to http and https (plugin
-// schemes come with M4); images become links, since the CSP would block
+// so markdown-it escapes it; links are limited to http and https, and
+// plugin references (gh:...) become spans, never links; images become links, since the CSP would block
 // remote images anyway and they could be used for tracking.
 import MarkdownIt from 'markdown-it'
 
@@ -12,7 +12,20 @@ export function allowedLink(url: string): boolean {
   return safeLink.test(url.trim())
 }
 
-md.validateLink = allowedLink
+// pluginRef returns the scheme of a reference for a plugin (spec 10.1),
+// or null. Such links never become links: they render as a span the UI
+// decorates with what the reader's plugin resolved.
+const pluginRe = /^([a-z][a-z0-9+.-]*):\S*$/
+const notDispatched = new Set(['http', 'https', 'mailto', 'file', 'javascript', 'vbscript', 'data', 'blob', 'about'])
+export function pluginRef(url: string): string | null {
+  const m = pluginRe.exec(url)
+  return m && !notDispatched.has(m[1]) ? m[1] : null
+}
+
+md.validateLink = (url) => allowedLink(url) || pluginRef(url) !== null
+// Keep a reference exactly as written, so it matches the daemon's key.
+const defaultNormalize = md.normalizeLink.bind(md)
+md.normalizeLink = (url) => (pluginRef(url) ? url : defaultNormalize(url))
 
 const defaultLinkOpen =
   md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
@@ -20,12 +33,31 @@ const defaultLinkOpen =
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const t = tokens[idx]
   const href = String(t.attrGet('href') ?? '')
+  if (pluginRef(href)) {
+    // Mark the matching close so it ends the span.
+    for (let j = idx + 1, depth = 0; j < tokens.length; j++) {
+      if (tokens[j].type === 'link_open') depth++
+      if (tokens[j].type === 'link_close') {
+        if (depth === 0) {
+          tokens[j].meta = { ...(tokens[j].meta ?? {}), ref: true }
+          break
+        }
+        depth--
+      }
+    }
+    return `<span class="ref" data-ref="${md.utils.escapeHtml(href)}">`
+  }
   if (!href.startsWith('#')) {
     t.attrSet('target', '_blank')
     t.attrSet('rel', 'noopener noreferrer')
   }
   return defaultLinkOpen(tokens, idx, options, env, self)
 }
+
+const defaultLinkClose =
+  md.renderer.rules.link_close ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+md.renderer.rules.link_close = (tokens, idx, options, env, self) =>
+  tokens[idx].meta?.ref ? '</span>' : defaultLinkClose(tokens, idx, options, env, self)
 
 md.renderer.rules.image = (tokens, idx) => {
   const t = tokens[idx]

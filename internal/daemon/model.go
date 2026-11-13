@@ -124,7 +124,8 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 			v.Duplicate = true
 		}
 	}
-	v.Traces, v.Refs = d.traceViews(ctx, doc)
+	rel := v.Rel
+	v.Traces, v.Refs = d.refViews(doc, func() { d.bus.Publish(BusEvent{Type: "refs", Data: map[string]string{"path": rel}}) })
 	v.LogLead = strings.TrimSpace(bp.Normalize(strings.Join(doc.Lead(), "")))
 
 	rev := doc.Rev()
