@@ -42,7 +42,8 @@ import (
 func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name.Binary, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	noOpen := fs.Bool("no-open", false, "do not open the UI in a browser")
+	noOpen := fs.Bool("no-open", false, "do not open the UI in a browser, and show no popups")
+	background := fs.Bool("background", false, "run at logon: no browser at start, prompts as notifications, output to <config>/kalka.log")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -51,22 +52,42 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
+	if *background {
+		logf, err := openLog(dir)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitProblems
+		}
+		defer logf.Close()
+		stdout, stderr = logf, logf
+		stdin = nil
+		fmt.Fprintf(logf, "\n%s %s %s starting in the background\n", time.Now().Format(time.RFC3339), name.Binary, version)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	tok := make([]byte, 32)
 	_, _ = rand.Read(tok)
 	token := hex.EncodeToString(tok)
-	open := func(url string) {
-		if !*noOpen {
-			if err := openBrowser(url); err != nil {
-				fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
-			}
+	// openUI opens the browser on request (a popup's "Open kalka"); the
+	// first page at start is skipped in the background.
+	openUI := func(url string) {
+		if *noOpen {
+			return
 		}
+		if err := openBrowser(url); err != nil {
+			fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
+		}
+	}
+	open := openUI
+	if *background {
+		open = func(string) {}
 	}
 
 	cfg, err := config.Load()
 	if errors.Is(err, config.ErrMissing) {
-		if cfg, err = runSetup(ctx, token, open, stdout, stderr); err != nil || cfg == nil {
+		// Setup needs the browser even in the background: nothing works
+		// until it is done.
+		if cfg, err = runSetup(ctx, token, openUI, stdout, stderr); err != nil || cfg == nil {
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return exitProblems
@@ -86,12 +107,21 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: open,
+	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI,
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
+	var d *daemon.Daemon
 	if !*noOpen {
-		opts.Popup = notify.Ask
+		// A notification-centre toast where the system has one for kalka
+		// (Windows, after `kalka autostart on`), else a popup.
+		opts.Popup = func(ctx context.Context, title, msg string) (bool, error) {
+			err := notify.Toast(ctx, title, msg, d.URL())
+			if errors.Is(err, notify.ErrUnavailable) {
+				return notify.Ask(ctx, title, msg)
+			}
+			return false, err
+		}
 	}
-	d, err := daemon.New(opts)
+	d, err = daemon.New(opts)
 	if err != nil {
 		ln.Close()
 		fmt.Fprintln(stderr, err)
@@ -118,6 +148,19 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return exitProblems
 	}
 	return exitOK
+}
+
+// openLog opens <config>/kalka.log for appending, keeping one older file
+// when it passes 5 MB.
+func openLog(dir string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	p := filepath.Join(dir, name.Product+".log")
+	if st, err := os.Stat(p); err == nil && st.Size() > 5<<20 {
+		_ = os.Rename(p, p+".1")
+	}
+	return os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 }
 
 func listen(port int) (net.Listener, error) {

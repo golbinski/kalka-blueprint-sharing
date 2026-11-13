@@ -28,9 +28,11 @@ import (
 	"sync"
 )
 
+// version is set at release build time with -ldflags "-X main.version=...".
+var version = "dev"
+
 const (
 	protocol = 1
-	version  = "0.1.0"
 	// maxLines is the most lines a snippet shows.
 	maxLines = 200
 	// headLines is shown when a reference names no lines.

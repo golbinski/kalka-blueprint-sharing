@@ -321,6 +321,26 @@ Done 2026-11-13. The operator guide is `docs/rendezvous.md`.
 - **Run by hand** with three processes on one machine: `kalka rendezvous` with TURN, and Alice and Bob's daemons set up with `rendezvous: http://127.0.0.1:9000`. Checked: presence, first send with the code check, accept-new, a comment synced back, identical files.
 - **TURN over TLS (open since M1):** the server side is verified. The client side is pion/ice, which checks the certificate against the system roots, so the TURN host needs a publicly trusted certificate. A run from a real UDP-blocked network is still open.
 
+## 6h. Packaging status
+
+Done 2026-11-13. The user guide is `docs/install.md`.
+
+- **`kalka --background`** is the mode autostart uses. No browser opens at start, though setup still opens one when there is no config yet. Prompts still raise notifications or popups, and output goes to `<config>/kalka.log` (0600, one rotation at 5 MB). `--no-open` keeps its meaning: no browser and no popups, for scripts and tests.
+- **`kalka autostart on|off|status [--json]`**, per user, with no administrator rights:
+  - Windows: an HKCU `Run` value that starts `kalkaw.exe --background`, plus the AppUserModelID registration (`HKCU\Software\Classes\AppUserModelId\com.github.golbinski.kalka`). On, it also starts kalka now unless one is running.
+  - macOS: a LaunchAgent, loaded with `launchctl bootstrap`, which starts it now. RunAtLoad with no KeepAlive, because a second, hand-started kalka holding the port would make launchd restart in a loop.
+  - Linux: an XDG autostart entry, with the Exec value quoted per the spec.
+  - `status` flags an entry whose program is gone.
+- **`kalkaw.exe`** is `cmd/kalka` built with `-H=windowsgui` (the release checks the PE subsystem). A console child of a GUI process gets its own console window, so plugins are started with `CREATE_NO_WINDOW`. `rundll32` and PowerShell (also no window) are the only other children.
+- **Windows toasts:** `notify.Toast` shows a reminder-scenario toast with "Open kalka" (protocol activation of the page URL) and "Later". It removes the toast when the prompt is answered or times out. It runs through Windows PowerShell 5.1's WinRT bridge: the script is a constant, and the XML (built with `encoding/xml`), tag and app id reach it through environment variables. Without the registration it reports unavailable, and the message box shows instead. **Not run on a real Windows desktop yet**, like the message box. The first Windows session should check:
+  1. the toast's sender name;
+  2. that a click opens the browser;
+  3. removal when the prompt closes;
+  4. no console flashes from plugins.
+- **macOS `.app` bundle: dropped for now.** Notification-centre banners need a signed and notarized bundle (an Apple Developer account). The dialog works without it. Revisit if kalka is distributed at work.
+- **Release** (`tools/release`, `make release VERSION=x.y.z`): archives for windows/amd64 and arm64, darwin/arm64 and amd64, linux/amd64 and arm64, plus `SHA256SUMS`. They are reproducible: `-trimpath`, no build id or VCS stamp, and entries sorted with the commit time and fixed owners. Two runs gave identical checksums. `kalka-plugin-gh` now takes its version from the build as well.
+- **CI** (`.github/workflows/ci.yml`) runs web tests, vet and `go test -race` on Linux, Windows and macOS, and publishes a GitHub release on a `v*` tag. It has not run yet: the repository has no remote.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

@@ -61,6 +61,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdVerify(rest, stdout, stderr)
 	case "rendezvous":
 		return cmdRendezvous(rest, stdout, stderr)
+	case "autostart":
+		return cmdAutostart(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -73,6 +75,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
   %[1]s [--no-open]           run the daemon and open the UI (prompts for incoming syncs are asked here too)
+  %[1]s --background          run the daemon as at logon: no browser, notifications, output to kalka.log
+  %[1]s autostart on|off|status [--json]   start kalka at logon
   %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
   %[1]s send <file> <email> [--json]

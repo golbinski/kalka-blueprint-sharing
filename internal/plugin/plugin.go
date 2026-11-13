@@ -209,6 +209,7 @@ func (h *Host) call(ctx context.Context, path string, req request, out any) erro
 	cmd := exec.CommandContext(ctx, path)
 	cmd.Stdin = bytes.NewReader(in)
 	cmd.Dir = os.TempDir()
+	hideWindow(cmd)
 	stdout := &capped{max: maxStdout}
 	stderr := &capped{max: maxStderr}
 	cmd.Stdout, cmd.Stderr = stdout, stderr

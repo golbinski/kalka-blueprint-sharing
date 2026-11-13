@@ -18,6 +18,14 @@ const (
 	// FrontmatterOwner is the frontmatter key naming the owner (spec 6.2).
 	FrontmatterOwner = "owner"
 
+	// AppID identifies kalka to the desktop: the launchd label on macOS,
+	// the AppUserModelID of its notifications and the Run value on Windows.
+	AppID = "com.github.golbinski." + Product
+
+	// BackgroundBinary is the Windows build with no console window, used
+	// when kalka starts at logon.
+	BackgroundBinary = Product + "w"
+
 	// HandoffSigContext prefixes the message signed in a handoff entry (spec 6.5).
 	HandoffSigContext = Product + "-handoff-v1"
 )
