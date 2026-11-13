@@ -419,3 +419,59 @@ func TestProbe(t *testing.T) {
 		t.Fatal(ea, eb)
 	}
 }
+
+// TestKalkaRendezvous runs the M1 handshake and a transfer through the
+// assembled `kalka rendezvous` server (spec M5): real listeners, ICE from
+// /kalka/ice, both peers forced onto its TURN relay; then the offline and
+// id-taken cases.
+func TestKalkaRendezvous(t *testing.T) {
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	r, err := rendezvous.Start(rendezvous.Options{
+		Listen: "127.0.0.1:0", Path: "/rdv/", Key: "corp",
+		TURNIP: net.ParseIP("127.0.0.1"), TURNListen: "127.0.0.1", RelayBind: "127.0.0.1", TURNPort: port,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Close)
+	info, err := peerjs.ParseRendezvous(r.URL)
+	if err != nil || info.Key != "corp" || !strings.HasSuffix(info.URL, "/rdv/peerjs") {
+		t.Fatalf("client config from %q: %+v %v", r.URL, info, err)
+	}
+	h := &harness{info: info}
+
+	ice, src, err := ResolveICE(context.Background(), nil, info, false)
+	if err != nil || src != ICEFromRendezvous || len(ice) != 2 || ice[1].Username == "" {
+		t.Fatalf("ICE: %v %v %+v", src, err, ice)
+	}
+	opts := Options{ICEServers: ice, RelayOnly: true}
+	alice, bob := h.node(t, "alice@corp.com", opts), h.node(t, "bob@corp.com", opts)
+	ca, cb, errA, errB := connect(t, alice, bob)
+	if errA != nil || errB != nil {
+		t.Fatalf("handshake: %v / %v", errA, errB)
+	}
+	defer ca.Close()
+	defer cb.Close()
+	pair, err := ca.pc.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
+	if err != nil || pair == nil || pair.Local.Typ != webrtc.ICECandidateTypeRelay {
+		t.Fatalf("not relayed: %v %v", pair, err)
+	}
+	go func() { _ = cb.Send(map[string]string{"type": "bye"}) }()
+	if env, err := ca.Receive(5 * time.Second); err != nil || env.Type != "bye" {
+		t.Fatalf("transfer: %v %v", env.Type, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := peerjs.Dial(ctx, info, PeerID("", "alice@corp.com")); !errors.Is(err, peerjs.ErrIDTaken) {
+		t.Fatalf("id taken: %v", err)
+	}
+	if _, err := alice.ep.Dial(ctx, PeerID("", "carol@corp.com")); !errors.Is(err, ErrOffline) {
+		t.Fatalf("offline: %v", err)
+	}
+}

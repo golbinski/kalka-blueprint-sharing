@@ -23,6 +23,9 @@ type TURNConfig struct {
 	RelayIP net.IP
 	// Listen address for relay sockets, e.g. "0.0.0.0".
 	RelayBind string
+	// MinPort..MaxPort bound the relay ports, for firewall rules; zero
+	// leaves them to the OS.
+	MinPort, MaxPort uint16
 	// UDP, TCP and TLS listeners for clients; any may be nil.
 	UDP net.PacketConn
 	TCP net.Listener
@@ -32,6 +35,9 @@ type TURNConfig struct {
 // StartTURN runs a TURN server with time-limited credentials.
 func StartTURN(c TURNConfig) (*turn.Server, error) {
 	gen := func() turn.RelayAddressGenerator {
+		if c.MinPort != 0 {
+			return &turn.RelayAddressGeneratorPortRange{RelayAddress: c.RelayIP, Address: c.RelayBind, MinPort: c.MinPort, MaxPort: c.MaxPort}
+		}
 		return &turn.RelayAddressGeneratorStatic{RelayAddress: c.RelayIP, Address: c.RelayBind}
 	}
 	logs := logging.NewDefaultLoggerFactory()

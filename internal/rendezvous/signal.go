@@ -2,6 +2,13 @@
 // 9.6). State is in memory only. It follows peerjs-server 1.0.2 behaviour:
 // OPEN on registration, ID-TAKEN for a held id with another token, src set
 // by the server, queueing for absent ids and EXPIRE after ExpireTimeout.
+//
+// It also enforces what the public PeerJS cloud enforces and stock
+// peerjs-server does not (docs/m1-transport.md): an OFFER without label
+// and serialization, or with SDP that does not parse, closes the sender's
+// socket and is not relayed. A client that works here works on the cloud.
+// Limits on clients and queued messages keep one misbehaving client from
+// exhausting memory.
 package rendezvous
 
 import (
@@ -13,6 +20,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/pion/sdp/v3"
 
 	"github.com/golbinski/kalka/internal/peerjs"
 )
@@ -28,10 +36,16 @@ type Server struct {
 	// AllowOrigins lists Origin header patterns accepted for browser
 	// clients; non-browser clients send no Origin and are always accepted.
 	AllowOrigins []string
+	// MaxClients caps concurrent connections (default 10000).
+	MaxClients int
+	// MaxQueue caps messages queued for one absent id (default 64) and
+	// MaxQueue*16 in all; beyond that new messages are dropped.
+	MaxQueue int
 
 	mu      sync.Mutex
 	clients map[string]*client
 	queue   map[string][]queued
+	queued  int
 	stop    chan struct{}
 	once    sync.Once
 }
@@ -58,6 +72,12 @@ func (s *Server) init() {
 		}
 		if s.AliveTimeout == 0 {
 			s.AliveTimeout = 90 * time.Second
+		}
+		if s.MaxClients == 0 {
+			s.MaxClients = 10000
+		}
+		if s.MaxQueue == 0 {
+			s.MaxQueue = 64
 		}
 		s.clients = map[string]*client{}
 		s.queue = map[string][]queued{}
@@ -105,17 +125,32 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		s.refuse(ctx, conn, peerjs.Error, "Invalid key provided")
 		return
 	}
+	if !peerjs.ValidID(id) || len(id) > 128 || len(token) > 128 {
+		s.refuse(ctx, conn, peerjs.Error, "Invalid id")
+		return
+	}
 
 	s.mu.Lock()
-	if old, ok := s.clients[id]; ok && old.token != token {
+	old, held := s.clients[id]
+	if held && old.token != token {
 		s.mu.Unlock()
 		s.refuse(ctx, conn, peerjs.IDTaken, "ID is taken")
 		return
+	}
+	if !held && len(s.clients) >= s.MaxClients {
+		s.mu.Unlock()
+		s.refuse(ctx, conn, peerjs.Error, "Server has reached its concurrent user limit")
+		return
+	}
+	if held {
+		// The same client reconnecting: the new socket wins.
+		old.conn.CloseNow()
 	}
 	c := &client{token: token, conn: conn, send: make(chan []byte, 64), seen: time.Now()}
 	s.clients[id] = c
 	pending := s.queue[id]
 	delete(s.queue, id)
+	s.queued -= len(pending)
 	s.mu.Unlock()
 
 	// Unregister before closing c.send: Deliver sends under s.mu, so once c
@@ -169,6 +204,15 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			if m.Dst == "" {
 				return
 			}
+		case peerjs.Offer:
+			if !validOffer(m.Payload) {
+				// What the public cloud does: close, relay nothing.
+				conn.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+		}
+		if m.Dst == "" || m.Dst == id {
+			continue
 		}
 		s.relay(m)
 	}
@@ -207,9 +251,29 @@ func (s *Server) Deliver(m peerjs.Message) {
 		}
 		return
 	}
-	if m.Dst != "" && m.Type != peerjs.Leave && m.Type != peerjs.Expire {
+	if m.Dst != "" && m.Type != peerjs.Leave && m.Type != peerjs.Expire &&
+		len(s.queue[m.Dst]) < s.MaxQueue && s.queued < s.MaxQueue*16 {
 		s.queue[m.Dst] = append(s.queue[m.Dst], queued{m: m, at: time.Now()})
+		s.queued++
 	}
+}
+
+// validOffer applies the public cloud's OFFER rules: a label, a
+// serialization, and an SDP that parses.
+func validOffer(p json.RawMessage) bool {
+	var o struct {
+		Label         *string `json:"label"`
+		Serialization *string `json:"serialization"`
+		SDP           *struct {
+			Type string `json:"type"`
+			SDP  string `json:"sdp"`
+		} `json:"sdp"`
+	}
+	if json.Unmarshal(p, &o) != nil || o.Label == nil || *o.Label == "" || o.Serialization == nil || o.SDP == nil || o.SDP.Type != "offer" {
+		return false
+	}
+	var d sdp.SessionDescription
+	return d.UnmarshalString(o.SDP.SDP) == nil && len(d.MediaDescriptions) > 0
 }
 
 // sweep expires queued messages and drops silent clients, like
@@ -236,6 +300,7 @@ func (s *Server) sweep() {
 					}
 				}
 				delete(s.queue, dst)
+				s.queued -= len(q)
 			}
 			for id, c := range s.clients {
 				if now.Sub(c.seen) > s.AliveTimeout {

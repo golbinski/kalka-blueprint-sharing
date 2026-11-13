@@ -60,8 +60,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 	case "verify":
 		return cmdVerify(rest, stdout, stderr)
 	case "rendezvous":
-		fmt.Fprintf(stderr, "%s %s: not implemented yet\n", name.Binary, cmd)
-		return exitProblems
+		return cmdRendezvous(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -82,6 +81,7 @@ func usage(w io.Writer) {
   %[1]s verify <email> [--confirm] [--json]
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
+  %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s version [--json]
 `, name.Binary)
 }

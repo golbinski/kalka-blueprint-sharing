@@ -294,6 +294,33 @@ Done 2026-11-13.
 - **Limits:** a path with spaces cannot be referenced in the body, since CommonMark link destinations and autolinks cannot contain spaces. A trace node's `ref:` has no such limit.
 - Checked in Chrome against `cli/cli`: pending → resolved without reload, README ok, go.mod stale, a missing file, a scheme with no plugin, node detail in the trace view, and no console errors. The check found two UI bugs, now fixed: a CSS class clash that blew up snippet text, and stale refs shown as errors.
 
+## 6g. M5 status
+
+Done 2026-11-13. The operator guide is `docs/rendezvous.md`.
+
+- **Signaling** (`rendezvous/signal.go`, mostly written in M1) now enforces what the public cloud enforces: an OFFER without `label` or `serialization`, or with SDP that does not parse or has no media section, closes the sender's socket and is not relayed. A client that passes kalka's tests passes the cloud.
+  - Ids are checked with the PeerJS id rule.
+  - Clients are capped (10 000), and so are messages queued for an absent id (64 each, 1024 in all).
+  - A reconnect with the same token replaces the old socket.
+  - Messages with no `dst`, or addressed to the sender, are dropped.
+- **`rendezvous.Start`** binds every listener before it returns, so a port conflict shows at once. It serves:
+  - signaling at `<path>peerjs`;
+  - `/kalka/ice`, always at the origin root (spec 9.4), so a proxy must route it as well;
+  - `/healthz`;
+  - the PeerJS info and `/<key>/id` endpoints.
+- **`kalka rendezvous`** flags:
+  - `--listen`, `--path`, `--key`, `--allow-origin`.
+  - `--tls-cert`/`--tls-key`, which serve HTTPS and TURN over TLS. `--plain-http` keeps signaling on HTTP behind a TLS-ending proxy, since TURN cannot pass through one.
+  - `--turn-ip`, which turns TURN on; `--turn-host`, the certificate name used in the URLs; `--turn-port`; `--turn-tls-port`; `--relay-bind`; `--relay-ports` (default 49152–65535, for firewall rules).
+  - `--ice-ttl` (12 h), `--stun` (default: the TURN port), `--json`.
+  - The TURN secret comes from `KALKA_TURN_SECRET` or `--turn-secret-file`, never the command line. Without one, a random secret is made per run.
+- **Tests:**
+  - The M1 transport suite passes against the stricter server.
+  - `TestKalkaRendezvous` (transport) runs the handshake through the assembled server under a path prefix and a custom key, with ICE from its `/kalka/ice` and both peers forced onto its TURN relay, then checks id-taken and offline.
+  - `TestRendezvousTLS` (cmd) starts the real command with a test certificate. It checks HTTPS endpoints, `wss` signaling, refusal of a foreign Origin, a TURN-over-TLS allocation in the configured port range, and refusal of a wrong TURN password.
+- **Run by hand** with three processes on one machine: `kalka rendezvous` with TURN, and Alice and Bob's daemons set up with `rendezvous: http://127.0.0.1:9000`. Checked: presence, first send with the code check, accept-new, a comment synced back, identical files.
+- **TURN over TLS (open since M1):** the server side is verified. The client side is pion/ice, which checks the certificate against the system roots, so the TURN host needs a publicly trusted certificate. A run from a real UDP-blocked network is still open.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |
