@@ -48,6 +48,18 @@ type DocView struct {
 	// the reader's plugins resolved them.
 	Traces []TraceView        `json:"traces"`
 	Refs   map[string]RefView `json:"refs"`
+	// Seed is set for a document with status: seed (spec 6.11).
+	Seed *SeedInfo `json:"seed,omitempty"`
+}
+
+// SeedInfo describes a seed in the document view.
+type SeedInfo struct {
+	Parent      string `json:"parent,omitempty"`
+	ParentRel   string `json:"parent_rel,omitempty"`
+	ParentTitle string `json:"parent_title,omitempty"`
+	// BacklinkMissing: the parent is held and has no budded entry for
+	// this seed (a failed second write); the UI offers to add it.
+	BacklinkMissing bool `json:"backlink_missing,omitempty"`
 }
 
 // EntryView is one review log entry with its derived states (spec 6.7).
@@ -74,6 +86,10 @@ type EntryView struct {
 	Handoff       string `json:"handoff,omitempty"`
 	HandoffTarget string `json:"handoff_target,omitempty"`
 	HandoffNote   string `json:"handoff_note,omitempty"`
+	// BuddedSeed is the seed a budded entry names, and its path if held.
+	BuddedSeed  string `json:"budded_seed,omitempty"`
+	BuddedTitle string `json:"budded_title,omitempty"`
+	BuddedRel   string `json:"budded_rel,omitempty"`
 	// Unparsed is text in the log after this entry that is not an entry.
 	Unparsed string `json:"unparsed,omitempty"`
 }
@@ -151,9 +167,30 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		ev.Sig = d.sigState(v.KalkaID, e)
+		if id, title, ok := e.Budded(); ok {
+			ev.BuddedSeed, ev.BuddedTitle = id, title
+			if sf, err := d.Store.Find(id); err == nil && sf != nil {
+				ev.BuddedRel = d.rel(sf.Path)
+			}
+		}
 		v.Entries = append(v.Entries, ev)
 	}
 	d.handoffStates(v.KalkaID, doc, v.Entries)
+	if doc.IsSeed() {
+		si := &SeedInfo{Parent: doc.Parent()}
+		if si.Parent != "" {
+			if pf, err := d.Store.Find(si.Parent); err == nil && pf != nil {
+				si.ParentRel, si.ParentTitle = d.rel(pf.Path), pf.Doc.Title()
+				si.BacklinkMissing = true
+				for _, it := range pf.Doc.Items() {
+					if id, _, ok := it.Entry.Budded(); ok && id == v.KalkaID {
+						si.BacklinkMissing = false
+					}
+				}
+			}
+		}
+		v.Seed = si
+	}
 	return v, nil
 }
 

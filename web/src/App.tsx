@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Peer, type Prompt, type Status, type SyncResult } from './api'
-import { PromptCard, SyncDialog } from './Dialogs'
+import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Peer, type Prompt, type Status, type SyncResult } from './api'
+import { PromptCard, SeedDialog, SyncDialog } from './Dialogs'
 import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
 import { Review } from './Review'
-import { Blueprints, Peers, Setup } from './Views'
+import { Blueprints, Peers, PreBacklog, Setup } from './Views'
 import { TracePage } from './Trace'
 import { docHref, roleText, traceHref, useRoute } from './util'
 
@@ -19,6 +19,7 @@ export function App() {
   const [docErr, setDocErr] = useState('')
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [dialog, setDialog] = useState<'sync' | 'handoff' | null>(null)
+  const [seedFor, setSeedFor] = useState<{ from?: Entry } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [live, setLive] = useState(true)
   const [notifyPerm, setNotifyPerm] = useState(permission)
@@ -31,6 +32,8 @@ export function App() {
   })
   const docPath = route.view === 'doc' || route.view === 'trace' ? route.path : ''
   const docPathRef = useRef(docPath)
+  // A dialog belongs to the document it was opened on.
+  useEffect(() => setSeedFor(null), [docPath])
   docPathRef.current = docPath
 
   const toast = (text: string) => {
@@ -183,6 +186,9 @@ export function App() {
             <a href="#/" className={route.view === 'list' ? 'active' : ''}>
               Blueprints
             </a>
+            <a href="#/seeds" className={route.view === 'seeds' ? 'active' : ''}>
+              Pre-backlog
+            </a>
             <a href="#/peers" className={route.view === 'peers' ? 'active' : ''}>
               Peers
             </a>
@@ -208,6 +214,11 @@ export function App() {
                 </span>
               )}
             </nav>
+            {!doc.problems.some((p) => p.severity === 'error') && (
+              <button type="button" onClick={() => setSeedFor({})} title="Split an idea off this blueprint into a seed you own">
+                Create seed
+              </button>
+            )}
             {doc.role === 'owner' && (
               <button type="button" onClick={() => setDialog('handoff')}>
                 Hand off to…
@@ -298,7 +309,8 @@ export function App() {
             <div className="error-box">{docErr}</div>
           </div>
         )}
-        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} />}
+        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} />}
+        {route.view === 'seeds' && <PreBacklog self={status.email} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 
@@ -323,6 +335,17 @@ export function App() {
             setDialog(null)
             loadDoc()
             loadPeers()
+          }}
+        />
+      )}
+      {seedFor && doc && (
+        <SeedDialog
+          doc={doc}
+          from={seedFor.from}
+          onClose={() => setSeedFor(null)}
+          onDone={() => {
+            loadDoc()
+            loadList()
           }}
         />
       )}

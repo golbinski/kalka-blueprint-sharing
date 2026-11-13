@@ -67,6 +67,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdRendezvous(rest, stdout, stderr)
 	case "autostart":
 		return cmdAutostart(rest, stdout, stderr)
+	case "seed":
+		return cmdSeed(rest, stdout, stderr, now)
+	case "seeds":
+		return cmdSeeds(rest, stdout, stderr, now)
 	case "reference":
 		return cmdReference(rest, stdout, stderr)
 	case "help", "-h", "--help":
@@ -91,6 +95,8 @@ func usage(w io.Writer) {
   %[1]s verify <email> [--confirm] [--json]
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
+  %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
+  %[1]s seeds [--json]        list the pre-backlog
   %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]

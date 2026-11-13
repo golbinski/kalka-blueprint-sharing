@@ -1208,3 +1208,25 @@ button.icon {
   align-self: flex-start;
   font-size: 12px;
 }
+
+/* Seeds (spec 6.11) */
+.seed-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.seed-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.seed-form input,
+.seed-form textarea {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+.seed-link {
+  font-weight: 600;
+}

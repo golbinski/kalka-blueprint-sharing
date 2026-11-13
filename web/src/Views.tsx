@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { api, type BlueprintInfo, type Peer, type Status } from './api'
+import { useCallback, useEffect, useState } from 'react'
+import { api, type BlueprintInfo, type Peer, type SeedRow, type Status } from './api'
 import { docHref, plural } from './util'
 
 // Setup asks for the three required settings (spec 5).
@@ -265,3 +265,84 @@ export function Peers({ peers, reload }: { peers: Peer[]; reload: () => void }) 
     </div>
   )
 }
+
+function age(active?: string): string {
+  if (!active) return 'age unknown'
+  const ms = Date.now() - new Date(active).getTime()
+  if (isNaN(ms)) return 'age unknown'
+  const h = ms / 3_600_000
+  if (h < 1) return 'active now'
+  if (h < 48) return `${Math.floor(h)} h`
+  return `${Math.floor(h / 24)} days`
+}
+
+// PreBacklog lists every seed in the folder (spec 6.11): title, owner,
+// parent and age, newest activity first.
+export function PreBacklog({ self }: { self: string }) {
+  const [rows, setRows] = useState<SeedRow[] | null>(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState('')
+  const load = useCallback(() => api.seeds().then(setRows, (e: Error) => setErr(e.message)), [])
+  useEffect(() => {
+    load()
+  }, [load])
+  const promote = async (rel: string) => {
+    setBusy(rel)
+    try {
+      await api.promote(rel)
+      await load()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy('')
+  }
+  return (
+    <div className="page">
+      <h1>Pre-backlog</h1>
+      <p className="muted">
+        Seeds: ideas split off from growing blueprints, kept small until someone takes them up. Create one from a blueprint
+        (“Create seed”) or from a deviation entry.
+      </p>
+      {err && <div className="error-box">{err}</div>}
+      {rows && rows.length === 0 && <div className="empty">No seeds yet.</div>}
+      {rows && rows.length > 0 && (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Seed</th>
+                <th>Owner</th>
+                <th>Split off from</th>
+                <th>Age</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.kalka_id + r.rel}>
+                  <td>
+                    <a href={docHref(r.rel)}>{r.title}</a>
+                  </td>
+                  <td>{r.mine ? 'you' : r.owner}</td>
+                  <td>
+                    {r.parent_rel ? <a href={docHref(r.parent_rel)}>{r.parent_title || r.parent_rel}</a> : r.parent ? <span className="muted">not in your folder</span> : '—'}
+                  </td>
+                  <td title={r.active}>{age(r.active)}</td>
+                  <td>
+                    {r.mine && bpEq(r.owner, self) && (
+                      <button type="button" className="link" disabled={busy === r.rel} onClick={() => promote(r.rel)}>
+                        Promote to draft
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const bpEq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()

@@ -4,7 +4,7 @@ import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
 import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
-import { localTime, plural } from './util'
+import { docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -65,6 +65,58 @@ export function HintStrip({ doc }: { doc: Doc }) {
           {showAll ? 'Hide dismissed hints' : `Show dismissed hints (${dismissed.length})`}
         </button>
       )}
+    </div>
+  )
+}
+
+// SeedStrip heads a seed (spec 6.11): where it came from, Promote for
+// its owner, and the backlink offer when the parent missed it.
+function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  if (!doc.seed) return null
+  const s = doc.seed
+  const act = async (f: () => Promise<unknown>) => {
+    setBusy(true)
+    setErr('')
+    try {
+      await f()
+      reload()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="hints seed-strip">
+      <div className="hint">
+        <span className="hint-label">seed</span>
+        <span className="hint-text">
+          {s.parent_rel ? (
+            <>
+              Split off from <a href={docHref(s.parent_rel)}>{s.parent_title || s.parent_rel}</a>.
+            </>
+          ) : s.parent ? (
+            <>Split off from a blueprint not in your folder.</>
+          ) : (
+            <>A seed: an idea kept small until someone takes it up.</>
+          )}
+        </span>
+        {doc.role === 'owner' && (
+          <button type="button" className="link" disabled={busy} onClick={() => act(() => api.promote(doc.rel))}>
+            Promote to draft
+          </button>
+        )}
+      </div>
+      {s.backlink_missing && (
+        <div className="hint">
+          <span className="hint-text">The parent has no link to this seed yet (its file could not be written).</span>
+          <button type="button" className="link" disabled={busy} onClick={() => act(() => api.backlink(doc.rel))}>
+            Add the backlink
+          </button>
+        </div>
+      )}
+      {err && <div className="error-text">{err}</div>}
     </div>
   )
 }
@@ -141,7 +193,19 @@ function Badges({ e }: { e: Entry }) {
   )
 }
 
-export function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Map<string, Entry[]>; byId: Map<string, Entry>; onReply: (e: Entry) => void }) {
+export function EntryCard({
+  e,
+  replies,
+  byId,
+  onReply,
+  onSeed,
+}: {
+  e: Entry
+  replies: Map<string, Entry[]>
+  byId: Map<string, Entry>
+  onReply: (e: Entry) => void
+  onSeed?: (e: Entry) => void
+}) {
   const kids = replies.get(e.id) ?? []
   return (
     <div className={'entry kind-' + e.kind} id={'e-' + e.id}>
@@ -158,7 +222,20 @@ export function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Ma
         </time>
         <Badges e={e} />
       </div>
-      {e.kind === 'release' ? (
+      {e.kind === 'budded' && e.budded_seed ? (
+        <div className="entry-body">
+          Split off a seed:{' '}
+          {e.budded_rel ? (
+            <a className="seed-link" href={docHref(e.budded_rel)}>
+              {e.budded_title || e.budded_seed}
+            </a>
+          ) : (
+            <span className="seed-link" title={`kalka_id ${e.budded_seed}; not in your folder`}>
+              {e.budded_title || e.budded_seed}
+            </span>
+          )}
+        </div>
+      ) : e.kind === 'release' ? (
         <ReleaseBody body={e.body} />
       ) : e.kind === 'handoff' ? (
         <div className="entry-body">
@@ -180,11 +257,16 @@ export function EntryCard({ e, replies, byId, onReply }: { e: Entry; replies: Ma
         <button type="button" className="link" onClick={() => onReply(e)}>
           Reply
         </button>
+        {onSeed && e.kind === 'deviation' && e.valid && (
+          <button type="button" className="link" onClick={() => onSeed(e)}>
+            Create seed
+          </button>
+        )}
       </div>
       {kids.length > 0 && (
         <div className="replies">
           {kids.map((k) => (
-            <EntryCard key={k.id} e={k} replies={replies} byId={byId} onReply={onReply} />
+            <EntryCard key={k.id} e={k} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
           ))}
         </div>
       )}
@@ -317,7 +399,7 @@ function SectionBody({ s, doc }: { s: Section; doc: Doc }) {
 }
 
 // Review is the linear review view (spec 11.1).
-export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
+export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; onSeed?: (e: Entry) => void }) {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [selection, setSelection] = useState<{ slug: string; text: string } | null>(null)
 
@@ -382,7 +464,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
           {s.heading && (
             <>
               {notes.map((e) => (
-                <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} />
+                <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
               ))}
               {composerFor(slug) ??
                 (sel ? (
@@ -403,6 +485,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
 
   return (
     <RefLayer doc={doc} className="review">
+      <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
       {doc.sections.map(sectionView)}
@@ -419,7 +502,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
         </div>
         <aside className="sec-notes">
           {general.map((e) => (
-            <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} />
+            <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
           ))}
           {composerFor('') ?? (
             <button type="button" className="add" onClick={() => open('')}>
@@ -436,7 +519,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
           </div>
           <aside className="sec-notes">
             {orphaned.map((e) => (
-              <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} />
+              <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
             ))}
           </aside>
         </section>

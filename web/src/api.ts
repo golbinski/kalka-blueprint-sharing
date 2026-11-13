@@ -60,6 +60,9 @@ export interface Entry {
   /** Signature state (spec 6.5). */
   sig?: 'unsigned' | 'invalid' | 'unknown' | 'verified'
   handoff?: 'verified' | 'unverified'
+  budded_seed?: string
+  budded_title?: string
+  budded_rel?: string
   handoff_target?: string
   handoff_note?: string
   unparsed?: string
@@ -159,6 +162,27 @@ export interface Doc {
   duplicate?: boolean
   traces: Trace[]
   refs: Record<string, RefView>
+  seed?: { parent?: string; parent_rel?: string; parent_title?: string; backlink_missing?: boolean }
+}
+
+export interface SeedRow {
+  rel: string
+  kalka_id: string
+  title: string
+  owner: string
+  mine: boolean
+  parent?: string
+  parent_rel?: string
+  parent_title?: string
+  created?: string
+  active?: string
+}
+
+export interface BudResult {
+  seed: string
+  seed_id: string
+  entry?: string
+  backlink_error?: string
 }
 
 export interface Peer {
@@ -255,6 +279,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 const enc = encodeURIComponent
 
 export const api = {
+  seeds: () => call<SeedRow[] | null>('GET', '/api/seeds').then((l) => l ?? []),
+  bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
+  backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
+  promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
   status: () => call<Status>('GET', '/api/status'),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: () => call<BlueprintInfo[] | null>('GET', '/api/blueprints').then((l) => l ?? []),

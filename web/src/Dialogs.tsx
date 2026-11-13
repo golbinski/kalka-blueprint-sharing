@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, ApiError, type Peer, type Prompt, type SyncEvent, type SyncResult } from './api'
+import { api, ApiError, type Doc, type Entry, type Peer, type Prompt, type SyncEvent, type SyncResult } from './api'
+import { docHref } from './util'
 
 const labels: Record<string, [string, string]> = {
   'verify-code': ['The codes match', 'They differ'],
@@ -190,6 +191,109 @@ export function SyncDialog({ path, title, intent, peers, self, onClose }: Props)
             Close
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// SeedDialog splits a seed off a blueprint (spec 6.11), optionally from an
+// entry such as a deviation, whose text becomes the problem by default.
+export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: Entry; onClose: () => void; onDone: () => void }) {
+  const [title, setTitle] = useState('')
+  const [problem, setProblem] = useState('')
+  const [why, setWhy] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [made, setMade] = useState<{ rel: string; backlinkError?: string } | null>(null)
+  const first = useRef<HTMLInputElement>(null)
+  useEffect(() => first.current?.focus(), [])
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault()
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await api.bud({ path: doc.rel, from: from?.id, title, problem: problem || undefined, why: why || undefined })
+      setMade({ rel: r.seed, backlinkError: r.backlink_error })
+      onDone()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  const retry = async () => {
+    if (!made) return
+    setBusy(true)
+    try {
+      await api.backlink(made.rel)
+      setMade({ rel: made.rel })
+      onDone()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="modal-back" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" role="dialog" aria-label="Create seed">
+        <h2>Create seed</h2>
+        {made ? (
+          <>
+            <p>
+              The seed is written:{' '}
+              <a href={docHref(made.rel)} onClick={onClose}>
+                {made.rel}
+              </a>
+              .
+            </p>
+            {made.backlinkError ? (
+              <>
+                <p className="error-text">The link back from “{doc.title}” could not be added: {made.backlinkError}</p>
+                <div className="row">
+                  <button type="button" className="primary" disabled={busy} onClick={retry}>
+                    Add the backlink
+                  </button>
+                  <button type="button" onClick={onClose}>
+                    Later
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="row">
+                <button type="button" className="primary" onClick={onClose}>
+                  Done
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <form onSubmit={submit} className="seed-form">
+            <p className="muted">
+              A small blueprint you own, with status <code>seed</code>, linked from “{doc.title}”. The parent's plan is not changed; a{' '}
+              <code>budded</code> entry is added to its review log.
+            </p>
+            <label>
+              Title
+              <input ref={first} value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} />
+            </label>
+            <label>
+              Problem{from ? ' (empty: quote the ' + from.kind + ')' : ''}
+              <textarea rows={4} value={problem} onChange={(e) => setProblem(e.target.value)} required={!from} />
+            </label>
+            <label>
+              Why it was split off <span className="muted">(optional)</span>
+              <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)} />
+            </label>
+            {err && <p className="error-text">{err}</p>}
+            <div className="row">
+              <button type="submit" className="primary" disabled={busy || !title.trim()}>
+                Create seed
+              </button>
+              <button type="button" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   )

@@ -13,6 +13,7 @@ export type Route =
   | { view: 'doc'; path: string }
   | { view: 'trace'; path: string; index: number; node?: string }
   | { view: 'peers' }
+  | { view: 'seeds' }
 
 export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
@@ -25,6 +26,7 @@ export function parseRoute(hash: string): Route {
     return { view: 'trace', path: decodeURIComponent(rest.slice(0, i)), index: Number.isInteger(index) && index >= 0 ? index : 0, node: q.get('node') ?? undefined }
   }
   if (h === 'peers') return { view: 'peers' }
+  if (h === 'seeds') return { view: 'seeds' }
   return { view: 'list' }
 }
 

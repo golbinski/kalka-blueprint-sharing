@@ -332,6 +332,7 @@ A *seed* is a blueprint with `status: seed`: an idea split off from a blueprint 
 2. The seed file is written, with a fresh `kalka_id`, `owner:` the budding user, `status: seed`, `parent`, `origin` when started from an entry, and `created`.
 3. A signed `budded` entry is appended to the parent, anchored like the entry it came from, with `re: <origin id>` when there is one. Body: the line `budded: <seed kalka_id>`, then the seed's title.
 4. If step 3 fails, the UI offers "add the backlink" and never creates a second seed.
+5. The seed is written in the parent's directory, named after its title.
 
 The parent's frontmatter and body are not touched. The backlink reaches the parent's owner on the next sync, like any entry. A seed budded from a published parent is published to the same team by default (20.1).
 

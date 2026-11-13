@@ -62,6 +62,10 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/prompts/{id}", d.apiAnswer)
 	mux.HandleFunc("GET /api/doc", d.apiDoc)
 	mux.HandleFunc("POST /api/entries", d.apiEntry)
+	mux.HandleFunc("GET /api/seeds", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Seeds()) })
+	mux.HandleFunc("POST /api/seeds", d.apiBud)
+	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
+	mux.HandleFunc("POST /api/promote", d.apiPromote)
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.bus, w, r) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
@@ -325,4 +329,56 @@ func (d *Daemon) apiEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"id": e.ID, "anchor": e.Anchor, "kind": e.Kind})
+}
+
+func (d *Daemon) apiBud(w http.ResponseWriter, r *http.Request) {
+	var req BudRequest
+	if err := readBody(r, &req); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := d.Bud(req)
+	if err != nil && res.Seed == "" {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	// A seed written without its backlink is still a success: the UI
+	// offers "add the backlink" from res.BacklinkError.
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (d *Daemon) apiBacklink(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Seed string `json:"seed"`
+	}
+	if err := readBody(r, &req); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	e, err := d.Backlink(req.Seed)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	id := ""
+	if e != nil {
+		id = e.ID
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"entry": id})
+}
+
+func (d *Daemon) apiPromote(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path   string `json:"path"`
+		Status string `json:"status"`
+	}
+	if err := readBody(r, &req); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := d.Promote(req.Path, req.Status); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

@@ -412,6 +412,32 @@ Order from here: R1 reference and hints, R2 team log library, R3 signed entries 
   - a property test over random histories: idempotent, direction-independent plan and entries, version never down.
   The existing scenarios and golden files pass unchanged.
 
+## 6m. R4 status: seeds
+
+- **Library** (`internal/blueprint/seed.go`):
+  - `Status`, `IsSeed`, `Parent`, `Origin`, `Created`;
+  - `Bud`, which assembles the seed and appends the signed `budded` entry (anchored like its origin, `re:` the origin);
+  - `AddBacklink`, the idempotent retry of the second write;
+  - `Entry.Budded`, `Promote`, `NewKalkaID`.
+  - Without `-m`, the problem defaults to the quoted origin entry.
+- **Daemon** (`seeds.go`):
+  - `Bud`, `Backlink`, `Promote` (owner only), `Seeds`;
+  - API `GET/POST /api/seeds`, `POST /api/backlink`, `POST /api/promote`;
+  - the document view carries `seed` (parent, missing backlink), and budded entries carry a link to their seed.
+  - `Store.CreateIn` writes the seed beside its parent.
+- **CLI.** `kalka seed <parent> --title … [--from <id>] [-m …] [--why …]` and `kalka seeds [--json]`. Both work without the daemon, as `kalka comment` does. A parent without a `kalka_id` gets one first.
+- **UI.**
+  - "Create seed" in the document header and on deviation entries; a dialog that offers "Add the backlink" when the second write failed.
+  - A seed strip with its parent link, "Promote to draft" for the owner, and a missing-backlink offer.
+  - Budded entries render as links.
+  - A Pre-backlog page listing title, owner, parent and age.
+  - Checked in Chrome: bud, open the seed, see the pre-backlog, promote.
+- **Tests.**
+  - Library: seed keys, parent plan unchanged, one signed budded entry, idempotent retry, budding without an origin, promotion.
+  - Daemon: budding from a reviewer's copy with the backlink and seed surviving syncs both ways; backlink retry with no second seed; promotion by the owner only; handoff of a seed, then promotion.
+  - CLI: id given to a local parent, seed written beside it, signed backlink, `seeds` output.
+- **Not yet.** Publishing a seed with its parent's team waits for R7.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

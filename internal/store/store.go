@@ -337,6 +337,15 @@ func (s *Store) Update(f *File, doc *bp.Document) error {
 // Create writes a new blueprint under a sanitized version of the sender's
 // suggested name, adding a numeric suffix if the name is taken.
 func (s *Store) Create(doc *bp.Document, suggested string) (string, error) {
+	return s.CreateIn(s.dir, doc, suggested)
+}
+
+// CreateIn is Create in a directory inside the folder, such as the
+// directory of a seed's parent.
+func (s *Store) CreateIn(dir string, doc *bp.Document, suggested string) (string, error) {
+	if _, ok := s.Contains(dir); !ok && filepath.Clean(dir) != filepath.Clean(s.dir) {
+		return "", fmt.Errorf("%s is outside the folder", dir)
+	}
 	base := SafeName(suggested)
 	s.mu.Lock()
 	var path string
@@ -345,7 +354,7 @@ func (s *Store) Create(doc *bp.Document, suggested string) (string, error) {
 		if i > 0 {
 			name = fmt.Sprintf("%s-%d.md", base, i)
 		}
-		path = filepath.Join(s.dir, name)
+		path = filepath.Join(dir, name)
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 			if _, taken := s.own[path]; !taken {
 				break
