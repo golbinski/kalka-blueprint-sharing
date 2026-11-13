@@ -37,8 +37,11 @@ type DocView struct {
 	Headings    []bp.Heading `json:"headings"`
 	Entries     []EntryView  `json:"entries"`
 	// LogLead is unparsed text between the log heading and the first entry.
-	LogLead     string       `json:"log_lead,omitempty"`
-	Problems    []bp.Problem `json:"problems"`
+	LogLead  string       `json:"log_lead,omitempty"`
+	Problems []bp.Problem `json:"problems"`
+	// Hints are the soft suggestions of the blueprint reference (spec
+	// 6.13), kept apart from Problems: they never block a sync.
+	Hints       []bp.Problem `json:"hints"`
 	OwnerEdited bool         `json:"owner_edited,omitempty"`
 	Duplicate   bool         `json:"duplicate,omitempty"`
 	// Traces are the body's trace blocks; Refs the references in them, as
@@ -91,13 +94,16 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	v := &DocView{
 		Path: f.Path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
 		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: doc.Problems(),
-		Entries: []EntryView{},
+		Hints: bp.Hints(doc), Entries: []EntryView{},
 	}
 	if v.Headings == nil {
 		v.Headings = []bp.Heading{}
 	}
 	if v.Problems == nil {
 		v.Problems = []bp.Problem{}
+	}
+	if v.Hints == nil {
+		v.Hints = []bp.Problem{}
 	}
 	if v.Title == "" {
 		v.Title = filepath.Base(f.Path)

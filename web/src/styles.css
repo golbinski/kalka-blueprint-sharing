@@ -1172,3 +1172,39 @@ button.icon {
   padding: 6px 12px;
   border-top: 1px solid var(--line);
 }
+
+/* Blueprint reference hints (spec 6.13): quiet, dismissible, never errors. */
+.hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+}
+.hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--text-2);
+}
+.hint.off {
+  opacity: 0.6;
+}
+.hint-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.hint-text {
+  flex: 1 1 16em;
+}
+.hint-more {
+  align-self: flex-start;
+  font-size: 12px;
+}

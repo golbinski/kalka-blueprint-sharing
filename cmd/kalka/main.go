@@ -15,6 +15,7 @@ import (
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/reference"
 )
 
 // Set at release build time with -ldflags "-X main.version=...".
@@ -63,6 +64,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdRendezvous(rest, stdout, stderr)
 	case "autostart":
 		return cmdAutostart(rest, stdout, stderr)
+	case "reference":
+		return cmdReference(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -86,6 +89,7 @@ func usage(w io.Writer) {
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
+  %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
 `, name.Binary)
 }
@@ -206,6 +210,9 @@ func checkFile(path string) checkResult {
 	r.OK = !d.HasErrors()
 	r.KalkaID, r.Owner, r.Title, r.Rev, r.Entries = d.KalkaID(), d.Owner(), d.Title(), d.Rev(), len(d.Items())
 	r.Problems = append(r.Problems, d.Problems()...)
+	// Hints (spec 6.13) are information: shown with --verbose, never
+	// counted against OK.
+	r.Problems = append(r.Problems, bp.Hints(d)...)
 	for _, t := range d.Traces() {
 		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Valid: t.Valid(),
 			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors}
@@ -302,9 +309,9 @@ func cmdVersion(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if *asJSON {
-		writeJSON(stdout, map[string]any{"version": version, "wire_protocol": wireProtocol, "plugin_protocol": pluginProtocol})
+		writeJSON(stdout, map[string]any{"version": version, "wire_protocol": wireProtocol, "plugin_protocol": pluginProtocol, "reference": reference.Version})
 	} else {
-		fmt.Fprintf(stdout, "%s %s (wire protocol %d, plugin protocol %d)\n", name.Binary, version, wireProtocol, pluginProtocol)
+		fmt.Fprintf(stdout, "%s %s (wire protocol %d, plugin protocol %d, reference %s)\n", name.Binary, version, wireProtocol, pluginProtocol, reference.Version)
 	}
 	return exitOK
 }

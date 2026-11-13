@@ -151,6 +151,8 @@ export interface Doc {
   entries: Entry[]
   log_lead?: string
   problems: Problem[]
+  /** Soft hints of the blueprint reference (spec 6.13); never errors. */
+  hints: Problem[]
   owner_edited?: boolean
   duplicate?: boolean
   traces: Trace[]

@@ -363,6 +363,13 @@ Done 2026-11-13. The second feature request (teams, roles, replication, domains,
 
 Order from here: R1 reference and hints, R2 team log library, R3 signed entries and releases, R4 seeds, M6 Canvas, R5 key IDs, R6 teams and invites, R7 replication, R8 domains (about 18 weeks).
 
+## 6j. R1 status: blueprint reference and hints
+
+- `internal/reference/BLUEPRINT-REFERENCE.md` is the reference itself. It is embedded in the binary and has Agent Skills frontmatter (`name`, `description`) plus `kalka_reference: kalka-blueprint@v1`. It contains rules for agents, the six sections each with a "why agents benefit" line and a parcel-delivery example, when to split off a seed, and a skeleton. `reference_test.go` checks that its version matches `blueprint.HintsVersion`, that its structure holds, and that it contains no financial examples.
+- `kalka reference export [-o <file|dir>] [--force] [--json]` and `kalka reference version`. `kalka version` also reports the reference version.
+- `blueprint.Hints(d)` returns info-level problems with `hint-*` codes, only for documents that opt in. They are never part of `Problems()`. `kalka check` lists them only with `--verbose` and in JSON, and they never change the exit code.
+- The daemon's document view has a separate `hints` field. The Review page shows a quiet strip: each hint can be dismissed, the dismissal is kept in `localStorage` (`kalka.hint-dismissed.<kalka_id>.<code>`), and a "Show dismissed hints" link brings them back. The Blueprints list does not show hints.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

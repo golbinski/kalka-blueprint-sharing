@@ -13,6 +13,62 @@ export function Markdown({ src, className }: { src: string; className?: string }
   return <div className={'md ' + (className ?? '')} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
+// Hint dismissals are per viewer and per document, kept in localStorage
+// (which may be missing or throw: then hints simply come back).
+const hintKey = (id: string, code: string) => `kalka.hint-dismissed.${id}.${code}`
+
+function hintDismissed(id: string, code: string): boolean {
+  try {
+    return localStorage.getItem(hintKey(id, code)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function setHintDismissed(id: string, code: string, on: boolean) {
+  try {
+    if (on) localStorage.setItem(hintKey(id, code), '1')
+    else localStorage.removeItem(hintKey(id, code))
+  } catch {
+    /* not persisted */
+  }
+}
+
+export function HintStrip({ doc }: { doc: Doc }) {
+  const id = doc.kalka_id || doc.rel
+  const [, bump] = useState(0)
+  const [showAll, setShowAll] = useState(false)
+  const hints = doc.hints ?? []
+  if (hints.length === 0) return null
+  const dismissed = hints.filter((h) => hintDismissed(id, h.code))
+  const shown = showAll ? hints : hints.filter((h) => !hintDismissed(id, h.code))
+  const toggle = (code: string, on: boolean) => {
+    setHintDismissed(id, code, on)
+    bump((n) => n + 1)
+  }
+  return (
+    <div className="hints" aria-label="Blueprint reference hints">
+      {shown.map((h) => {
+        const off = hintDismissed(id, h.code)
+        return (
+          <div key={h.code} className={'hint' + (off ? ' off' : '')}>
+            <span className="hint-label">hint</span>
+            <span className="hint-text">{h.message}</span>
+            <button type="button" className="link" onClick={() => toggle(h.code, !off)}>
+              {off ? 'Restore' : 'Dismiss'}
+            </button>
+          </div>
+        )
+      })}
+      {dismissed.length > 0 && (
+        <button type="button" className="link hint-more" onClick={() => setShowAll(!showAll)}>
+          {showAll ? 'Hide dismissed hints' : `Show dismissed hints (${dismissed.length})`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export interface Draft {
   anchor: string
   re?: string
@@ -306,6 +362,7 @@ export function Review({ doc, reload }: { doc: Doc; reload: () => void }) {
 
   return (
     <RefLayer doc={doc} className="review">
+      <HintStrip doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
       {doc.sections.map(sectionView)}
       <section className="sec general">
