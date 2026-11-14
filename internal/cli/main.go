@@ -105,7 +105,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
   %[1]s                     make sure the daemon runs, then open its UI
-  %[1]s daemon [--background] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
+  %[1]s daemon [--background] [--no-ui] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
   %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
   %[1]s autostart on|off|status [--json]   start kalka at logon
   %[1]s open [--print]        open the running daemon's UI

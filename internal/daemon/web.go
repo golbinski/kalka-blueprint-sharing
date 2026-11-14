@@ -44,6 +44,20 @@ func frameCSP(port string) string {
 type gate struct {
 	token string
 	port  func() string
+	// noUI serves the API only (`kalka daemon --no-ui`).
+	noUI bool
+}
+
+// fetchSiteOK checks Sec-Fetch-Site, which browsers send and a page cannot
+// forge: absent (the CLI, older browsers), "none" (an address typed or
+// opened by kalka) or "same-origin" (the page itself). A request another
+// site aims at localhost says "cross-site" or "same-site" and is refused.
+func fetchSiteOK(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "", "none", "same-origin":
+		return true
+	}
+	return false
 }
 
 func (g gate) tokenOK(t string) bool {
@@ -64,11 +78,14 @@ func (g gate) allowedOrigin(origin string) bool {
 }
 
 // wrap serves the UI and the API behind the guards: every request needs a
-// Host naming this loopback listener (defeats DNS rebinding); /api/ needs
-// the token as bearer (CLI) or cookie (browser), and a browser request that
-// changes state also needs this listener's Origin. The UI's static files
-// carry no data and are served without a token, so the page can explain a
-// missing one.
+// Host naming this loopback listener (defeats DNS rebinding); /api/
+// refuses a cross-site Sec-Fetch-Site, needs the token as bearer (CLI) or
+// cookie (browser), and a browser request that changes state also needs
+// this listener's Origin. The UI's static files carry no data and are
+// served without a token, so the page can explain a missing one; the
+// Mermaid frame's opaque origin loads them as cross-site. The token link
+// is not checked for Sec-Fetch-Site: opened from a mail or chat page it is
+// cross-site, and a page that does not know the token gains nothing.
 func (g gate) wrap(api http.Handler) http.Handler {
 	static := staticHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +109,10 @@ func (g gate) wrap(api http.Handler) http.Handler {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
+			if g.noUI {
+				http.Error(w, "the web UI is off: this kalka runs with --no-ui", http.StatusNotFound)
+				return
+			}
 			// The URL kalka opens carries the token once; keep it as a
 			// cookie and drop it from the address bar.
 			if t := r.URL.Query().Get("token"); t != "" {
@@ -102,6 +123,10 @@ func (g gate) wrap(api http.Handler) http.Handler {
 				return
 			}
 			static.ServeHTTP(w, r)
+			return
+		}
+		if !fetchSiteOK(r) {
+			writeJSON(w, http.StatusForbidden, APIError{Error: "cross-site request refused", Kind: "origin"})
 			return
 		}
 		auth := r.Header.Get("Authorization")

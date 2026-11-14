@@ -523,6 +523,13 @@ D2 done (the lock, `kalka daemon`, `kalka stop`):
 - Tests: `TestAcquireTwice`, `TestKilledHolder` (lockfile); `TestOneDaemonPerConfigDir` (two daemons in one process, another port, shutdown over the API, restart); `TestSingleDaemon` (the CLI in subprocesses: a second start, a second `ui_port`, kill with no clean-up and a stale `daemon.json`, `kalka stop`, auto-start in the background); `TestStopDrains` (core). Checked by hand: with an offline team peer, `kalka stop` took 10 s before dials were cancelled on stop, and 0.2 s after.
 - Not run on Windows yet (no machine; D8). `--no-ui` is D3.
 
+D3 done (local API hardening; no socket, per decision 7):
+
+- `Sec-Fetch-Site` on `/api/`: absent, `none` or `same-origin` pass; `cross-site` and `same-site` get 403 with kind `origin`, for reads and bearer requests too. The token link is exempt: Chrome sends `cross-site` for a link opened from another page (found by hand with an extension-opened tab), and the check adds nothing there.
+- `kalka daemon --no-ui` (`Options.NoUI`): page paths answer 404, no cookie is set, popups are off; the API answers the CLI.
+- `POST /api/open-external` (`Options.OpenExternal`, the CLI passes the system browser): only absolute `http`/`https` URLs with a host and no user info. The page does not call it yet; the desktop shell needs it (D6).
+- Tests: `TestAPIGuards` is a 23-row table (Host, port, token forms, cookie, Origin, Sec-Fetch-Site, the token link, static files); `TestNoUI`; `TestOpenExternal` (file:, javascript:, custom schemes, scheme-relative, user info refused). Checked by hand in Chrome: the page loads, reads, writes, streams events, and the Mermaid frame draws.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

@@ -38,6 +38,12 @@ type Options struct {
 	// It returns true for "open", false for "later", and must close and
 	// return when ctx ends. An error falls back to OpenUI.
 	Popup func(ctx context.Context, title, message string) (bool, error)
+	// NoUI serves the API but not the web UI (`--no-ui`, spec 13). It
+	// also turns popups off: there is no page for them to open.
+	NoUI bool
+	// OpenExternal, if set, opens an http or https link in the system
+	// browser (POST /api/open-external).
+	OpenExternal func(url string) error
 	// Lock, if set, is the single-daemon lock already taken by the caller
 	// (before the setup form). Otherwise New takes it, before the core
 	// reads anything (spec 4.1). Run releases it when it returns.
@@ -79,6 +85,9 @@ func New(opts Options) (*Daemon, error) {
 			return nil, err
 		}
 		opts.Lock = l
+	}
+	if opts.NoUI {
+		opts.Popup, opts.OpenUI = nil, nil
 	}
 	n, err := core.New(opts.Options)
 	if err != nil {

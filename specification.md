@@ -701,9 +701,9 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - Bind to `127.0.0.1` only, on `ui_port` (default 7717). The port is fixed so that the page's per-origin storage survives restarts.
 - Validate the `Host` header against the loopback address and port (defeats DNS rebinding).
 - Require the per-start random token on every `/api/` request. The page gets it in the URL that `kalka open` or the shell loads, which the daemon exchanges for an HTTP-only, same-site cookie; the CLI sends it as a bearer header.
-- Requests that change state must carry an `Origin` equal to the daemon's own origin, or none (the CLI). When a `Sec-Fetch-Site` header is present it must be `same-origin` or `none`. A web page elsewhere that aims requests at `localhost` is refused.
+- Requests that change state must carry an `Origin` equal to the daemon's own origin, or none (the CLI). When a `Sec-Fetch-Site` header is present on an `/api/` request it must be `same-origin` or `none`, for reads too. A web page elsewhere that aims requests at `localhost` is refused. The token link itself is not checked: opened from a mail or chat page it arrives as `cross-site`, and a page that does not know the token gains nothing from it. The UI's static files carry no data and are served without these checks (the sandboxed Mermaid frame loads them from an opaque origin).
 - The token is in `daemon.json` in the config directory, written owner-only (mode 0600; on Windows an ACL restricted to the current user). Another local user cannot read it. The user's own processes can, as they can read the identity key: they are trusted with the user's files.
-- `--no-ui` stops the daemon from serving the web UI; the API stays up for the CLI and the shell.
+- `--no-ui` stops the daemon from serving the web UI (every page path answers 404 and no cookie is set); the API stays up for the CLI and the shell. It also turns popups off, since there is no page for them to open.
 - Links the page opens to the outside go through `POST /api/open-external` when it runs in the desktop window: only `http` and `https` are accepted, and the system browser opens them. The window never navigates away from the loopback origin.
 
 ---

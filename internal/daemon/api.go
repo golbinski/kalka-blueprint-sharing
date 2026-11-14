@@ -10,8 +10,10 @@ import (
 	"github.com/golbinski/kalka/internal/core"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
@@ -76,7 +78,8 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
-	return gate{token: d.token, port: d.port}.wrap(mux)
+	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
+	return gate{token: d.token, port: d.port, noUI: d.opts.NoUI}.wrap(mux)
 }
 
 func (d *Daemon) port() string {
@@ -394,4 +397,41 @@ func (d *Daemon) apiPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ExternalURL checks a link the page asks to open outside (spec 13): an
+// absolute http or https URL with a host, nothing else (no file:, no
+// javascript:, no custom schemes that start other programs).
+func ExternalURL(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return "", errors.New("only http and https links open outside kalka")
+	}
+	return u.String(), nil
+}
+
+// apiOpenExternal opens a link in the system browser, for a page shown in
+// the desktop window, which has no tabs.
+func (d *Daemon) apiOpenExternal(w http.ResponseWriter, r *http.Request) {
+	var q struct {
+		URL string `json:"url"`
+	}
+	if err := readBody(r, &q); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	u, err := ExternalURL(q.URL)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if d.opts.OpenExternal == nil {
+		fail(w, http.StatusNotImplemented, errors.New("this kalka cannot open a browser"))
+		return
+	}
+	if err := d.opts.OpenExternal(u); err != nil {
+		fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"opened": true})
 }

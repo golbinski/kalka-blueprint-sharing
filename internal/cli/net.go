@@ -49,6 +49,7 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	background := fs.Bool("background", false, "run as at logon: prompts as notifications, output to <config>/kalka.log")
 	noPopups := fs.Bool("no-popups", false, "show no popups or notifications; prompts wait in the UI (and the terminal)")
+	noUI := fs.Bool("no-ui", false, "serve the local API for the CLI but not the web UI; implies --no-popups")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -119,9 +120,10 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return exitProblems
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
+		NoUI: *noUI, OpenExternal: openBrowser,
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
 	var d *daemon.Daemon
-	if !*noPopups {
+	if !*noPopups && !*noUI {
 		// A notification-centre toast where the system has one for kalka
 		// (Windows, after `kalka autostart on`), else a popup.
 		opts.Popup = func(ctx context.Context, title, msg string) (bool, error) {
@@ -150,7 +152,12 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return
 		}
 		st := d.State()
-		fmt.Fprintf(stdout, "%s running as %s, folder %s (pid %d)\nUI: %s\n", name.Product, st.Email, st.Folder, os.Getpid(), d.URL())
+		fmt.Fprintf(stdout, "%s running as %s, folder %s (pid %d)\n", name.Product, st.Email, st.Folder, os.Getpid())
+		if *noUI {
+			fmt.Fprintf(stdout, "API on %s; the web UI is off (--no-ui)\n", d.APIAddr())
+		} else {
+			fmt.Fprintf(stdout, "UI: %s\n", d.URL())
+		}
 		if st.Notice != "" {
 			fmt.Fprintln(stdout, "NOTICE: "+st.Notice)
 		}
