@@ -10,17 +10,21 @@ export function localTime(utc: string): string {
 
 export type Route =
   | { view: 'list' }
-  | { view: 'doc'; path: string }
+  | { view: 'doc'; path: string; version?: number }
   | { view: 'canvas'; path: string }
   | { view: 'trace'; path: string; index: number; node?: string }
   | { view: 'peers' }
   | { view: 'seeds' }
   | { view: 'team' }
+  | { view: 'domains' }
 
 export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
   const q = new URLSearchParams(query ?? '')
-  if (h.startsWith('doc/')) return { view: 'doc', path: decodeURIComponent(h.slice(4)) }
+  if (h.startsWith('doc/')) {
+    const v = Number(q.get('v'))
+    return { view: 'doc', path: decodeURIComponent(h.slice(4)), version: Number.isInteger(v) && v > 0 ? v : undefined }
+  }
   if (h.startsWith('canvas/')) return { view: 'canvas', path: decodeURIComponent(h.slice(7)) }
   if (h.startsWith('trace/')) {
     const rest = h.slice(6)
@@ -31,11 +35,13 @@ export function parseRoute(hash: string): Route {
   if (h === 'peers') return { view: 'peers' }
   if (h === 'seeds') return { view: 'seeds' }
   if (h === 'team') return { view: 'team' }
+  if (h === 'domains') return { view: 'domains' }
   return { view: 'list' }
 }
 
-export function docHref(rel: string): string {
-  return '#/doc/' + encodeURIComponent(rel)
+// docHref names a document; version names a kept domain version (spec 6.12).
+export function docHref(rel: string, version?: number): string {
+  return '#/doc/' + encodeURIComponent(rel) + (version ? '?v=' + version : '')
 }
 
 export function canvasHref(rel: string): string {

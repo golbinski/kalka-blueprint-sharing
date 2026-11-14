@@ -85,6 +85,24 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, res)
 	})
+	mux.HandleFunc("POST /api/release", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path         string   `json:"path"`
+			Note         string   `json:"note"`
+			Incorporates []string `json:"incorporates"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		res, err := d.Release(q.Path, q.Note, q.Incorporates)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Domains()) })
 	mux.HandleFunc("POST /api/delete", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
 			Path string `json:"path"`
@@ -203,6 +221,18 @@ func (c *Client) Joins(ctx context.Context) ([]JoinView, error) {
 func (c *Client) Publish(ctx context.Context, path, team, note string) (PublishResult, error) {
 	var v PublishResult
 	return v, c.do(ctx, http.MethodPost, "/api/publish", map[string]string{"path": path, "team": team, "note": note}, &v)
+}
+
+// Release releases the next version of a domain document.
+func (c *Client) Release(ctx context.Context, path, note string, incorporates []string) (PublishResult, error) {
+	var v PublishResult
+	return v, c.do(ctx, http.MethodPost, "/api/release", map[string]any{"path": path, "note": note, "incorporates": incorporates}, &v)
+}
+
+// Domains lists the domain documents held by the daemon.
+func (c *Client) Domains(ctx context.Context) ([]DomainRow, error) {
+	var v []DomainRow
+	return v, c.do(ctx, http.MethodGet, "/api/domains", nil, &v)
 }
 
 // Delete deletes a published document for the team.

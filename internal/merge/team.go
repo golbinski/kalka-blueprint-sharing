@@ -20,6 +20,13 @@ type Team interface {
 	Override(kalkaID string) (owner string, after int64, ok bool)
 }
 
+// DomainRule is implemented by a Team given for a domain document (spec
+// 6.12, 19.6): the domain owner a team owner assigned releases every
+// version above after. With no assignment (owner ""), nobody releases.
+type DomainRule interface {
+	DomainOwner() (owner string, after int64, isDomain bool)
+}
+
 // VerifiedBy reports whether e carries a v2 signature by a key the team
 // has bound to its author.
 func VerifiedBy(team Team, kalkaID string, e *bp.Entry) bool {
@@ -97,15 +104,27 @@ func Releases(entries []*bp.Entry, kalkaID string, team Team) ReleaseChain {
 		}
 	}
 	over, after, hasOver := team.Override(kalkaID)
+	var dOwner string
+	var dAfter int64
+	isDomain := false
+	if r, ok := team.(DomainRule); ok {
+		dOwner, dAfter, isDomain = r.DomainOwner()
+	}
 	prevOwner := ""
 	for v := int64(1); ; v++ {
 		want := prevOwner
 		if hasOver && v == after+1 {
 			want = over
 		}
+		unassigned := false
+		if isDomain && v > dAfter {
+			want, unassigned = dOwner, dOwner == ""
+		}
 		var ok []Link
 		for _, l := range byVersion[v] {
 			switch {
+			case unassigned:
+				c.Void[l.Entry.ID] = "no domain owner is assigned for this domain; a team owner assigns one"
 			case v == 1 && !bp.SameEmail(l.Entry.Author, l.Release.Owner):
 				c.Void[l.Entry.ID] = "version 1 must be released by the owner it names"
 			case want != "" && !bp.SameEmail(l.Entry.Author, want):

@@ -213,6 +213,7 @@ func Parse(data []byte) (*Document, error) {
 		d.problem(Error, "body-open-block", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")
 	}
 	d.checkFrontmatter()
+	d.problems = append(d.problems, d.domainProblems()...)
 	d.checkEntries()
 	return d, nil
 }

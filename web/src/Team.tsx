@@ -2,8 +2,8 @@
 // the log as a readable history; Join, Invite, Remove (with a preview of
 // the documents to be reassigned), Add owner, Assign domain.
 import { useCallback, useEffect, useState } from 'react'
-import { api, type InviteResult, type Join, type Reassigned, type Team, type TeamMember } from './api'
-import { localTime, plural } from './util'
+import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Join, type Reassigned, type Team, type TeamMember } from './api'
+import { docHref, localTime, plural } from './util'
 
 export function TeamPage({ self, reloadKey }: { self: string; reloadKey: number }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
@@ -502,6 +502,76 @@ function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => P
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+// DomainsPage lists the team domain documents held here (spec 6.12, 11.1):
+// version, domain owner, open comments, kept versions.
+export function DomainsPage({ reloadKey, list }: { reloadKey: number; list: BlueprintInfo[] }) {
+  const [rows, setRows] = useState<DomainRow[] | null>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    api.domains().then(setRows, (e) => setErr((e as Error).message))
+  }, [reloadKey, list])
+  return (
+    <div className="page">
+      <h1>Domains</h1>
+      <p className="muted">
+        A domain document holds a team's shared language: glossary, contexts, invariants, events. Its domain owner, assigned by a
+        team owner on the <a href="#/team">Team</a> page, releases its versions; everyone else comments. Blueprints name the
+        version they rely on with <code>domain: &lt;team&gt;/&lt;domain&gt;@v&lt;N&gt;</code>.
+      </p>
+      {err && <div className="error-box">{err}</div>}
+      {rows && rows.length === 0 && (
+        <p className="muted">
+          No domain documents here yet. Write one with <code>kind: domain</code>, <code>team:</code> and <code>domain:</code> in its
+          frontmatter, then release it.
+        </p>
+      )}
+      {rows && rows.length > 0 && (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Version</th>
+                <th>Domain owner</th>
+                <th>Open comments</th>
+                <th>Kept versions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.path}>
+                  <td>
+                    <a href={docHref(r.rel)}>{r.title || r.domain}</a>
+                    <div className="muted small mono">
+                      {r.team}/{r.domain}
+                    </div>
+                  </td>
+                  <td>
+                    {r.version > 0 ? `v${r.version}` : 'draft'}
+                    {r.version > 0 && r.unreleased && <span className="badge">unreleased edits</span>}
+                  </td>
+                  <td>{r.you ? 'you' : r.owner || <span className="muted">not assigned</span>}</td>
+                  <td>{r.open}</td>
+                  <td className="small">
+                    {r.versions.length === 0
+                      ? '—'
+                      : r.versions.map((v, i) => (
+                          <span key={v}>
+                            {i > 0 && ' · '}
+                            <a href={docHref(r.rel, v)}>v{v}</a>
+                          </span>
+                        ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

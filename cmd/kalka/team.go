@@ -320,3 +320,93 @@ func absPath(p string) string {
 	}
 	return p
 }
+
+// cmdRelease implements `kalka release <file> [-m <text>] [--incorporates
+// <id>,...]` (spec 6.12).
+func cmdRelease(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("release", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	note := fs.String("m", "", "a summary of the version")
+	inc := fs.String("incorporates", "", "comma-separated ids of the comments this version takes up")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(pos) != 1 {
+		fmt.Fprintf(stderr, "usage: %s release <file> [-m <text>] [--incorporates <id>,...] [--json]\n", name.Binary)
+		return exitUsage
+	}
+	var ids []string
+	for _, x := range strings.Split(*inc, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			ids = append(ids, x)
+		}
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	r, err := c.Release(ctx, absPath(pos[0]), *note, ids)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	if *asJSON {
+		writeJSON(stdout, r)
+		return exitOK
+	}
+	fmt.Fprintf(stdout, "released version %d of %s; it replicates to the members of %s\n", r.Version, r.Path, r.Team)
+	return exitOK
+}
+
+// cmdDomains implements `kalka domains [--json]` (spec 6.12).
+func cmdDomains(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("domains", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	if _, err := parseInterspersed(fs, args); err != nil {
+		return exitUsage
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rows, err := c.Domains(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	if *asJSON {
+		writeJSON(stdout, rows)
+		return exitOK
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(stdout, "no domain documents held here")
+		return exitOK
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "DOMAIN\tVERSION\tOWNER\tOPEN\tFILE")
+	for _, r := range rows {
+		ver := fmt.Sprintf("v%d", r.Version)
+		if r.Version == 0 {
+			ver = "draft"
+		} else if r.Unreleased {
+			ver += " + edits"
+		}
+		owner := r.Owner
+		switch {
+		case owner == "":
+			owner = "(not assigned)"
+		case r.You:
+			owner = "you"
+		}
+		fmt.Fprintf(tw, "%s/%s\t%s\t%s\t%d\t%s\n", r.Team, r.Domain, ver, owner, r.Open, r.Rel)
+	}
+	tw.Flush()
+	return exitOK
+}

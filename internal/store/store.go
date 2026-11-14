@@ -61,7 +61,11 @@ type Info struct {
 	// handoff entry, so it is a manual change without the protection of a
 	// handoff (spec 7.4). It clears on kalka's next write.
 	OwnerEdited bool `json:"owner_edited,omitempty"`
-	hash        [32]byte
+	// Team, and for a domain document (spec 6.12) its domain and version.
+	Team          string `json:"team,omitempty"`
+	Domain        string `json:"domain,omitempty"`
+	DomainVersion int64  `json:"domain_version,omitempty"`
+	hash          [32]byte
 	handoffs    int
 }
 
@@ -116,7 +120,7 @@ func ignored(name string, isDir bool) bool {
 	if isDir {
 		return false
 	}
-	return !strings.EqualFold(filepath.Ext(name), ".md") || conflictName.MatchString(name)
+	return !strings.EqualFold(filepath.Ext(name), ".md") || conflictName.MatchString(name) || bp.IsSnapshotName(name)
 }
 
 var conflictName = regexp.MustCompile(`(?i)\.conflict-[^.]*\.md$`)
@@ -176,6 +180,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		info.ParseError = err.Error()
 	} else {
 		info.KalkaID, info.Title, info.Owner, info.Rev = d.KalkaID(), d.Title(), d.Owner(), d.Rev()
+		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
 		for _, it := range d.Items() {
 			if it.Entry != nil {
 				info.Entries++
@@ -550,4 +555,60 @@ func (s *Store) Forget(path string) {
 	if changed, _ := s.refresh(path); changed {
 		s.publish(Event{Path: path, Removed: true})
 	}
+}
+
+// SaveSnapshot keeps version v of the live domain document at path beside
+// it, as `<name>@v<N>.md` (spec 6.12). The index never lists snapshots.
+// An existing snapshot of that version is left alone: a version's plan
+// never changes.
+func (s *Store) SaveSnapshot(live string, v int64, doc *bp.Document) (string, error) {
+	p := bp.SnapshotPath(live, v)
+	if _, err := os.Stat(p); err == nil {
+		return p, nil
+	}
+	return p, fsutil.WriteAtomic(p, doc.Bytes(), nil)
+}
+
+// Snapshots lists the versions kept beside the live domain document at
+// path, ascending.
+func (s *Store) Snapshots(live string) []int64 {
+	base := strings.TrimSuffix(live, filepath.Ext(live))
+	matches, _ := filepath.Glob(globEscape(base) + "@v*.md")
+	var out []int64
+	for _, m := range matches {
+		var v int64
+		if _, err := fmt.Sscanf(strings.TrimPrefix(m, base+"@v"), "%d.md", &v); err == nil && v > 0 && bp.SnapshotPath(live, v) == m {
+			out = append(out, v)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Snapshot reads version v of the live domain document at path.
+func (s *Store) Snapshot(live string, v int64) (*bp.Document, error) {
+	raw, err := os.ReadFile(bp.SnapshotPath(live, v))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("version %d is not kept here", v)
+		}
+		return nil, err
+	}
+	return bp.Parse(raw)
+}
+
+// FindDomain lists the live documents of one domain of a team.
+func (s *Store) FindDomain(team, domain string) []Info {
+	var out []Info
+	for _, in := range s.List() {
+		if in.Team == team && in.Domain == domain {
+			out = append(out, in)
+		}
+	}
+	return out
+}
+
+func globEscape(p string) string {
+	r := strings.NewReplacer("*", "[*]", "?", "[?]", "[", "[[]")
+	return r.Replace(p)
 }

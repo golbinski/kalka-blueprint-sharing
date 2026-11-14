@@ -345,12 +345,14 @@ A *domain document* holds a team's shared language for one domain: glossary, bou
 
 - File name: `<team>-<domain>-domain.md`, created by its author. `kalka` finds domain documents by frontmatter, never by file name.
 - Frontmatter: `kind: domain`, `team`, `domain`, `owner`, `version`. It is always a published document (20.1).
-- The domain owner is the member a team owner assigned with `assign-domain` (19.3), not whoever the `owner:` line names. Releases by anyone else are not applied (20.4).
+- The domain owner is the member a team owner assigned with `assign-domain` (19.3), not whoever the `owner:` line names. Releases by anyone else are not applied (20.4). Until a domain owner is assigned, nobody can release the document, not even its author. A domain document is never handed off: a team owner assigns the domain again.
 - Members propose changes as signed comments, exactly as in blueprint review.
 
 **Releasing.** The domain owner edits the body with their own tools, as owners of any blueprint can, and then makes a release: "Release" in the UI or `kalka release`. `kalka` increments `version`, appends a signed `release` entry whose body lists the incorporated comment ids and a summary, and replicates it. Edits that are not released do not travel. Comments are never removed; the UI folds those a release incorporated under "incorporated in v<N>".
 
-**Snapshots.** Each released version, made locally or received, is kept as `<team>-<domain>-domain@v<N>.md` beside the live document, so pinned references keep resolving. The index ignores files matching `*@v<N>.md` (14). A member who joins later holds the versions released since they joined, not the older ones.
+**Snapshots.** Each released version, made locally or received, is kept as `<team>-<domain>-domain@v<N>.md` beside the live document, so pinned references keep resolving. The index ignores files matching `*@v<N>.md` (14). A member who joins later holds the versions released since they joined, not the older ones. Snapshots are named after the live file, wherever it is in the folder; a snapshot is written once and never changed. The review view shows a kept version read only, and comments always go to the live document.
+
+A blueprint's reference to a version that is not kept here is shown as such ("not kept here"), as is a reference to a domain of which no document is held.
 
 **References from blueprints.** A blueprint names the domain version it was written against with `domain: <team>/<domain>@v<N>`. When a newer version of that domain is held locally, the review view shows a dismissible "newer domain version available (v<M>)" indicator. It never blocks anything. A reference to a team name held twice (19.2) is shown as ambiguous.
 
@@ -915,7 +917,11 @@ Replay reports the discarded operations with their reasons, and the Team view sh
 
 ### 19.6 Domain assignment
 
-`assign-domain {domain, owner, after}` makes `owner` the domain owner for releases above version `after`. Releases of that domain signed by anyone else above `after` are not applied (20.4). The `owner:` line of the domain document follows as in 19.5.
+`assign-domain {domain, owner, after}` makes `owner` the domain owner for releases above version `after`. Releases of that domain signed by anyone else above `after` are not applied (20.4). The `owner:` line of the domain document follows as in 19.5: when the new domain owner's `kalka` holds the release at the cut-off, it rewrites `owner:` and releases the next version.
+
+- Unlike a reassignment of a blueprint, which names the signer of one version and lets the chain go on from there, an assignment covers every version above `after`: a domain owner cannot hand releasing to someone else by naming them in `owner:`.
+- `after` is the highest release of the domain's documents the assigning owner holds.
+- Removing a member who owns a domain also assigns the domain to the remover, with the removal as the only predecessor, as for reassigned documents (19.5).
 
 ### 19.7 Invites and joining
 
@@ -952,7 +958,7 @@ Members trust each other through the team log: the keys it binds are verified fo
   - The responder merges the initiator's log operations before it checks membership, so a member just added by an operation the initiator brings is admitted in the same session. A peer that is not a member after the merge gets `bye` with reason `not-member`.
   - An inventory line is `kalka_id`, the head version, the head's plan hash, whether it is a tombstone, and a digest over the document's entries that verify against team keys. A line is wanted when the document is not held, when it is a tombstone, when its version is higher, when the entry digests differ, or when the versions are equal and the plan hashes differ (a dispute to learn about). Nothing is wanted for a document held as a tombstone.
   - The initiator sends the documents the responder wants first, then receives the ones it wants. A document that is not published, or not held, is answered with an offer with empty content: unavailable, not an error.
-  - Each received document is merged with the rules of 20.4 and written only if the merge changes the local file. A refusal (no valid release, a chain that does not lead to the incoming plan) is recorded with its reason for the Team view, and the session goes on.
+  - Each received document is merged with the rules of 20.4 and written only if the merge changes the local file. A refusal (no valid release, a chain that does not lead to the incoming plan) is recorded with its reason for the Team view, and the session goes on. When the entries are taken but the incoming plan is not, because the release naming it does not count, the document is written and the reason is recorded too: each peer says why it did not apply a release.
 - **One-to-one syncs** of a published document between members still use the merge of 7.2. Replication corrects any difference at the next round: the release chain decides the plan.
 - **Relaying.** Any member can pass on any published document it holds. No author or owner needs to be online.
 - Peers that are not members never see a `team_*` message.

@@ -126,6 +126,11 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
 // and version, the owner's Publish update and Delete for the team, and
 // what is off about the document's ownership.
 function TeamStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
+  if (doc.domain) return <DomainStrip doc={doc} reload={reload} />
+  return <PublishedStrip doc={doc} reload={reload} />
+}
+
+function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
@@ -235,6 +240,217 @@ function TeamStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   )
 }
 
+// DomainStrip heads a domain document (spec 6.12): its version and domain
+// owner, Release for the domain owner, and the switcher over the versions
+// kept here.
+function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
+  const [releasing, setReleasing] = useState(false)
+  const dm = doc.domain!
+  const t = doc.team
+  const viewing = dm.viewing ?? 0
+  const versions = [...dm.versions].sort((a, b) => b - a)
+  return (
+    <div className="hints team-strip">
+      <div className="hint">
+        <span className="hint-label">domain</span>
+        <span className="hint-text">
+          {viewing > 0 ? (
+            <>
+              Version {viewing} of the {dm.name} domain of {dm.team}, as kept here. Read only.{' '}
+              <a href={docHref(doc.rel)}>Back to the current document</a>
+            </>
+          ) : (
+            <>
+              The {dm.name} domain of <a href="#/team">{dm.team}</a>
+              {dm.version > 0 ? `, version ${dm.version}.` : ': a draft, not released yet.'}
+              {dm.version > 0 && t?.unreleased && ' Edits since then are a draft until the domain owner releases them.'}{' '}
+              {dm.owner ? (
+                <>Domain owner: {dm.owner === doc.self ? 'you' : dm.owner}.</>
+              ) : (
+                <>No domain owner is assigned yet; a team owner assigns one on the Team page.</>
+              )}
+            </>
+          )}
+        </span>
+        {versions.length > 0 && (
+          <select
+            className="version-switch"
+            aria-label="Version"
+            value={viewing}
+            onChange={(e) => {
+              location.hash = docHref(doc.rel, Number(e.target.value) || undefined)
+            }}
+          >
+            <option value={0}>current</option>
+            {versions.map((v) => (
+              <option key={v} value={v}>
+                v{v}
+              </option>
+            ))}
+          </select>
+        )}
+        {viewing === 0 && t?.can_act && t.unreleased && (
+          <button type="button" className="link" onClick={() => setReleasing(true)}>
+            Release v{dm.version + 1}…
+          </button>
+        )}
+      </div>
+      {viewing === 0 && t?.disputed && (
+        <div className="hint warn">
+          <span className="hint-text">Two releases claim the same version. A team owner settles it by assigning the domain again.</span>
+        </div>
+      )}
+      {viewing === 0 && t?.reassigned_to && (
+        <div className="hint">
+          <span className="hint-text">
+            The domain is assigned to {t.reassigned_to}; their kalka takes the document over and releases the next version.
+          </span>
+        </div>
+      )}
+      {releasing && (
+        <ReleaseDialog
+          doc={doc}
+          onClose={() => setReleasing(false)}
+          onDone={() => {
+            setReleasing(false)
+            reload()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ReleaseDialog releases the next domain version (spec 6.12): a summary
+// and the open comments it takes up, which then fold as incorporated.
+function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void; onDone: () => void }) {
+  const open = doc.entries.filter((e) => e.valid && e.kind !== 'release' && !e.reply_to && !e.incorporated_in)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const next = (doc.domain?.version ?? 0) + 1
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault()
+    setBusy(true)
+    setErr('')
+    try {
+      await api.release(doc.rel, note, [...picked])
+      onDone()
+    } catch (e) {
+      setErr((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="modal-back" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" role="dialog" aria-label={`Release version ${next}`}>
+        <h2>Release version {next}</h2>
+        <form onSubmit={submit} className="seed-form">
+          <p className="muted">
+            The current text becomes version {next} for every member of {doc.domain?.team}. Blueprints that name an older version
+            keep resolving to it.
+          </p>
+          <label>
+            Summary <span className="muted">(optional)</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          {open.length > 0 ? (
+            <fieldset className="incorporate">
+              <legend>Comments this version takes up</legend>
+              {open.map((e) => (
+                <label key={e.id} className="check">
+                  <input
+                    type="checkbox"
+                    checked={picked.has(e.id)}
+                    onChange={(ev) => {
+                      const n = new Set(picked)
+                      if (ev.target.checked) n.add(e.id)
+                      else n.delete(e.id)
+                      setPicked(n)
+                    }}
+                  />
+                  <span>
+                    <b>{e.author}</b> on §{e.anchor || 'plan'}: {e.body.length > 120 ? e.body.slice(0, 120) + '…' : e.body}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          ) : (
+            <p className="muted small">No open comments.</p>
+          )}
+          {err && <p className="error-text">{err}</p>}
+          <div className="row">
+            <button type="submit" className="primary" disabled={busy}>
+              Release v{next}
+            </button>
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// DomainRefStrip shows what a blueprint's `domain:` reference resolves to
+// (spec 6.12): a newer version held here, dismissible; a version not kept
+// here; an ambiguous team name. It never blocks anything.
+function DomainRefStrip({ doc }: { doc: Doc }) {
+  const r = doc.domain_ref
+  const [, bump] = useState(0)
+  if (!r) return null
+  const id = doc.kalka_id || doc.rel
+  const newer = (r.latest ?? 0) > r.version
+  const code = `domain-newer-v${r.latest}`
+  const lines: { key: string; text: React.ReactNode; dismiss?: boolean }[] = []
+  if (r.ambiguous) lines.push({ key: 'amb', text: <>Two teams held here are named {r.team}; the reference {r.ref} is ambiguous.</> })
+  if (!r.held) lines.push({ key: 'none', text: <>Written against {r.ref}; no document of that domain is here.</> })
+  if (r.held && r.missing)
+    lines.push({ key: 'miss', text: <>Written against version {r.version} of {r.team}/{r.domain}, which is not kept here.</> })
+  if (r.held && newer && !hintDismissed(id, code))
+    lines.push({
+      key: 'newer',
+      dismiss: true,
+      text: (
+        <>
+          Newer domain version available: <a href={docHref(r.rel!)}>{r.team}/{r.domain} v{r.latest}</a>
+          {!r.missing && (
+            <>
+              {' '}
+              (this plan names <a href={docHref(r.rel!, r.version)}>v{r.version}</a>)
+            </>
+          )}
+          .
+        </>
+      ),
+    })
+  if (lines.length === 0) return null
+  return (
+    <div className="hints" aria-label="Domain reference">
+      {lines.map((l) => (
+        <div key={l.key} className="hint">
+          <span className="hint-label">domain</span>
+          <span className="hint-text">{l.text}</span>
+          {l.dismiss && (
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setHintDismissed(id, code, true)
+                bump((n) => n + 1)
+              }}
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export interface Draft {
   anchor: string
   re?: string
@@ -308,6 +524,11 @@ function Badges({ e }: { e: Entry }) {
           local only
         </span>
       )}
+      {e.incorporated_in && (
+        <span className="badge" title={`the release of version ${e.incorporated_in} took this up`}>
+          incorporated in v{e.incorporated_in}
+        </span>
+      )}
       {e.valid && e.team_state === 'removed-member' && (
         <span className="badge" title={`${e.author} is no longer a member of the team; the entry was signed while they were and still replicates`}>
           removed member
@@ -327,10 +548,21 @@ export function EntryCard({
   e: Entry
   replies: Map<string, Entry[]>
   byId: Map<string, Entry>
-  onReply: (e: Entry) => void
+  onReply?: (e: Entry) => void
   onSeed?: (e: Entry) => void
 }) {
   const kids = replies.get(e.id) ?? []
+  const [unfolded, setUnfolded] = useState(false)
+  if (e.incorporated_in && !unfolded) {
+    return (
+      <div className={'entry folded kind-' + e.kind} id={'e-' + e.id}>
+        <button type="button" className="link" onClick={() => setUnfolded(true)}>
+          {e.kind} by {e.author} · incorporated in v{e.incorporated_in}
+          {kids.length > 0 ? ` · ${plural(kids.length, 'reply', 'replies')}` : ''}
+        </button>
+      </div>
+    )
+  }
   return (
     <div className={'entry kind-' + e.kind} id={'e-' + e.id}>
       <div className="entry-head">
@@ -378,9 +610,11 @@ export function EntryCard({
         </details>
       )}
       <div className="entry-actions">
-        <button type="button" className="link" onClick={() => onReply(e)}>
-          Reply
-        </button>
+        {onReply && (
+          <button type="button" className="link" onClick={() => onReply(e)}>
+            Reply
+          </button>
+        )}
         {onSeed && e.kind === 'deviation' && e.valid && (
           <button type="button" className="link" onClick={() => onSeed(e)}>
             Create seed
@@ -548,7 +782,10 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
   }
 
   const open = (anchor: string, quote?: string) => setDraft({ anchor, quote })
-  const onReply = (e: Entry) => setDraft({ anchor: e.anchor, re: e.id })
+  // A kept domain version is read only (spec 6.12): comments go to the
+  // current document.
+  const readOnly = !!doc.domain?.viewing
+  const onReply = readOnly ? undefined : (e: Entry) => setDraft({ anchor: e.anchor, re: e.id })
   const saved = () => {
     setDraft(null)
     setSelection(null)
@@ -573,7 +810,8 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
               {notes.map((e) => (
                 <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
               ))}
-              {composerFor(slug) ??
+              {!readOnly &&
+                (composerFor(slug) ??
                 (sel ? (
                   <button type="button" className="add sel" onClick={() => open(slug, sel.text)}>
                     Comment on the selected text
@@ -582,7 +820,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
                   <button type="button" className="add" onClick={() => open(slug)}>
                     + Comment on §{slug}
                   </button>
-                ))}
+                )))}
             </>
           )}
         </aside>
@@ -593,6 +831,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
   return (
     <RefLayer doc={doc} className="review">
       <TeamStrip doc={doc} reload={reload} />
+      <DomainRefStrip doc={doc} />
       <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
@@ -612,11 +851,12 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
           {general.map((e) => (
             <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
           ))}
-          {composerFor('') ?? (
-            <button type="button" className="add" onClick={() => open('')}>
-              + General comment
-            </button>
-          )}
+          {!readOnly &&
+            (composerFor('') ?? (
+              <button type="button" className="add" onClick={() => open('')}>
+                + General comment
+              </button>
+            ))}
         </aside>
       </section>
       {orphaned.length > 0 && (

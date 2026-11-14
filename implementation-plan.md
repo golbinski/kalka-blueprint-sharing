@@ -486,6 +486,21 @@ Done (spec 20.1–20.6):
 
 Not done: one-to-one syncs of published documents still merge with 7.2; replication corrects them at the next round.
 
+## 6s. R8 status: team domain documents
+
+Done (spec 6.12, 19.6):
+
+- `internal/blueprint/domain.go`: `kind: domain`, `domain`, `version`, the `<team>/<domain>@v<N>` reference, snapshot names; warnings for a bad domain name or version.
+- `merge.DomainRule`: for a domain document the assigned domain owner releases every version above the cut-off; unassigned, nobody does. The daemon gives the merge a domain-aware team per document (`held.teamFor`), preferring the local copy's kind, so stripping `kind: domain` from an incoming copy does not escape the rule.
+- Store: snapshots are ignored by the index and the watcher; `SaveSnapshot`, `Snapshots`, `Snapshot`, `FindDomain`; `Info` carries team, domain and version.
+- Daemon (`domains.go`, `publish.go`): `Release(path, note, incorporates)` on the publish path (version bump, incorporates checked against the document's entries, snapshot); snapshots of received releases; the new domain owner takes the document over after `assign-domain`; removing a member reassigns their domains; handoff of a domain document refused; `DocumentAt` for kept versions; `Domains()`; reference and incorporation fields in the document view. Background work (rounds, takeovers) is waited for when the daemon stops.
+- Replication reports a refusal when an incoming plan's release is void, even when its entries are taken.
+- CLI: `kalka release <file> [-m] [--incorporates id,...]`, `kalka domains [--json]`. API: `POST /api/release`, `GET /api/domains`, `GET /api/doc?v=`.
+- UI: Domains view; domain strip with version, domain owner, draft note, *Release vN…* (dialog with a checklist of open comments), and a version switcher over kept versions, shown read only; comments folded as "incorporated in vN"; the dismissible "newer domain version available" indicator, and notes for a version not kept here or an ambiguous team.
+- Tests: `TestDomainReleases` (merge), `TestDomainReleaseByNonAssignedOwner` (the required scenario: no peer applies it and each says why), `TestDomainRelayAndReassignment`, `TestDomainIncorporatedAndReferences`. Checked by hand with two daemons: assign, CLI release, reader comment, release from the dialog, the indicator and a kept version.
+
+Not done: the removal preview does not list the domains that move with a member.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

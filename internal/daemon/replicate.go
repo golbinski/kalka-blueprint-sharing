@@ -46,7 +46,13 @@ var (
 )
 
 // logTeam is a replayed team log as the merge needs it.
-type logTeam struct{ st *teamlog.State }
+type logTeam struct {
+	st *teamlog.State
+	// isDomain and domain are set for a domain document (spec 6.12): its
+	// releases follow assign-domain, not the reassignments.
+	isDomain bool
+	domain   string
+}
 
 func (t logTeam) Keys(email string) []ed25519.PublicKey {
 	var out []ed25519.PublicKey
@@ -64,8 +70,23 @@ func (t logTeam) Keys(email string) []ed25519.PublicKey {
 }
 
 func (t logTeam) Override(id string) (string, int64, bool) {
+	if t.isDomain {
+		return "", 0, false
+	}
 	a, ok := t.st.Reassigned[strings.ToLower(id)]
 	return a.Owner, a.After, ok
+}
+
+// DomainOwner implements merge.DomainRule.
+func (t logTeam) DomainOwner() (string, int64, bool) {
+	if !t.isDomain {
+		return "", 0, false
+	}
+	a, ok := t.st.Domains[t.domain]
+	if !ok || t.domain == "" {
+		return "", 0, true
+	}
+	return a.Owner, a.After, true
 }
 
 // held is a team log held locally, replayed.
@@ -75,7 +96,16 @@ type held struct {
 	ops []teamlog.Op
 }
 
-func (h *held) team() logTeam { return logTeam{h.st} }
+// teamFor is the team as the merge sees it for a document: the first of
+// docs that is a domain document makes the rule the domain's (spec 19.6).
+func (h *held) teamFor(docs ...*bp.Document) logTeam {
+	for _, d := range docs {
+		if d != nil && d.IsDomain() {
+			return logTeam{st: h.st, isDomain: true, domain: d.DomainName()}
+		}
+	}
+	return logTeam{st: h.st}
+}
 
 // memberKey returns the key the log binds to a current member.
 func (h *held) memberKey(email string) (ed25519.PublicKey, bool) {
@@ -157,14 +187,14 @@ func entriesOf(doc *bp.Document) []*bp.Entry {
 // valid release under this log and so does not replicate (spec 20.1).
 func describe(h *held, doc *bp.Document) (syncproto.InvItem, merge.ReleaseChain, bool) {
 	id := doc.KalkaID()
-	ch := merge.Releases(entriesOf(doc), id, h.team())
+	ch := merge.Releases(entriesOf(doc), id, h.teamFor(doc))
 	head, ok := ch.Head()
 	if !ok {
 		return syncproto.InvItem{}, ch, false
 	}
 	var ids []string
 	for _, e := range entriesOf(doc) {
-		if e.Valid() && merge.VerifiedBy(h.team(), id, e) {
+		if e.Valid() && merge.VerifiedBy(h.teamFor(), id, e) {
 			ids = append(ids, e.ID)
 		}
 	}
@@ -507,7 +537,7 @@ func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string
 		for _, id := range tw.IDs {
 			off := syncproto.Offer{Type: "sync_offer", KalkaID: id, Intent: syncproto.IntentReplicate}
 			if td, ok := set[strings.ToLower(id)]; ok {
-				if rep, err := merge.Replica(td.doc, h.team()); err == nil {
+				if rep, err := merge.Replica(td.doc, h.teamFor(td.doc)); err == nil {
 					off.Filename, off.Content = filepath.Base(td.path), string(rep.Bytes())
 					res.Sent = append(res.Sent, td.item.ID)
 				}
@@ -536,7 +566,8 @@ func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string
 			written, ref := d.applyReplica(h, peer.Email, off)
 			if ref != nil {
 				res.Refused = append(res.Refused, *ref)
-			} else if written {
+			}
+			if written {
 				res.Received = append(res.Received, off.KalkaID)
 			}
 		}
@@ -560,7 +591,10 @@ func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string
 }
 
 // applyReplica merges one received document (spec 20.4) and writes it, or
-// reports why it was refused. Nothing that fails a check is written.
+// reports why it was refused. Nothing that fails a check is written. When
+// the entries are taken but the incoming plan is not, because its release
+// does not count, it writes and also reports why (spec 20.4: each peer
+// says why it did not apply a release).
 func (d *Daemon) applyReplica(h *held, from string, off syncproto.Offer) (bool, *Refusal) {
 	refuse := func(title, reason string) (bool, *Refusal) {
 		return false, &Refusal{KalkaID: off.KalkaID, Title: title, From: from, Reason: reason, At: d.now().UTC()}
@@ -596,12 +630,19 @@ func (d *Daemon) applyReplica(h *held, from string, off syncproto.Offer) (bool, 
 		if live != nil {
 			local = live.Doc
 		}
-		res := merge.DocsTeam(local, in, from, d.keys, h.team())
+		team := h.teamFor(local, in)
+		res := merge.DocsTeam(local, in, from, d.keys, team)
+		var planRef *Refusal
+		if res.Outcome != merge.Rejected && local != nil {
+			if why := voidPlan(local, in, res.Doc, team); why != "" {
+				_, planRef = refuse(in.Title(), "the plan was not taken: "+why)
+			}
+		}
 		switch res.Outcome {
 		case merge.Rejected:
 			return refuse(in.Title(), res.Detail)
 		case merge.Unchanged:
-			return false, nil
+			return false, planRef
 		}
 		doc := res.Doc
 		if doc.Deleted() {
@@ -614,23 +655,59 @@ func (d *Daemon) applyReplica(h *held, from string, off syncproto.Offer) (bool, 
 		if td, ok := set[id]; ok && td.tomb {
 			return false, nil // a tombstone is final
 		}
+		var path string
 		if live != nil {
+			path = live.Path
 			err = d.Store.Update(live, doc)
 			if errors.Is(err, fsutil.ErrChanged) {
 				continue
 			}
 		} else {
 			if err = os.MkdirAll(h.dir.Dir, 0o755); err == nil {
-				_, err = d.Store.CreateIn(h.dir.Dir, doc, strings.TrimSuffix(off.Filename, ".md"))
+				path, err = d.Store.CreateIn(h.dir.Dir, doc, strings.TrimSuffix(off.Filename, ".md"))
 			}
 		}
 		if err != nil {
 			return refuse(in.Title(), err.Error())
 		}
+		d.snapshotHead(h, path, doc)
 		d.notePushed(id)
-		return true, nil
+		return true, planRef
 	}
 	return refuse(in.Title(), "the file kept changing while it was merged")
+}
+
+// voidPlan explains why an incoming plan that differs from the local one
+// was not taken: the reason its release does not count. It is "" when the
+// plan was taken, or when it simply is not newer.
+func voidPlan(local, in, merged *bp.Document, team merge.Team) string {
+	ih := in.PlanHash()
+	if ih == local.PlanHash() || merged == nil || merged.PlanHash() == ih {
+		return ""
+	}
+	ch := merge.Releases(entriesOf(merged), in.KalkaID(), team)
+	for _, e := range entriesOf(in) {
+		if r, ok := e.Release(); ok && r.Plan == ih {
+			if why, void := ch.Void[e.ID]; void {
+				return why
+			}
+		}
+	}
+	return ""
+}
+
+// snapshotHead keeps the released version of a domain document beside it
+// (spec 6.12) when the file holds the head's plan.
+func (d *Daemon) snapshotHead(h *held, path string, doc *bp.Document) {
+	if !doc.IsDomain() {
+		return
+	}
+	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.teamFor(doc))
+	if head, ok := ch.Head(); ok && head.Release.Plan == doc.PlanHash() {
+		if _, err := d.Store.SaveSnapshot(path, head.Release.Version, doc); err != nil {
+			d.logf("snapshot of %s v%d: %v", path, head.Release.Version, err)
+		}
+	}
 }
 
 // writeTombstone stores a deletion stub and moves the last full copy to
@@ -725,15 +802,15 @@ func (d *Daemon) replicateLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-start:
-			go d.replicateAll(ctx, false)
+			d.background(func() { d.replicateAll(ctx, false) })
 		case <-tick:
 			tick = next()
-			go d.replicateAll(ctx, false)
+			d.background(func() { d.replicateAll(ctx, false) })
 		case team := <-d.repl.kick:
 			if team == "" {
-				go d.replicateAll(ctx, false)
+				d.background(func() { d.replicateAll(ctx, false) })
 			} else {
-				go d.round(ctx, team, false)
+				d.background(func() { d.round(ctx, team, false) })
 			}
 		case ev := <-folder:
 			d.localChange(ev.Path)

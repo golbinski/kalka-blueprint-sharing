@@ -329,9 +329,16 @@ func TestTeamRoster(t *testing.T) {
 	if _, ok := member(v, reader.email); ok || len(v.Owners) != 1 {
 		t.Fatalf("after removal: %+v", v)
 	}
-	last := v.History[len(v.History)-1]
-	if last.Op != teamlog.ReassignDocument || !last.Effective || !strings.Contains(last.Text, "to desk@library.example") {
-		t.Fatalf("reassignment %+v", last)
+	// The document and the domain the member owned go to the remover.
+	var reassigned bool
+	for _, h := range v.History[len(v.History)-2:] {
+		reassigned = reassigned || (h.Op == teamlog.ReassignDocument && h.Effective && strings.Contains(h.Text, "to desk@library.example"))
+	}
+	if !reassigned {
+		t.Fatalf("no reassignment: %+v", v.History[len(v.History)-2:])
+	}
+	if len(v.Domains) != 1 || v.Domains[0].Owner != desk.email {
+		t.Fatalf("domain after removal: %+v", v.Domains)
 	}
 }
 

@@ -72,6 +72,8 @@ export interface Entry {
   unparsed?: string
   /** For a published document: signed by a member, a removed member, or only in this file (spec 11.1). */
   team_state?: 'member' | 'removed-member' | 'local-only'
+  /** The domain version whose release took this comment up (spec 6.12). */
+  incorporated_in?: number
 }
 
 export interface Problem {
@@ -170,6 +172,43 @@ export interface Doc {
   refs: Record<string, RefView>
   seed?: { parent?: string; parent_rel?: string; parent_title?: string; backlink_missing?: boolean }
   team?: TeamDocState
+  domain?: DomainInfo
+  domain_ref?: DomainRefView
+}
+
+/** A domain document in the document view (spec 6.12). */
+export interface DomainInfo {
+  name: string
+  team: string
+  version: number
+  versions: number[]
+  viewing?: number
+  owner?: string
+}
+/** A blueprint's `domain:` reference (spec 6.12). */
+export interface DomainRefView {
+  ref: string
+  team: string
+  domain: string
+  version: number
+  latest?: number
+  rel?: string
+  held: boolean
+  missing?: boolean
+  ambiguous?: boolean
+}
+export interface DomainRow {
+  team: string
+  domain: string
+  title: string
+  path: string
+  rel: string
+  version: number
+  owner?: string
+  you?: boolean
+  unreleased?: boolean
+  open: number
+  versions: number[]
 }
 
 /** What the document view shows about a published document (spec 11.1, 19.5). */
@@ -185,6 +224,7 @@ export interface TeamDocState {
   owner_not_member?: boolean
   local_only?: number
   void_releases?: number
+  domain?: string
 }
 export interface PublishResult {
   path: string
@@ -405,6 +445,9 @@ export const api = {
   setOwner: (team: string, email: string, owner: boolean) => call<Team>('POST', `/api/teams/${enc(team)}/owners`, { email, owner }),
   assignDomain: (team: string, domain: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/domains`, { domain, email }),
   publish: (path: string, note = '', team = '') => call<PublishResult>('POST', '/api/publish', { path, team, note }),
+  release: (path: string, note: string, incorporates: string[]) =>
+    call<PublishResult>('POST', '/api/release', { path, note, incorporates }),
+  domains: () => call<DomainRow[] | null>('GET', '/api/domains').then((l) => l ?? []),
   deleteForTeam: (path: string) => call<object>('POST', '/api/delete', { path }),
   replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
@@ -416,8 +459,8 @@ export const api = {
   status: () => call<Status>('GET', '/api/status'),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: () => call<BlueprintInfo[] | null>('GET', '/api/blueprints').then((l) => l ?? []),
-  doc: (path: string) =>
-    call<Doc>('GET', '/api/doc?path=' + enc(path)).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
+  doc: (path: string, version?: number) =>
+    call<Doc>('GET', '/api/doc?path=' + enc(path) + (version ? '&v=' + version : '')).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
   addEntry: (e: { path: string; kind: string; anchor: string; re?: string; quote?: string; body: string }) =>
     call<{ id: string }>('POST', '/api/entries', e),
   peers: () => call<Peer[] | null>('GET', '/api/peers').then((l) => l ?? []),

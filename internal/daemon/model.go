@@ -52,6 +52,10 @@ type DocView struct {
 	Seed *SeedInfo `json:"seed,omitempty"`
 	// Team is set for a document published to a team (spec 20).
 	Team *TeamDocState `json:"team,omitempty"`
+	// Domain is set for a domain document, DomainRef for a document whose
+	// `domain:` names a domain version (spec 6.12).
+	Domain    *DomainInfo    `json:"domain,omitempty"`
+	DomainRef *DomainRefView `json:"domain_ref,omitempty"`
 }
 
 // SeedInfo describes a seed in the document view.
@@ -97,6 +101,9 @@ type EntryView struct {
 	// TeamState, for a published document: member, removed-member or
 	// local-only (spec 11.1, 20.4).
 	TeamState string `json:"team_state,omitempty"`
+	// IncorporatedIn is the domain version whose release incorporated this
+	// comment (spec 6.12), 0 if none.
+	IncorporatedIn int64 `json:"incorporated_in,omitempty"`
 }
 
 // resolve turns a path from the UI (relative to the folder, or absolute)
@@ -114,9 +121,14 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	if err != nil {
 		return nil, err
 	}
-	doc := f.Doc
+	return d.docView(ctx, f.Path, f.Doc, 0)
+}
+
+// docView builds the view of doc, held at path; snapshot is the version
+// shown when doc is a kept domain version, 0 for the live file.
+func (d *Daemon) docView(_ context.Context, path string, doc *bp.Document, snapshot int64) (*DocView, error) {
 	v := &DocView{
-		Path: f.Path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
+		Path: path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
 		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: doc.Problems(),
 		Hints: bp.Hints(doc), Entries: []EntryView{},
 	}
@@ -130,9 +142,9 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 		v.Hints = []bp.Problem{}
 	}
 	if v.Title == "" {
-		v.Title = filepath.Base(f.Path)
+		v.Title = filepath.Base(path)
 	}
-	v.Rel, _ = filepath.Rel(d.Store.Dir(), f.Path)
+	v.Rel, _ = filepath.Rel(d.Store.Dir(), path)
 	v.Rel = filepath.ToSlash(v.Rel)
 	if fm := doc.Frontmatter(); fm != nil {
 		v.Frontmatter = strings.ReplaceAll(fm.Inner(), "\r\n", "\n")
@@ -145,7 +157,7 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	default:
 		v.Role = RoleReviewer
 	}
-	if info, ok := d.Store.Info(f.Path); ok {
+	if info, ok := d.Store.Info(path); ok {
 		v.OwnerEdited = info.OwnerEdited
 	}
 	if v.KalkaID != "" {
@@ -158,7 +170,16 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	v.Traces, v.Refs = d.refViews(doc, func() { d.bus.Publish(BusEvent{Type: "refs", Data: map[string]string{"path": rel}}) })
 	v.LogLead = strings.TrimSpace(bp.Normalize(strings.Join(doc.Lead(), "")))
 
-	v.Team = d.teamDocState(doc)
+	if snapshot == 0 {
+		v.Team = d.teamDocState(doc)
+	}
+	var incorp map[string]int64
+	v.Domain, incorp = d.domainInfo(path, doc, snapshot)
+	if snapshot > 0 {
+		v.Role = RoleReviewer // a kept version is read only
+		v.Domain, _ = d.domainInfo(path, mustLive(d, path, doc), snapshot)
+	}
+	v.DomainRef = d.domainRef(doc)
 	var th *held
 	if v.Team != nil && v.Team.Held {
 		th, _ = d.heldByName(v.Team.Team)
@@ -176,6 +197,7 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 			Unparsed: strings.TrimSpace(bp.Normalize(strings.Join(it.Trailing, ""))),
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
+		ev.IncorporatedIn = incorp[e.ID]
 		ev.Sig = d.sigState(v.KalkaID, e)
 		if th != nil {
 			ev.TeamState = d.entryTeamState(th, v.KalkaID, e)
@@ -333,4 +355,12 @@ func (d *Daemon) AddEntry(req EntryRequest) (*bp.Entry, error) {
 		d.logf("added %s %s to %s", e.Kind, e.ID, f.Path)
 		return e, nil
 	}
+}
+
+// mustLive is the live file at path, or doc when it cannot be read.
+func mustLive(d *Daemon, path string, doc *bp.Document) *bp.Document {
+	if f, err := d.Store.Load(path); err == nil {
+		return f.Doc
+	}
+	return doc
 }

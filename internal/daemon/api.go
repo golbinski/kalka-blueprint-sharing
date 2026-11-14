@@ -310,7 +310,14 @@ func (d *Daemon) apiAnswer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) apiDoc(w http.ResponseWriter, r *http.Request) {
-	v, err := d.Document(r.Context(), r.URL.Query().Get("path"))
+	var ver int64
+	if s := r.URL.Query().Get("v"); s != "" {
+		if _, err := fmt.Sscanf(s, "%d", &ver); err != nil {
+			fail(w, http.StatusBadRequest, errors.New("v must be a version number"))
+			return
+		}
+	}
+	v, err := d.DocumentAt(r.Context(), r.URL.Query().Get("path"), ver)
 	if err != nil {
 		fail(w, http.StatusNotFound, err)
 		return

@@ -292,7 +292,7 @@ func (d *Daemon) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
 	st, _ := teamlog.Replay(t.Team, all)
 	d.bus.Publish(BusEvent{Type: "teams"})
 	defer d.pushTeam(t.Team)
-	defer func() { go d.afterLogChange(&held{dir: t, st: st, ops: all}) }()
+	defer d.background(func() { d.afterLogChange(&held{dir: t, st: st, ops: all}) })
 	h := ops[0].Hash()
 	if !st.Effective[h] {
 		reason := "it is not effective"
@@ -420,8 +420,8 @@ func (d *Daemon) ownedBy(t teamDir, email string) []Reassigned {
 			continue
 		}
 		f, err := d.Store.Load(in.Path)
-		if err != nil || f.Doc.Team() != t.Name {
-			continue
+		if err != nil || f.Doc.Team() != t.Name || f.Doc.IsDomain() {
+			continue // a domain document follows assign-domain
 		}
 		out = append(out, Reassigned{KalkaID: in.KalkaID, Title: in.Title, Path: in.Path, After: lastRelease(f.Doc)})
 	}
@@ -467,6 +467,13 @@ func (d *Daemon) Remove(ref, email string) (TeamView, error) {
 		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After})
 	}
 	ops := d.teamSigner(t).Remove(st.Heads, email, docs, strings.ToLower(d.self.Email), d.now())
+	// Domains the member owned go to the remover too, falling with the
+	// removal like the reassignments (spec 19.5, 19.6).
+	for dom, a := range st.Domains {
+		if bp.SameEmail(a.Owner, email) {
+			ops = append(ops, d.teamSigner(t).AssignDomain([]string{ops[0].Hash()}, dom, strings.ToLower(d.self.Email), d.domainAfter(t, dom), d.now()))
+		}
+	}
 	if _, err := d.commit(t, ops); err != nil {
 		return TeamView{}, err
 	}
@@ -532,15 +539,7 @@ func (d *Daemon) AssignDomain(ref, domain, email string) (TeamView, error) {
 	if _, ok := memberOf(st, email); !ok {
 		return TeamView{}, fmt.Errorf("%s is not a member of %s", email, t.Name)
 	}
-	var after int64
-	for _, in := range d.Store.List() {
-		if f, err := d.Store.Load(in.Path); err == nil && f.Doc.Team() == t.Name {
-			if v, _ := f.Doc.Frontmatter().Get("domain"); v == domain {
-				after = max(after, lastRelease(f.Doc))
-			}
-		}
-	}
-	op := d.teamSigner(t).AssignDomain(st.Heads, domain, email, after, d.now())
+	op := d.teamSigner(t).AssignDomain(st.Heads, domain, email, d.domainAfter(t, domain), d.now())
 	if _, err := d.commit(t, []teamlog.Op{op}); err != nil {
 		return TeamView{}, err
 	}
@@ -838,4 +837,16 @@ func (d *Daemon) teamKeyFor(team, email string, key []byte) bool {
 	}
 	m, ok := memberOf(st, email)
 	return ok && m.PubKey == teamlog.EncodeKey(key)
+}
+
+// domainAfter is the cut-off of a new domain assignment: the highest
+// release of the domain's documents held here.
+func (d *Daemon) domainAfter(t teamDir, domain string) int64 {
+	var after int64
+	for _, in := range d.Store.FindDomain(t.Name, domain) {
+		if f, err := d.Store.Load(in.Path); err == nil {
+			after = max(after, lastRelease(f.Doc))
+		}
+	}
+	return after
 }

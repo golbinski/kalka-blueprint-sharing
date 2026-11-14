@@ -85,6 +85,9 @@ type Options struct {
 
 // Daemon is one running kalka.
 type Daemon struct {
+	// bg tracks work started in the background (rounds, takeovers after a
+	// log change) so Run returns only when it is done.
+	bg     sync.WaitGroup
 	cfg    *config.Config
 	dir    string
 	now    func() time.Time
@@ -265,7 +268,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
 	wg.Wait()
+	d.bg.Wait()
 	return nil
+}
+
+// background runs f in a goroutine that Run waits for.
+func (d *Daemon) background(f func()) {
+	d.bg.Add(1)
+	go func() { defer d.bg.Done(); f() }()
 }
 
 // forward relays folder changes and prompts to the UI's event streams, and
@@ -735,8 +745,11 @@ func (d *Daemon) candidate(f *store.File, to string) (*bp.Document, error) {
 		if _, ok := h.memberKey(to); !ok {
 			return nil, fmt.Errorf("%s is not a member of %s: a published document goes only to members; delete it for the team first to hand it to someone else", to, t)
 		}
-		ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.team())
-		releaser, v := nextReleaser(ch, h.team(), doc.KalkaID(), f.Doc.Owner())
+		if doc.IsDomain() {
+			return nil, fmt.Errorf("a domain document is not handed off: a team owner assigns its domain owner with `%s team assign-domain`", name.Binary)
+		}
+		ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.teamFor(doc))
+		releaser, v := nextReleaser(ch, h.teamFor(doc), doc.KalkaID(), f.Doc.Owner())
 		if !bp.SameEmail(releaser, d.self.Email) {
 			return nil, fmt.Errorf("only %s can hand this document off", releaser)
 		}

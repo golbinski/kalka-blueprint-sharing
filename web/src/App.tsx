@@ -6,7 +6,7 @@ import { CanvasPage } from './Canvas'
 import { Review } from './Review'
 import { Blueprints, Peers, PreBacklog, Setup } from './Views'
 import { TracePage } from './Trace'
-import { TeamPage } from './Team'
+import { DomainsPage, TeamPage } from './Team'
 import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
 
 type Toast = { id: number; text: string }
@@ -35,7 +35,10 @@ export function App() {
     }
   })
   const docPath = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas' ? route.path : ''
+  const docVersion = route.view === 'doc' ? route.version : undefined
   const docPathRef = useRef(docPath)
+  const docVersionRef = useRef(docVersion)
+  docVersionRef.current = docVersion
   // A dialog belongs to the document it was opened on.
   useEffect(() => setSeedFor(null), [docPath])
   docPathRef.current = docPath
@@ -58,10 +61,11 @@ export function App() {
   const loadPeers = useCallback(() => api.peers().then(setPeers, () => {}), [])
   const loadDoc = useCallback(async () => {
     const p = docPathRef.current
+    const v = docVersionRef.current
     if (!p) return
     try {
-      const d = await api.doc(p)
-      if (docPathRef.current === p) {
+      const d = await api.doc(p, v)
+      if (docPathRef.current === p && docVersionRef.current === v) {
         setDoc(d)
         setDocErr('')
       }
@@ -148,7 +152,7 @@ export function App() {
     setDoc(null)
     setDocErr('')
     if (ready && docPath) loadDoc()
-  }, [docPath, ready, loadDoc])
+  }, [docPath, docVersion, ready, loadDoc])
 
   if (fatal && (!status || fatal.kind === 'token')) {
     return (
@@ -197,6 +201,9 @@ export function App() {
             <a href="#/seeds" className={route.view === 'seeds' ? 'active' : ''}>
               Pre-backlog
             </a>
+            <a href="#/domains" className={route.view === 'domains' ? 'active' : ''}>
+              Domains
+            </a>
             <a href="#/team" className={route.view === 'team' ? 'active' : ''}>
               Team
             </a>
@@ -225,7 +232,7 @@ export function App() {
                 </span>
               )}
             </nav>
-            {!doc.problems.some((p) => p.severity === 'error') && (
+            {!doc.domain?.viewing && !doc.problems.some((p) => p.severity === 'error') && (
               <button type="button" onClick={() => setSeedFor({})} title="Split an idea off this blueprint into a seed you own">
                 Create seed
               </button>
@@ -235,14 +242,16 @@ export function App() {
                 Publish to team…
               </button>
             )}
-            {doc.role === 'owner' && (
+            {doc.role === 'owner' && !doc.domain && (
               <button type="button" onClick={() => setDialog('handoff')}>
                 Hand off to…
               </button>
             )}
-            <button type="button" className="primary" onClick={() => setDialog('sync')}>
-              Sync with…
-            </button>
+            {!doc.domain?.viewing && (
+              <button type="button" className="primary" onClick={() => setDialog('sync')}>
+                Sync with…
+              </button>
+            )}
           </>
         )}
         {inDoc && (
@@ -329,6 +338,7 @@ export function App() {
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && <PreBacklog self={status.email} />}
         {route.view === 'team' && <TeamPage self={status.email} reloadKey={teamTick} />}
+        {route.view === 'domains' && <DomainsPage reloadKey={teamTick} list={list} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 

@@ -26,8 +26,6 @@ var hintSections = []struct {
 	{"hint-no-operations", "operations", "no operations: failure modes, what to watch, how to roll back"},
 }
 
-// domainRefRe is the shape of `domain:` on a blueprint (spec 6.2).
-var domainRefRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*@v[1-9][0-9]*$`)
 
 // trailingDup strips the -1, -2 suffix the slug rule adds to repeated
 // headings, so a second "Scope" heading still counts.

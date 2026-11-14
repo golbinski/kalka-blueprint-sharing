@@ -420,3 +420,42 @@ func TestForgedFirstReleaseFreezes(t *testing.T) {
 		t.Fatalf("reassignment did not settle it: %+v", ch)
 	}
 }
+
+type domainTeam struct {
+	*fakeTeam
+	owner string
+	after int64
+}
+
+func (d domainTeam) DomainOwner() (string, int64, bool) { return d.owner, d.after, true }
+
+// Spec 6.12, 19.6: a domain document's releases are the assigned domain
+// owner's, for every version above the cut-off; unassigned, nobody's.
+func TestDomainReleases(t *testing.T) {
+	ft := newFakeTeam()
+	v1 := release(t, planDoc(t, "dana@example.org", "Glossary."), "dana@example.org", 1, false, tt0)
+	if ch := Releases(entries(v1), tkid, domainTeam{ft, "", 0}); len(ch.Releases) != 0 || !strings.Contains(ch.Void[lastID(v1)], "no domain owner") {
+		t.Fatalf("unassigned domain released: %+v", ch)
+	}
+	team := domainTeam{ft, "dana@example.org", 0}
+	if ch := Releases(entries(v1), tkid, team); len(ch.Releases) != 1 {
+		t.Fatalf("assigned owner's v1 refused: %v", ch.Void)
+	}
+	// dana hands the plan's owner line to bob: bob still may not release,
+	// the assignment decides.
+	v2 := release(t, withPlan(t, v1, "bob@example.org", "Glossary."), "dana@example.org", 2, false, tt0.Add(time.Hour))
+	v3 := release(t, withPlan(t, v2, "bob@example.org", "Bob's glossary."), "bob@example.org", 3, false, tt0.Add(2*time.Hour))
+	if ch := Releases(entries(v3), tkid, team); len(ch.Releases) != 2 || !strings.Contains(ch.Void[lastID(v3)], "only dana@example.org") {
+		t.Fatalf("non-assigned release: %+v", ch.Void)
+	}
+	// A new assignment to carol with cut-off 2 voids dana's v3.
+	dana3 := release(t, withPlan(t, v2, "dana@example.org", "Dana's third."), "dana@example.org", 3, false, tt0.Add(3*time.Hour))
+	carol := domainTeam{ft, "carol@example.org", 2}
+	if ch := Releases(entries(dana3), tkid, carol); len(ch.Releases) != 2 {
+		t.Fatalf("old domain owner released above the cut-off: %d", len(ch.Releases))
+	}
+	carol3 := release(t, withPlan(t, v2, "carol@example.org", "Carol's third."), "carol@example.org", 3, false, tt0.Add(4*time.Hour))
+	if r := mustTeam(t, dana3, carol3, carol); !r.PlanFromIncoming {
+		t.Fatal("new domain owner's release refused")
+	}
+}

@@ -1467,3 +1467,33 @@ button.link.danger {
 .replication {
   margin: 8px 0 4px;
 }
+
+/* Domain documents (spec 6.12) */
+.version-switch {
+  font-size: 12px;
+  padding: 1px 4px;
+}
+.entry.folded {
+  padding-block: 4px;
+  opacity: 0.8;
+}
+.incorporate {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 10px;
+  max-height: 16em;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seed-form .incorporate .check {
+  flex-direction: row;
+  gap: 8px;
+  align-items: baseline;
+  font-weight: normal;
+}
+.seed-form .incorporate .check input {
+  width: auto;
+  flex: none;
+}
