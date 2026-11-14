@@ -165,7 +165,15 @@ function PeerRow({ p, reload }: { p: Peer; reload: () => void }) {
       <td>
         <span className={'dot ' + p.presence} /> {p.presence}
       </td>
-      <td>{key}</td>
+      <td>
+        {key}
+        {p.fingerprint && (
+          <div className="mono small muted" title={p.key_id ? 'reached by its key id' : 'reached by its email id (an older kalka, or not met since it updated)'}>
+            {p.fingerprint}
+            {p.key_id ? ' · key id' : ''}
+          </div>
+        )}
+      </td>
       <td className="mono">{p.code ?? ''}</td>
       <td className="actions">
         {confirm === '' && (
@@ -210,7 +218,7 @@ function PeerRow({ p, reload }: { p: Peer; reload: () => void }) {
   )
 }
 
-export function Peers({ peers, reload }: { peers: Peer[]; reload: () => void }) {
+export function Peers({ peers, reload, status }: { peers: Peer[]; reload: () => void; status: Status }) {
   const [email, setEmail] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -232,6 +240,12 @@ export function Peers({ peers, reload }: { peers: Peer[]; reload: () => void }) 
       <h1>Peers</h1>
       <p className="muted">
         A peer's key is pinned at first contact. Compare the verification code with them once, on a call or in person.
+      </p>
+      <p className="small">
+        Your key fingerprint: <span className="mono">{status.fingerprint}</span>{' '}
+        <span className="muted">
+          {status.key_online ? '· reachable by key id' : `· key id not registered${status.key_error ? ': ' + status.key_error : ''}`}
+        </span>
       </p>
       <form className="row" onSubmit={add}>
         <input type="email" placeholder="teammate@corp.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Peer email" />

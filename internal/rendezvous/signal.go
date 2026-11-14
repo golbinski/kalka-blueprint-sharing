@@ -22,6 +22,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/pion/sdp/v3"
 
+	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
 )
 
@@ -41,6 +42,11 @@ type Server struct {
 	// MaxQueue caps messages queued for one absent id (default 64) and
 	// MaxQueue*16 in all; beyond that new messages are dropped.
 	MaxQueue int
+	// NoKeyProof accepts key peer ids without a proof, as a stock PeerJS
+	// server does. Tests use it to play such a server.
+	NoKeyProof bool
+	// Now is the clock for key-id proofs (default time.Now).
+	Now func() time.Time
 
 	mu      sync.Mutex
 	clients map[string]*client
@@ -128,6 +134,18 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	if !peerjs.ValidID(id) || len(id) > 128 || len(token) > 128 {
 		s.refuse(ctx, conn, peerjs.Error, "Invalid id")
 		return
+	}
+	// A key id is registered only by the key's holder (spec 9.6). The
+	// check is stateless: the signature covers the id and a fresh time.
+	if peerid.IsKey(id) && !s.NoKeyProof {
+		now := time.Now
+		if s.Now != nil {
+			now = s.Now
+		}
+		if err := peerid.CheckProof(id, q.Get(peerid.ProofParam), now()); err != nil {
+			s.refuse(ctx, conn, peerjs.Error, "Key id refused: "+err.Error())
+			return
+		}
 	}
 
 	s.mu.Lock()

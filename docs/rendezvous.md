@@ -15,6 +15,8 @@
 
 The server applies the same OFFER rules as the public PeerJS cloud: an OFFER needs `label`, `serialization` and parseable SDP. Otherwise the sender's socket is closed. It also limits clients (10 000) and messages queued for an offline peer (64 per peer).
 
+Each kalka registers two ids: one derived from its email, and one derived from its public key (`kalka-k…`, §9.2). The server accepts a key id only with a fresh signature by that key (the `kproof` query parameter, §9.6), so nobody can occupy a teammate's key id to keep them offline. The check keeps no state and needs no clock beyond a 5-minute window, so keep the host's clock in sync. On the public cloud or stock `peerjs-server` the parameter is ignored and anyone holding a public key could take that key id; a squatter is still caught in the handshake before any key is pinned.
+
 ## Smallest setup
 
 On a host your team can reach:

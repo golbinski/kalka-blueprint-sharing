@@ -304,7 +304,7 @@ export function App() {
 
       <main>
         {route.view === 'list' && <Blueprints list={list} status={status} />}
-        {route.view === 'peers' && <Peers peers={peers} reload={loadPeers} />}
+        {route.view === 'peers' && <Peers peers={peers} reload={loadPeers} status={status} />}
         {inDoc && docErr && (
           <div className="page">
             <div className="error-box">{docErr}</div>

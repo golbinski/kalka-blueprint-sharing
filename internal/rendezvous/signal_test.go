@@ -2,14 +2,17 @@ package rendezvous
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
 )
 
@@ -149,5 +152,46 @@ func TestQueueCap(t *testing.T) {
 	s.mu.Unlock()
 	if total != 0 {
 		t.Fatalf("queued count after delivery: %d", total)
+	}
+}
+
+// A key peer id registers only with a valid proof of the key (spec 9.6);
+// email ids register as before.
+func TestKeyIDProof(t *testing.T) {
+	now := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	info := serve(t, &Server{Now: func() time.Time { return now }})
+	_, key, _ := ed25519.GenerateKey(nil)
+	_, other, _ := ed25519.GenerateKey(nil)
+	id, proof := peerid.Proof(key, now)
+	_, otherProof := peerid.Proof(other, now)
+	_, stale := peerid.Proof(key, now.Add(-time.Hour))
+	try := func(p string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var q url.Values
+		if p != "" {
+			q = url.Values{peerid.ProofParam: {p}}
+		}
+		c, err := peerjs.DialQuery(ctx, info, id, q)
+		if err == nil {
+			t.Cleanup(func() { c.Close() })
+		}
+		return err
+	}
+	for name, p := range map[string]string{"none": "", "another key": otherProof, "stale": stale, "junk": "a.b.c"} {
+		if err := try(p); err == nil || !strings.Contains(err.Error(), "Key id refused") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := try(proof); err != nil {
+		t.Fatalf("valid proof: %v", err)
+	}
+	if _, err := dial(t, info, peerid.Email("", "desk@library.example")); err != nil {
+		t.Fatalf("email id: %v", err)
+	}
+	// A stock server takes the key id from anyone.
+	loose := serve(t, &Server{NoKeyProof: true})
+	if _, err := dial(t, loose, id); err != nil {
+		t.Fatalf("stock-server mode: %v", err)
 	}
 }

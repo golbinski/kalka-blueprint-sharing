@@ -489,7 +489,7 @@ key_id   = "kalka-k" + hex(SHA-256("kalka-key-v1|" + pubkey))[0:32]
 
 `team` in `email_id` is the optional config salt (5), not a team (19). `pubkey` is the raw 32-byte ed25519 key.
 
-- **Dialing.** If a key is known for the peer (from a team log or a pin) and the peer announced the team capability (9.5), dial its key ID. Otherwise dial its email ID, as v0.3 did. All team traffic uses key IDs. A first one-to-one send to a typed email uses the email ID, since no key is known yet.
+- **Dialing.** If a key is known for the peer (from a team log or a pin) and the peer announced `keyid/1` (9.5) at its last contact, dial its key ID, from one's own key ID; if that ID does not answer, fall back to the email ID. A failed handshake never falls back. Otherwise dial its email ID, as v0.3 did. All team traffic uses key IDs. A first one-to-one send to a typed email uses the email ID, since no key is known yet.
 - **What a key ID gives.** A squatter on someone's key ID is detected before pinning (8.4), so they cannot lock a user out of their pinned peers. On `kalka rendezvous` a key ID also cannot be claimed without the key (9.6). On other servers anyone holding the public key, which every team member does, can still occupy the ID and keep its owner offline; impersonation was already prevented by channel binding and pinning.
 - No directory is needed: to reach a teammate, derive an ID and connect. The server refuses a second connection with an ID already in use (`ID-TAKEN`); the UI reports this as "this email is already online elsewhere".
 
@@ -513,7 +513,7 @@ One reliable, ordered data channel labelled `kalka/1` per operation. Messages ar
 
 | Message | Fields | Notes |
 |---|---|---|
-| `hello` | `proto`, `email`, `pubkey`, `nonce`, optional `caps`, optional `invite` | Both directions, first. `caps` lists capabilities, e.g. `team/1`. `invite` carries a join proof (19.7). |
+| `hello` | `proto`, `email`, `pubkey`, `nonce`, optional `caps`, optional `invite` | Both directions, first. `caps` lists capabilities: `keyid/1` (registers and accepts key IDs, 9.2), later `team/1`. `invite` carries a join proof (19.7). |
 | `auth` | `sig` | Both directions, second. |
 | `sync_offer` | `kalka_id`, `filename`, `intent` (`sync` \| `handoff` \| `replicate`), `content` | Initiator. `replicate` is used inside a team session only and raises no prompt. |
 | `sync_reply` | `kalka_id`, `status` (`merged` \| `rejected`), `reason`, `content` | `reason`: `malformed`, `declined`, `not-owner`, `diverged`. `content` present when merged or when offering convergence. |
@@ -536,7 +536,7 @@ Server mode of the same binary for corporate hosting:
 - Embedded TURN relay (`pion/turn`) with time-limited credentials exposed at `/kalka/ice`.
 - `--allow-origin` / reverse-proxy friendly, so corporate SSO or network policy can sit in front. No built-in user database.
 - TLS via flags or behind a proxy.
-- **Key-ID proof.** A client registering a key ID (9.2) adds a query parameter holding its public key, a timestamp and a signature over the ID and timestamp. The server checks that the ID matches the key, the signature verifies and the timestamp is within a few minutes, and refuses the registration otherwise. Nothing is stored. Email IDs register as before. Other PeerJS servers ignore the parameter.
+- **Key-ID proof.** A client registering a key ID (9.2) adds the query parameter `kproof = base64url(pubkey) "." unix-seconds "." base64url(sig)`, where `sig` signs `"kalka-keyid-v1\n" + id + "\n" + unix-seconds`. The server checks that the ID matches the key, the signature verifies and the timestamp is within a few minutes, and refuses the registration otherwise (within 5 minutes). Nothing is stored. Email IDs register as before. Other PeerJS servers ignore the parameter (checked live on the public cloud, 2026-11-14).
 
 ### 9.7 Public cloud mode
 

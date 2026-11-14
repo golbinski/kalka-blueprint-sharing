@@ -6,6 +6,10 @@ export interface Status {
   defaults?: { folder: string; rendezvous: string }
   email: string
   peer_id: string
+  key_peer_id?: string
+  fingerprint?: string
+  key_online?: boolean
+  key_error?: string
   rendezvous: string
   folder: string
   online: boolean
@@ -192,6 +196,8 @@ export interface Peer {
   first_seen?: string
   key_changed?: boolean
   code?: string
+  fingerprint?: string
+  key_id?: boolean
   presence: 'online' | 'offline' | 'unknown'
   checked?: string
 }

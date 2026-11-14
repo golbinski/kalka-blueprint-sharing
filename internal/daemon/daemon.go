@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/store"
 	"github.com/golbinski/kalka/internal/syncproto"
@@ -71,6 +73,9 @@ type Options struct {
 	Popup func(ctx context.Context, title, message string) (bool, error)
 	// Plugins resolves references (spec 10); nil means none installed.
 	Plugins Plugins
+
+	// legacy, set by tests, plays a v0.3 kalka: email id only, no caps.
+	legacy bool
 }
 
 // Daemon is one running kalka.
@@ -82,7 +87,8 @@ type Daemon struct {
 	opts   Options
 	self   transport.Identity
 	pub    ed25519.PublicKey
-	peerID string
+	peerID string // email id
+	keyID  string // key id (spec 9.2)
 	srv    peerjs.Server
 	cloud  bool
 
@@ -95,9 +101,11 @@ type Daemon struct {
 	token string
 
 	mu        sync.Mutex
-	ep        *transport.Endpoint
+	ep        *transport.Endpoint // on the email id
 	online    bool
 	sigErr    string
+	kep       *transport.Endpoint // on the key id
+	keyErr    string
 	ice       []webrtc.ICEServer
 	iceAt     time.Time
 	presence  map[string]presence
@@ -157,11 +165,16 @@ func New(opts Options) (*Daemon, error) {
 	if log == nil {
 		log = io.Discard
 	}
+	caps := []string{transport.CapKeyID}
+	if opts.legacy {
+		caps = nil
+	}
 	return &Daemon{
 		cfg: cfg, dir: opts.ConfigDir, now: now, log: log, opts: opts,
-		self:   transport.Identity{Email: cfg.Email, Key: key},
+		self:   transport.Identity{Email: cfg.Email, Key: key, Caps: caps},
 		pub:    key.Public().(ed25519.PublicKey),
 		peerID: transport.PeerID(cfg.Team, cfg.Email),
+		keyID:  transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
 		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
 		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(), refs: newRefCache(opts.Plugins, now),
 		token:     token,
@@ -230,7 +243,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); _ = d.Store.Watch(ctx) }()
-	go func() { defer wg.Done(); d.signalLoop(ctx) }()
+	go func() { defer wg.Done(); d.signalLoop(ctx, false) }()
+	if !d.opts.legacy {
+		wg.Add(1)
+		go func() { defer wg.Done(); d.signalLoop(ctx, true) }()
+	}
 	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
 	wg.Wait()
@@ -301,14 +318,24 @@ func (d *Daemon) iceServers() []webrtc.ICEServer {
 	return ice
 }
 
-// signalLoop keeps the rendezvous connection, reconnecting with backoff.
-func (d *Daemon) signalLoop(ctx context.Context) {
+// signalLoop keeps one rendezvous connection, reconnecting with backoff:
+// the email id (spec 9.2, for first contact and older peers) or the key
+// id, registered with a fresh proof each time (spec 9.6; other servers
+// ignore it).
+func (d *Daemon) signalLoop(ctx context.Context, key bool) {
 	backoff := time.Second
 	ready := false
 	for ctx.Err() == nil {
-		sig, err := peerjs.Dial(ctx, d.srv, d.peerID)
+		var sig *peerjs.Client
+		var err error
+		if key {
+			id, proof := peerid.Proof(d.self.Key, time.Now())
+			sig, err = peerjs.DialQuery(ctx, d.srv, id, url.Values{peerid.ProofParam: {proof}})
+		} else {
+			sig, err = peerjs.Dial(ctx, d.srv, d.peerID)
+		}
 		if err != nil {
-			d.setOnline(nil, err)
+			d.setOnline(key, nil, err)
 			wait := backoff
 			if errors.Is(err, peerjs.ErrIDTaken) {
 				wait = 30 * time.Second
@@ -323,11 +350,15 @@ func (d *Daemon) signalLoop(ctx context.Context) {
 		backoff = time.Second
 		d.iceServers()
 		ep := transport.NewEndpoint(sig, transport.Options{ICE: d.iceServers, Loopback: d.opts.Loopback, RelayOnly: d.cfg.RelayOnly})
-		d.setOnline(ep, nil)
-		d.logf("connected to %s as %s", d.srv.URL, d.cfg.Email)
-		if !ready {
-			ready = true
-			close(d.readyCh)
+		d.setOnline(key, ep, nil)
+		if key {
+			d.logf("registered key id %s", sig.ID())
+		} else {
+			d.logf("connected to %s as %s", d.srv.URL, d.cfg.Email)
+			if !ready {
+				ready = true
+				close(d.readyCh)
+			}
 		}
 		for {
 			c, err := ep.Accept(ctx)
@@ -342,23 +373,65 @@ func (d *Daemon) signalLoop(ctx context.Context) {
 		if err == nil && ctx.Err() == nil {
 			err = errors.New("rendezvous connection closed")
 		}
-		d.setOnline(nil, err)
+		d.setOnline(key, nil, err)
 	}
 }
 
-func (d *Daemon) setOnline(ep *transport.Endpoint, err error) {
+func (d *Daemon) setOnline(key bool, ep *transport.Endpoint, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.ep, d.online = ep, ep != nil
 	defer d.bus.Publish(BusEvent{Type: "status"})
-	if err == nil {
-		d.sigErr = ""
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	if key {
+		d.kep = ep
+		if msg != "" && msg != d.keyErr {
+			d.logf("rendezvous (key id): %v", err)
+		}
+		d.keyErr = msg
 		return
 	}
-	if err.Error() != d.sigErr {
+	d.ep, d.online = ep, ep != nil
+	if msg != "" && msg != d.sigErr {
 		d.logf("rendezvous: %v", err)
 	}
-	d.sigErr = err.Error()
+	d.sigErr = msg
+}
+
+// route is how to reach a peer (spec 9.2): its key id when its key is
+// pinned and it announced key ids, else its email id.
+type route struct {
+	ep     *transport.Endpoint
+	id     string
+	viaKey bool
+}
+
+func (d *Daemon) routes(email string) ([]route, error) {
+	ep, err := d.endpoint()
+	if err != nil {
+		return nil, err
+	}
+	byEmail := route{ep: ep, id: transport.PeerID(d.cfg.Team, email)}
+	d.mu.Lock()
+	kep := d.kep
+	d.mu.Unlock()
+	if p, ok := d.Peers.Get(email); ok && kep != nil && p.KeyChanged == nil && p.Has(transport.CapKeyID) {
+		if k := p.Key(); k != nil {
+			// The email id stays as a fallback for a peer whose key-id
+			// connection is down, or that went back to an older kalka.
+			return []route{{ep: kep, id: transport.KeyPeerID(k), viaKey: true}, byEmail}, nil
+		}
+	}
+	return []route{byEmail}, nil
+}
+
+// learn records what a peer announced, once its key passed pinning.
+func (d *Daemon) learn(p transport.Peer) {
+	if err := d.Peers.SetCaps(p.Email, p.Key, p.Caps); err != nil {
+		d.logf("recording capabilities of %s: %v", p.Email, err)
+	}
 }
 
 func (d *Daemon) endpoint() (*transport.Endpoint, error) {
@@ -409,6 +482,7 @@ func (d *Daemon) serve(c *transport.Conn) {
 		return
 	}
 	d.markPresence(peer.Email, transport.Online)
+	d.learn(peer)
 	s := d.session(c, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
 	if d.wrapStore != nil {
 		s.Store = d.wrapStore(s.Store, c)
@@ -528,14 +602,26 @@ func (d *Daemon) Sync(ctx context.Context, req SyncRequest, scope string, progre
 		}
 	}
 
-	ep, err := d.endpoint()
+	rs, err := d.routes(to)
 	if err != nil {
 		return res, err
 	}
-	progress(fmt.Sprintf("connecting to %s", to))
-	dctx, cancel := context.WithTimeout(ctx, DialTimeout)
-	c, err := ep.Dial(dctx, transport.PeerID(d.cfg.Team, to))
-	cancel()
+	var c *transport.Conn
+	for i, r := range rs {
+		how := "its email id"
+		if r.viaKey {
+			how = "its key id"
+		}
+		progress(fmt.Sprintf("connecting to %s by %s", to, how))
+		dctx, cancel := context.WithTimeout(ctx, DialTimeout)
+		c, err = r.ep.Dial(dctx, r.id)
+		cancel()
+		if err == nil || ctx.Err() != nil || i == len(rs)-1 {
+			break
+		}
+		// Only a failed dial falls back; a failed handshake never does.
+		d.logf("%s not reached by key id (%v); trying the email id", to, err)
+	}
 	if errors.Is(err, transport.ErrOffline) {
 		d.markPresence(to, transport.Offline)
 		return res, &ErrOffline{Email: to}
@@ -554,6 +640,7 @@ func (d *Daemon) Sync(ctx context.Context, req SyncRequest, scope string, progre
 	if !bp.SameEmail(peer.Email, to) {
 		return res, fmt.Errorf("connected to %s instead of %s", peer.Email, to)
 	}
+	d.learn(peer)
 	s := d.session(c, peer.Email, scope, progress)
 	if err := d.confirm(s, peer); err != nil {
 		return res, err
@@ -633,13 +720,19 @@ func (d *Daemon) markPresence(email string, p transport.Presence) {
 
 // Probe checks one peer now (spec 9.3, on demand).
 func (d *Daemon) Probe(ctx context.Context, email string) transport.Presence {
-	ep, err := d.endpoint()
+	rs, err := d.routes(email)
 	if err != nil {
 		return transport.Unknown
 	}
-	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
-	defer cancel()
-	p := ep.Probe(ctx, transport.PeerID(d.cfg.Team, email))
+	p := transport.Unknown
+	for _, r := range rs {
+		pctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+		p = r.ep.Probe(pctx, r.id)
+		cancel()
+		if p == transport.Online {
+			break
+		}
+	}
 	d.markPresence(email, p)
 	return p
 }
@@ -696,14 +789,18 @@ func (d *Daemon) probeTargets() []string {
 
 // PeerView is one row of `kalka peers`.
 type PeerView struct {
-	Email      string             `json:"email"`
-	Pinned     bool               `json:"pinned"`
-	Verified   bool               `json:"verified"`
-	FirstSeen  string             `json:"first_seen,omitempty"`
-	KeyChanged bool               `json:"key_changed,omitempty"`
-	Code       string             `json:"code,omitempty"`
-	Presence   transport.Presence `json:"presence"`
-	Checked    *time.Time         `json:"checked,omitempty"`
+	Email      string `json:"email"`
+	Pinned     bool   `json:"pinned"`
+	Verified   bool   `json:"verified"`
+	FirstSeen  string `json:"first_seen,omitempty"`
+	KeyChanged bool   `json:"key_changed,omitempty"`
+	Code       string `json:"code,omitempty"`
+	// Fingerprint of the pinned key, as its key id shows it (spec 9.2).
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// KeyID is set when the peer announced key ids, so it is dialled there.
+	KeyID    bool               `json:"key_id,omitempty"`
+	Presence transport.Presence `json:"presence"`
+	Checked  *time.Time         `json:"checked,omitempty"`
 }
 
 // PeerList lists pinned peers and addresses typed this session.
@@ -715,7 +812,9 @@ func (d *Daemon) PeerList() []PeerView {
 			v.Pinned, v.Verified, v.FirstSeen, v.KeyChanged = true, p.Verified, p.FirstSeen, p.KeyChanged != nil
 			if k := p.Key(); k != nil {
 				v.Code = identity.Code(d.pub, k)
+				v.Fingerprint = peerid.Display(peerid.Fingerprint(k))
 			}
+			v.KeyID = p.Has(transport.CapKeyID)
 		}
 		d.mu.Lock()
 		if pr, ok := d.presence[e]; ok {
@@ -731,8 +830,14 @@ func (d *Daemon) PeerList() []PeerView {
 
 // Status is the daemon's state for `/api/status`.
 type Status struct {
-	Email      string `json:"email"`
-	PeerID     string `json:"peer_id"`
+	Email     string `json:"email"`
+	PeerID    string `json:"peer_id"`
+	KeyPeerID string `json:"key_peer_id"`
+	// Fingerprint of the local identity key, grouped for reading aloud.
+	Fingerprint string `json:"fingerprint"`
+	// KeyOnline: the key id is registered; KeyError says why not.
+	KeyOnline  bool   `json:"key_online"`
+	KeyError   string `json:"key_error,omitempty"`
 	Rendezvous string `json:"rendezvous"`
 	Folder     string `json:"folder"`
 	Online     bool   `json:"online"`
@@ -743,14 +848,15 @@ type Status struct {
 
 // CloudNotice is shown permanently in peerjs-cloud mode (spec 9.7).
 const CloudNotice = "Public PeerJS cloud: a community-run demo service with no availability guarantee. " +
-	"Peer ids can collide or be claimed by anyone who knows an email; only the pinned keys protect the exchange. " +
-	"Not for sensitive blueprints."
+	"Peer ids can be claimed by anyone who knows an email or a public key, which keeps their owner offline; " +
+	"only the pinned keys and the team log protect the exchange. Not for sensitive blueprints."
 
 // State reports the daemon's status.
 func (d *Daemon) State() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	s := Status{Email: d.self.Email, PeerID: d.peerID, Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr}
+	s := Status{Email: d.self.Email, PeerID: d.peerID, KeyPeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
+		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, KeyOnline: d.kep != nil, KeyError: d.keyErr}
 	if d.cloud {
 		s.Notice = CloudNotice
 	}

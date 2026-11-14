@@ -490,7 +490,7 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "EMAIL\tPRESENCE\tKEY\tCODE")
+	fmt.Fprintln(tw, "EMAIL\tPRESENCE\tKEY\tCODE\tFINGERPRINT")
 	for _, p := range peers {
 		key := "not pinned"
 		switch {
@@ -501,7 +501,11 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 		case p.Pinned:
 			key = "pinned, not verified"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code)
+		fp := p.Fingerprint
+		if fp != "" && p.KeyID {
+			fp += " (key id)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code, fp)
 	}
 	tw.Flush()
 	return exitOK

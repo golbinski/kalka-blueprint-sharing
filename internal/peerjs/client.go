@@ -36,12 +36,25 @@ type Client struct {
 
 // Dial registers id with the server and waits for OPEN.
 func Dial(ctx context.Context, srv Server, id string) (*Client, error) {
+	return DialQuery(ctx, srv, id, nil)
+}
+
+// DialQuery is Dial with extra query parameters, such as the key-id proof
+// of `kalka rendezvous` (spec 9.6). PeerJS servers ignore parameters they
+// do not know.
+func DialQuery(ctx context.Context, srv Server, id string, extra url.Values) (*Client, error) {
 	if !ValidID(id) {
 		return nil, fmt.Errorf("peer id %q is not valid for PeerJS", id)
 	}
 	tok := make([]byte, 8)
 	_, _ = rand.Read(tok)
 	q := url.Values{"key": {srv.Key}, "id": {id}, "token": {hex.EncodeToString(tok)}, "version": {"1.5.4"}}
+	for k, v := range extra {
+		if q.Has(k) {
+			continue
+		}
+		q[k] = v
+	}
 	u := srv.URL + "?" + q.Encode()
 
 	hdr := http.Header{}

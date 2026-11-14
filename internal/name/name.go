@@ -40,4 +40,11 @@ const (
 	// InviteContext prefixes the invite token and the hashes derived from
 	// its secret (spec 19.7).
 	InviteContext = Product + "-invite-v1"
+
+	// KeyIDContext prefixes the hash that derives a key peer id (spec 9.2).
+	KeyIDContext = Product + "-key-v1"
+
+	// KeyProofContext prefixes the message signed to register a key peer
+	// id on `kalka rendezvous` (spec 9.6).
+	KeyProofContext = Product + "-keyid-v1"
 )

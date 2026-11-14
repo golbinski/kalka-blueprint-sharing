@@ -5,35 +5,48 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/peerid"
 )
 
 // Proto is the data channel protocol version.
 const Proto = 1
 
-// PeerID derives the PeerJS id for an email (spec 9.2).
-func PeerID(team, email string) string {
-	sum := sha256.Sum256([]byte(name.Product + "-peer-v1|" + team + "|" + strings.ToLower(email)))
-	return name.Product + "-" + hex.EncodeToString(sum[:])[:32]
-}
+// PeerID derives the email peer id (spec 9.2).
+func PeerID(team, email string) string { return peerid.Email(team, email) }
+
+// KeyPeerID derives the key peer id (spec 9.2).
+func KeyPeerID(pub ed25519.PublicKey) string { return peerid.Key(pub) }
+
+// CapKeyID is announced by peers that register and accept key ids.
+const CapKeyID = "keyid/1"
 
 // Identity is the local user.
 type Identity struct {
 	Email string
 	Key   ed25519.PrivateKey
+	// Caps are announced in hello (spec 9.5).
+	Caps []string
 }
 
 // Peer is the authenticated other side.
 type Peer struct {
 	Email string
 	Key   ed25519.PublicKey
+	// Caps are the capabilities the peer announced; none from an older
+	// kalka.
+	Caps []string
+	// ViaKey is set when the connection runs between key ids.
+	ViaKey bool
 }
+
+// Has reports whether the peer announced capability c.
+func (p Peer) Has(c string) bool { return slices.Contains(p.Caps, c) }
 
 // Verifier decides whether a claimed key is acceptable for an email: it
 // implements pinning (spec 8.2). It returns an error to refuse.
@@ -45,6 +58,9 @@ type helloMsg struct {
 	Email  string `json:"email"`
 	PubKey string `json:"pubkey"`
 	Nonce  string `json:"nonce"`
+	// Caps lists capabilities (spec 9.5); older peers send none and
+	// ignore it.
+	Caps []string `json:"caps,omitempty"`
 }
 
 type authMsg struct {
@@ -76,7 +92,7 @@ func Handshake(c *Conn, self Identity, team string, verify Verifier) (Peer, erro
 	}
 	pub := self.Key.Public().(ed25519.PublicKey)
 	if err := c.Send(helloMsg{Type: "hello", Proto: Proto, Email: self.Email,
-		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce)}); err != nil {
+		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce), Caps: self.Caps}); err != nil {
 		return Peer{}, err
 	}
 
@@ -115,15 +131,29 @@ func Handshake(c *Conn, self Identity, team string, verify Verifier) (Peer, erro
 	if !ed25519.Verify(peerKey, authMessage(remote, local, nonce), peerSig) {
 		return Peer{}, errors.New("channel binding failed: the peer's signature does not match this connection; the rendezvous server may be intercepting it")
 	}
-	if want := PeerID(team, h.Email); c.RemoteID() != want {
+	// The peer id must belong to the claimed identity (spec 8.4 step 4),
+	// and this comes before pinning: a squatter on someone's key id fails
+	// here, without leaving a changed-key record.
+	viaKey := peerid.IsKey(c.RemoteID())
+	if viaKey {
+		if c.RemoteID() != peerid.Key(peerKey) {
+			return Peer{}, fmt.Errorf("the peer at key id %s presented another key: someone else holds that id on the rendezvous server", c.RemoteID())
+		}
+	} else if want := PeerID(team, h.Email); c.RemoteID() != want {
 		return Peer{}, fmt.Errorf("peer claims to be %s but is connected as %s", h.Email, c.RemoteID())
+	}
+	caps := make([]string, 0, len(h.Caps))
+	for _, cp := range h.Caps {
+		if len(caps) < 32 && len(cp) <= 64 {
+			caps = append(caps, cp)
+		}
 	}
 	if verify != nil {
 		if err := verify(h.Email, peerKey); err != nil {
 			return Peer{}, err
 		}
 	}
-	return Peer{Email: h.Email, Key: peerKey}, nil
+	return Peer{Email: h.Email, Key: peerKey, Caps: caps, ViaKey: viaKey}, nil
 }
 
 func expect(c *Conn, typ string, v any) error {
