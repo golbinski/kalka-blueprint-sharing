@@ -63,6 +63,46 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return ServeDaemon(ctx, DaemonOptions{Dir: dir, Background: *background, NoPopups: *noPopups, NoUI: *noUI,
+		Stdin: stdin, Stdout: stdout, Stderr: stderr})
+}
+
+// DaemonOptions are how `kalka daemon` and the desktop shell run the
+// daemon in their own process.
+type DaemonOptions struct {
+	Dir                        string // config directory
+	Background, NoPopups, NoUI bool
+	Stdin                      io.Reader
+	Stdout, Stderr             io.Writer
+	// Lock is the single-daemon lock, already taken by the caller; nil
+	// takes it here.
+	Lock *lockfile.Lock
+	// OpenUI shows the UI at a URL (the setup form, a popup's "Open
+	// kalka"); nil opens the browser. The shell shows its window.
+	OpenUI func(url string)
+	// Shell: the desktop shell presents prompts and notices itself, so the
+	// daemon shows no popups or toasts of its own.
+	Shell bool
+	// Started is called once the daemon exists, before it runs.
+	Started func(*daemon.Daemon)
+	// Autostart is the start-at-login back end; nil is the system's.
+	Autostart daemon.Autostart
+}
+
+// ServeDaemon runs the daemon until ctx ends: the single-daemon lock, the
+// setup form when there is no config, then the daemon itself. It returns
+// an exit code; another daemon holding the lock is exit 0.
+func ServeDaemon(ctx context.Context, o DaemonOptions) int {
+	dir, stdin, stdout, stderr := o.Dir, o.Stdin, o.Stdout, o.Stderr
+	background, noPopups, noUI := &o.Background, &o.NoPopups, &o.NoUI
+	if o.Shell {
+		*noPopups = true
+	}
+	if o.Autostart == nil {
+		o.Autostart = daemon.SystemAutostart{}
+	}
 	if *background {
 		logf, err := openLog(dir)
 		if err != nil {
@@ -74,17 +114,19 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stdin = nil
 		fmt.Fprintf(logf, "\n%s %s %s starting in the background\n", time.Now().Format(time.RFC3339), name.Binary, version)
 	}
-	lock, err := daemon.AcquireLock(dir)
-	if errors.Is(err, lockfile.ErrHeld) {
-		fmt.Fprintf(stdout, "%s %v\n", name.Product, err)
-		return exitOK
-	} else if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+	lock := o.Lock
+	if lock == nil {
+		var err error
+		lock, err = daemon.AcquireLock(dir)
+		if errors.Is(err, lockfile.ErrHeld) {
+			fmt.Fprintf(stdout, "%s %v\n", name.Product, err)
+			return exitOK
+		} else if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitProblems
+		}
 	}
 	defer lock.Release() // after a failure before Run; Run releases it too
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	tok := make([]byte, 32)
 	_, _ = rand.Read(tok)
 	token := hex.EncodeToString(tok)
@@ -94,6 +136,9 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := openBrowser(url); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
 		}
+	}
+	if o.OpenUI != nil {
+		openUI = o.OpenUI
 	}
 
 	cfg, err := config.Load()
@@ -121,7 +166,7 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return exitProblems
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
-		NoUI: *noUI, OpenExternal: openBrowser, Autostart: daemon.SystemAutostart{},
+		NoUI: *noUI, OpenExternal: openBrowser, Autostart: o.Autostart,
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
 	var d *daemon.Daemon
 	if !*noPopups && !*noUI {
@@ -134,7 +179,7 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			return false, err
 		}
-	} else {
+	} else if o.OpenUI == nil {
 		opts.OpenUI = nil
 	}
 	if !*noPopups && !*noUI {
@@ -153,6 +198,9 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		ln.Close()
 		fmt.Fprintln(stderr, err)
 		return exitProblems
+	}
+	if o.Started != nil {
+		o.Started(d)
 	}
 	if isTerminal(stdin) {
 		go terminalPrompts(ctx, d.Prompts, stdin, stderr)
@@ -182,9 +230,9 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// cmdStart is bare `kalka`: make sure a daemon runs, then open the UI
-// in the browser (spec 12). The desktop shell, when attached, takes over
-// opening the UI in D6.
+// cmdStart is bare `kalka`: make sure a daemon runs, then open the UI:
+// the desktop shell's window when one is attached, else the browser
+// (spec 12, 22).
 func cmdStart(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		fmt.Fprintf(stderr, "%s: unexpected argument %q (did you mean `%[1]s daemon %[2]s`?)\n", name.Binary, args[0])
@@ -207,7 +255,15 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 	defer cancel()
-	if _, err := ensureDaemon(ctx, dir); err != nil {
+	c, err := ensureDaemon(ctx, dir)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	// The desktop window when a shell is attached, else the browser.
+	if err := c.ShowUI(ctx, ""); err == nil {
+		return exitOK
+	} else if !errors.Is(err, daemon.ErrNoShell) {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}

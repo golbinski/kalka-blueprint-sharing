@@ -30,16 +30,21 @@ func background(exe string) (string, error) {
 	return w, nil
 }
 
-func enable(exe string) (Status, error) {
+// headless is kalkaw.exe daemon --background.
+func headless(exe string) (Target, error) {
 	w, err := background(exe)
 	if err != nil {
-		return Status{}, err
+		return Target{}, err
 	}
+	return Target{w, Args}, nil
+}
+
+func enable(t Target) (Status, error) {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKey, registry.SET_VALUE)
 	if err != nil {
 		return Status{}, err
 	}
-	err = k.SetStringValue(name.Product, `"`+w+`" `+ArgString)
+	err = k.SetStringValue(name.Product, `"`+t.Exe+`" `+strings.Join(t.Args, " "))
 	k.Close()
 	if err != nil {
 		return Status{}, err
@@ -104,20 +109,14 @@ func get() (Status, error) {
 
 const startsOnEnable = false
 
-// start runs kalkaw.exe detached, with no console.
-func start(exe string) error {
-	w, err := background(exe)
-	if err != nil {
-		return err
-	}
-	return detached(w)
-}
+// start runs the entry's program detached, with no console.
+func start(t Target) error { return detached(t.Exe, t.Args) }
 
 // spawn runs exe itself detached; DETACHED_PROCESS gives it no console.
-func spawn(exe string) error { return detached(exe) }
+func spawn(exe string) error { return detached(exe, Args) }
 
-func detached(exe string) error {
-	cmd := exec.Command(exe, Args...)
+func detached(exe string, args []string) error {
+	cmd := exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP}
 	if err := cmd.Start(); err != nil {
 		return err

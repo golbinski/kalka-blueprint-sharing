@@ -157,7 +157,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	pctx, stop := context.WithCancel(ctx)
 	defer stop()
 	go d.present(pctx)
-	go d.presentNotices(pctx.Done())
+	// Subscribe before anything can publish: a paused start raises its
+	// notice as soon as the node is ready.
+	if d.opts.Notify != nil {
+		events, stopW := d.Bus().Watch()
+		go d.presentNotices(pctx.Done(), events, stopW)
+	}
 	if d.Paused() {
 		go func() { // one notice for a start in the paused state (spec 22.3)
 			select {

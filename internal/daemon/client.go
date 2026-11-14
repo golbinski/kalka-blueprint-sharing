@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/golbinski/kalka/internal/name"
 )
@@ -196,3 +197,57 @@ func (c *Client) SetPaused(ctx context.Context, paused bool) (Settings, error) {
 	}
 	return s, c.do(ctx, http.MethodPost, path, struct{}{}, &s)
 }
+
+// ErrNoShell means no desktop shell is attached to the daemon.
+var ErrNoShell = errors.New("no desktop window is attached")
+
+// ShowUI asks the attached desktop shell to show its window, on path if
+// given (spec 22.2). ErrNoShell: there is none; open the browser instead.
+func (c *Client) ShowUI(ctx context.Context, path string) error {
+	err := c.do(ctx, http.MethodPost, "/api/ui/show", map[string]string{"path": path}, nil)
+	var re *RemoteError
+	if errors.As(err, &re) && re.Kind == "no-shell" {
+		return ErrNoShell
+	}
+	return err
+}
+
+// ShellEvents subscribes as a desktop shell (spec 22): while the stream
+// is open the daemon leaves prompts and notices to the shell. It calls on
+// for each bus event until ctx ends or the daemon goes away.
+func (c *Client) ShellEvents(ctx context.Context, on func(typ string, data json.RawMessage)) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/events?shell=1", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ErrNotRunning
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("events: %s", resp.Status)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	var typ string
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			typ = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			on(typ, json.RawMessage(strings.TrimPrefix(line, "data: ")))
+			typ = ""
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return sc.Err()
+}
+
+// URL is the UI's address with the session token, for a window or a
+// browser.
+func (c *Client) URL() string { return c.base + "/?token=" + c.token }

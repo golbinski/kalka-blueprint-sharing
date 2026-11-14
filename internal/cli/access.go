@@ -157,6 +157,8 @@ type statusView struct {
 	Prompts     *int       `json:"prompts"`
 	Joins       int        `json:"joins"`
 	Pushes      *int       `json:"pushes"`
+	// Shell is "desktop" while the desktop window is attached.
+	Shell string `json:"shell,omitempty"`
 }
 
 // cmdStatus is `kalka status`, a view (spec 12).
@@ -183,7 +185,7 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 			return report(asJSON, stdout, stderr, "daemon", err.Error())
 		}
 		out.Online, out.PeersOnline, out.Prompts, out.Pushes = &sum.Online, &sum.PeersOnline, &sum.Prompts, &sum.Pushes
-		out.PeersKnown, out.Joins, out.Paused = sum.PeersKnown, sum.Joins, sum.Paused
+		out.PeersKnown, out.Joins, out.Paused, out.Shell = sum.PeersKnown, sum.Joins, sum.Paused, sum.Shell
 		if !sum.LastSync.IsZero() {
 			out.LastSync = &sum.LastSync
 		}
@@ -236,6 +238,9 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		row("last sync", last)
 		row("waiting", fmt.Sprintf("%d prompt(s), %d join(s) in progress, %d team push(es) queued", *out.Prompts, out.Joins, *out.Pushes))
+		if out.Shell != "" {
+			row("window", "the desktop app is attached")
+		}
 	} else {
 		row("peers", fmt.Sprintf("%d known", out.PeersKnown))
 		if out.Joins > 0 {

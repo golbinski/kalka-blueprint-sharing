@@ -79,6 +79,18 @@ func (d *Daemon) Handler() http.Handler {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
 	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
+	mux.HandleFunc("POST /api/ui/show", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+		}
+		_ = readBody(r, &q)
+		if d.Bus().Shells() == 0 {
+			writeJSON(w, http.StatusConflict, APIError{Error: "no desktop window is attached", Kind: "no-shell"})
+			return
+		}
+		d.Bus().Publish(core.BusEvent{Type: "ui-show", Data: map[string]string{"path": q.Path}})
+		writeJSON(w, http.StatusOK, map[string]bool{"shown": true})
+	})
 	mux.HandleFunc("GET /api/summary", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Summary()) })
 	mux.HandleFunc("GET /api/settings", d.apiSettings)
 	mux.HandleFunc("PUT /api/settings", d.apiSettings)

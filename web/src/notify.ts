@@ -3,11 +3,13 @@
 // shows no popup of its own, but the tab is in the background and the
 // prompt's modal goes unseen.
 import type { Notice, Prompt } from './api'
+import { inDesktopWindow } from './shell'
 
 const shown = new Map<string, Notification>()
 
+// In the desktop window the shell shows OS notifications instead.
 export function notificationsSupported(): boolean {
-  return typeof window !== 'undefined' && 'Notification' in window
+  return typeof window !== 'undefined' && 'Notification' in window && !inDesktopWindow()
 }
 
 export function permission(): NotificationPermission | 'unsupported' {

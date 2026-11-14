@@ -39,7 +39,8 @@ func quoteExec(s string) string {
 	return `"` + r.Replace(s) + `"`
 }
 
-func entry(exe string) []byte {
+func entry(t Target) []byte {
+	args := strings.Join(t.Args, " ")
 	return []byte(fmt.Sprintf(`[Desktop Entry]
 Type=Application
 Name=%s
@@ -48,10 +49,12 @@ Exec=%s %s
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-`, name.Product, quoteExec(exe), ArgString))
+`, name.Product, quoteExec(t.Exe), args))
 }
 
-func enable(exe string) (Status, error) {
+func headless(exe string) (Target, error) { return Target{exe, Args}, nil }
+
+func enable(t Target) (Status, error) {
 	p, err := desktopPath()
 	if err != nil {
 		return Status{}, err
@@ -59,7 +62,7 @@ func enable(exe string) (Status, error) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return Status{}, err
 	}
-	if err := fsutil.WriteAtomic(p, entry(exe), nil); err != nil {
+	if err := fsutil.WriteAtomic(p, entry(t), nil); err != nil {
 		return Status{}, err
 	}
 	return get()

@@ -37,6 +37,20 @@ func TestLaunchAgent(t *testing.T) {
 		}
 	}
 
+	// The desktop build starts itself hidden.
+	DesktopBuild = true
+	s, err = Enable(exe)
+	DesktopBuild = false
+	if err != nil || s.Command != exe+" --hidden" {
+		t.Fatalf("desktop enable: %+v %v", s, err)
+	}
+	if _, err := exec.LookPath("plutil"); err == nil {
+		out, _ := exec.Command("plutil", "-extract", "ProgramArguments.1", "raw", s.Where).Output()
+		if strings.TrimSpace(string(out)) != "--hidden" {
+			t.Fatalf("argument %q", out)
+		}
+	}
+
 	os.Remove(exe)
 	if s, _ := Get(); !s.Stale {
 		t.Fatalf("not stale: %+v", s)

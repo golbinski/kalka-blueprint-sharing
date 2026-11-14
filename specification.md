@@ -707,6 +707,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - The token is in `daemon.json` in the config directory, written owner-only (mode 0600; on Windows an ACL restricted to the current user). Another local user cannot read it. The user's own processes can, as they can read the identity key: they are trusted with the user's files.
 - `--no-ui` stops the daemon from serving the web UI (every page path answers 404 and no cookie is set); the API stays up for the CLI and the shell. It also turns popups off, since there is no page for them to open.
 - Links the page opens to the outside go through `POST /api/open-external` when it runs in the desktop window: only `http` and `https` are accepted, and the system browser opens them. The window never navigates away from the loopback origin.
+- **The desktop shell** (22) is a client like the others. It holds an event stream with `GET /api/events?shell=1`; while one is open, `GET /api/summary` reports `"shell": "desktop"` and the shell, not the daemon, presents prompts and notices. `POST /api/ui/show {"path"}` asks it to show its window (on a document, if given); with no shell attached it fails with kind `no-shell`, and bare `kalka` opens the browser instead. The window loads the token link with `window=1`, which also sets a cookie the page can read (`kalka_window=1`): the page then sends links outside, leaves notifications to the shell, and shows the window settings.
 
 ---
 

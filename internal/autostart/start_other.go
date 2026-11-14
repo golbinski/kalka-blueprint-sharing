@@ -4,4 +4,4 @@ package autostart
 
 const startsOnEnable = false
 
-func start(exe string) error { return spawn(exe) }
+func start(t Target) error { return detached(t.Exe, t.Args) }

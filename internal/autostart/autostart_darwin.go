@@ -39,12 +39,16 @@ func domain() string { return "gui/" + strconv.Itoa(os.Getuid()) }
 // plist is the LaunchAgent. KeepAlive restarts kalka only after a crash:
 // a second start exits 0 when another daemon holds the lock (spec 4.1),
 // so launchd does not loop.
-func plist(exe string) []byte {
+func plist(t Target) []byte {
 	var b bytes.Buffer
+	var args strings.Builder
 	esc := func(s string) string {
 		var e bytes.Buffer
 		_ = xml.EscapeText(&e, []byte(s))
 		return e.String()
+	}
+	for _, a := range append([]string{t.Exe}, t.Args...) {
+		fmt.Fprintf(&args, "\t\t<string>%s</string>\n", esc(a))
 	}
 	fmt.Fprintf(&b, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,10 +58,7 @@ func plist(exe string) []byte {
 	<string>%s</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>%s</string>
-		<string>%s</string>
-		<string>%s</string>
-	</array>
+%s	</array>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -71,11 +72,13 @@ func plist(exe string) []byte {
 	<string>Interactive</string>
 </dict>
 </plist>
-`, esc(name.AppID), esc(exe), Args[0], Args[1])
+`, esc(name.AppID), args.String())
 	return b.Bytes()
 }
 
-func enable(exe string) (Status, error) {
+func headless(exe string) (Target, error) { return Target{exe, Args}, nil }
+
+func enable(t Target) (Status, error) {
 	p, err := plistPath()
 	if err != nil {
 		return Status{}, err
@@ -85,7 +88,7 @@ func enable(exe string) (Status, error) {
 	}
 	// Unload an older entry first; it may not be loaded.
 	_ = launchctl("bootout", domain()+"/"+name.AppID)
-	if err := fsutil.WriteAtomic(p, plist(exe), nil); err != nil {
+	if err := fsutil.WriteAtomic(p, plist(t), nil); err != nil {
 		return Status{}, err
 	}
 	if err := launchctl("bootstrap", domain(), p); err != nil {
@@ -120,19 +123,16 @@ func get() (Status, error) {
 		return s, err
 	}
 	s.Enabled = true
-	// The first <string> after ProgramArguments is the program.
+	// The <string>s of ProgramArguments: the program, then its arguments.
 	if _, rest, ok := strings.Cut(string(raw), "<array>"); ok {
-		if _, rest, ok = strings.Cut(rest, "<string>"); ok {
-			if prog, _, ok := strings.Cut(rest, "</string>"); ok {
-				var u struct {
-					S string `xml:",chardata"`
-				}
-				if xml.Unmarshal([]byte("<x>"+prog+"</x>"), &u) == nil {
-					s.Command = u.S + " " + ArgString
-					_, statErr := os.Stat(u.S)
-					s.Stale = statErr != nil
-				}
-			}
+		rest, _, _ = strings.Cut(rest, "</array>")
+		var u struct {
+			S []string `xml:"string"`
+		}
+		if xml.Unmarshal([]byte("<x>"+rest+"</x>"), &u) == nil && len(u.S) > 0 {
+			s.Command = strings.Join(u.S, " ")
+			_, statErr := os.Stat(u.S[0])
+			s.Stale = statErr != nil
 		}
 	}
 	return s, nil
@@ -140,6 +140,6 @@ func get() (Status, error) {
 
 const startsOnEnable = true
 
-func start(exe string) error {
+func start(Target) error {
 	return launchctl("kickstart", domain()+"/"+name.AppID)
 }

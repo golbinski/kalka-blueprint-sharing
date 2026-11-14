@@ -40,6 +40,13 @@ func frameCSP(port string) string {
 		"; img-src data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts"
 }
 
+// WindowCookie marks a page shown in the desktop window (not secret); the
+// token link with WindowParam=1 sets it.
+const (
+	WindowCookie = "kalka_window"
+	WindowParam  = "window"
+)
+
 // gate guards one listener (spec 13).
 type gate struct {
 	token string
@@ -118,6 +125,11 @@ func (g gate) wrap(api http.Handler) http.Handler {
 			if t := r.URL.Query().Get("token"); t != "" {
 				if g.tokenOK(t) {
 					http.SetCookie(w, &http.Cookie{Name: CookieName, Value: g.token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+					// The desktop window says so, so the page opens links
+					// outside and leaves notifications to the shell.
+					if r.URL.Query().Get(WindowParam) == "1" {
+						http.SetCookie(w, &http.Cookie{Name: WindowCookie, Value: "1", Path: "/", SameSite: http.SameSiteStrictMode})
+					}
 				}
 				http.Redirect(w, r, "/", http.StatusSeeOther)
 				return
@@ -177,7 +189,9 @@ func staticHandler() http.Handler {
 	})
 }
 
-// serveEvents streams bus events as server-sent events.
+// serveEvents streams bus events as server-sent events. A page counts as
+// a connected UI; a desktop shell's control stream (?shell=1) counts as an
+// attached shell instead, which then presents prompts and notices.
 func serveEvents(b *core.Bus, w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -185,7 +199,11 @@ func serveEvents(b *core.Bus, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	ch, cancel := b.Subscribe()
+	subscribe := b.Subscribe
+	if r.URL.Query().Get("shell") == "1" {
+		subscribe = b.SubscribeShell
+	}
+	ch, cancel := subscribe()
 	defer cancel()
 	_, _ = w.Write([]byte(": hello\n\n"))
 	fl.Flush()

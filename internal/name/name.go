@@ -22,6 +22,10 @@ const (
 	// the AppUserModelID of its notifications and the Run value on Windows.
 	AppID = "com.github.golbinski." + Product
 
+	// DesktopBinary is the desktop shell (spec 22): the tray and window,
+	// and with arguments the CLI without a console.
+	DesktopBinary = Product + "-desktop"
+
 	// BackgroundBinary is the Windows build with no console window, used
 	// when kalka starts at logon.
 	BackgroundBinary = Product + "w"

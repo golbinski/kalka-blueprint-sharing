@@ -8,7 +8,8 @@
 //   - macOS: a LaunchAgent in ~/Library/LaunchAgents, loaded with launchctl.
 //   - Linux: an XDG autostart entry in ~/.config/autostart.
 //
-// The entry runs `kalka daemon --background`: no browser at start,
+// The entry starts the desktop shell with --hidden where it is installed
+// (spec 22.2), else `kalka daemon --background`: no browser at start,
 // prompts as native notifications or popups, output to <config>/kalka.log.
 // A second start finds the single-daemon lock held and exits 0 (spec 4.1).
 package autostart
@@ -17,13 +18,47 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/golbinski/kalka/internal/name"
 )
 
-// Args are the arguments autostart and Spawn pass to the binary.
+// Args are the arguments Spawn, and autostart without a shell, pass to
+// the binary.
 var Args = []string{"daemon", "--background"}
 
 // ArgString is Args as one command-line string; no argument needs quoting.
 const ArgString = "daemon --background"
+
+// HiddenArg starts the desktop shell with no window (spec 22.2).
+const HiddenArg = "--hidden"
+
+// DesktopBuild is set by the desktop shell's build: the running binary is
+// itself the shell (macOS, where one executable is shell and CLI).
+var DesktopBuild bool
+
+// Target is what the entry runs at logon.
+type Target struct {
+	Exe  string
+	Args []string
+}
+
+// String is the command line as shown to the user.
+func (t Target) String() string { return strings.Join(append([]string{t.Exe}, t.Args...), " ") }
+
+// TargetFor picks what to start at logon for the binary exe: the shell
+// with --hidden when exe is the shell or the shell is installed next to
+// it, else the headless daemon (on Windows the console-less kalkaw.exe).
+func TargetFor(exe string) (Target, error) {
+	if DesktopBuild {
+		return Target{exe, []string{HiddenArg}}, nil
+	}
+	d := filepath.Join(filepath.Dir(exe), name.DesktopBinary+filepath.Ext(exe))
+	if st, err := os.Stat(d); err == nil && !st.IsDir() {
+		return Target{d, []string{HiddenArg}}, nil
+	}
+	return headless(exe)
+}
 
 // Status describes the autostart entry.
 type Status struct {
@@ -50,9 +85,15 @@ func Executable() (string, error) {
 	return filepath.Abs(exe)
 }
 
-// Enable writes the entry for exe and, where the platform does that,
-// starts it now. It replaces an existing entry.
-func Enable(exe string) (Status, error) { return enable(exe) }
+// Enable writes the entry for the binary exe (TargetFor) and, where the
+// platform does that, starts it now. It replaces an existing entry.
+func Enable(exe string) (Status, error) {
+	t, err := TargetFor(exe)
+	if err != nil {
+		return Status{}, err
+	}
+	return enable(t)
+}
 
 // Disable removes the entry. Removing a missing entry is not an error.
 func Disable() error { return disable() }
@@ -64,9 +105,14 @@ func Get() (Status, error) { return get() }
 // does, on RunAtLoad); elsewhere the caller uses Start.
 var StartsOnEnable = startsOnEnable
 
-// Start launches the background daemon detached from this process, as the
-// logon entry would.
-func Start(exe string) error { return start(exe) }
+// Start launches what the logon entry runs, detached from this process.
+func Start(exe string) error {
+	t, err := TargetFor(exe)
+	if err != nil {
+		return err
+	}
+	return start(t)
+}
 
 // Spawn runs exe with Args detached from this process, with no console
 // and no terminal: how the CLI starts a missing daemon (spec 12).

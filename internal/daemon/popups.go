@@ -38,7 +38,7 @@ func newPopups(d *Daemon) *popups {
 }
 
 func (p *popups) opened(ctx context.Context, pr *core.Pending) {
-	if pr.Scope != "" || p.active != "" || p.d.Bus().Clients() > 0 {
+	if pr.Scope != "" || p.active != "" || p.d.Bus().Clients() > 0 || p.d.Bus().Shells() > 0 {
 		return
 	}
 	if p.d.opts.Popup == nil {

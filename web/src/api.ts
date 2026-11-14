@@ -29,6 +29,7 @@ export interface Summary {
   prompts: number
   joins: number
   pushes: number
+  shell?: 'desktop'
 }
 
 // Settings are the daemon's own settings (spec 22.2).
@@ -394,6 +395,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 const enc = encodeURIComponent
+
+// openExternal asks the daemon to open an http(s) address in the system
+// browser (the desktop window, spec 22).
+export function openExternal(url: string): Promise<object> {
+  return call<object>('POST', '/api/open-external', { url })
+}
 
 // Teams (spec 19).
 export interface TeamMember {

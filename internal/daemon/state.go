@@ -88,6 +88,9 @@ type Settings struct {
 	StartAtLoginAvailable bool   `json:"start_at_login_available"`
 	StartAtLoginError     string `json:"start_at_login_error,omitempty"`
 	CloseNoticeShown      *bool  `json:"close_notice_shown,omitempty"`
+	// AutostartInitialized is set once the desktop shell turned start at
+	// login on at its first start (spec 22.2).
+	AutostartInitialized *bool `json:"autostart_initialized,omitempty"`
 }
 
 // settings guards state.yaml.
@@ -110,7 +113,8 @@ func (d *Daemon) Settings() Settings {
 	st := d.set.st
 	d.set.mu.Unlock()
 	out := Settings{Paused: ptr(d.Paused()), Notifications: ptr(on(st.Notifications)),
-		KeepRunningOnClose: ptr(on(st.KeepRunningOnClose)), CloseNoticeShown: ptr(st.CloseNoticeShown)}
+		KeepRunningOnClose: ptr(on(st.KeepRunningOnClose)), CloseNoticeShown: ptr(st.CloseNoticeShown),
+		AutostartInitialized: ptr(st.AutostartInitialized)}
 	if a := d.opts.Autostart; a != nil {
 		out.StartAtLoginAvailable = true
 		s, err := a.Get()
@@ -152,6 +156,9 @@ func (d *Daemon) Apply(in Settings) (Settings, error) {
 	}
 	if in.CloseNoticeShown != nil {
 		st.CloseNoticeShown = *in.CloseNoticeShown
+	}
+	if in.AutostartInitialized != nil {
+		st.AutostartInitialized = *in.AutostartInitialized
 	}
 	err := saveState(d.dir, st)
 	if err == nil {
@@ -198,11 +205,7 @@ func (d *Daemon) apiPause(paused bool) http.HandlerFunc {
 
 // presentNotices shows notices as OS notifications while no UI page is
 // connected (a page shows them itself).
-func (d *Daemon) presentNotices(done <-chan struct{}) {
-	if d.opts.Notify == nil {
-		return
-	}
-	events, stop := d.Bus().Watch()
+func (d *Daemon) presentNotices(done <-chan struct{}, events <-chan core.BusEvent, stop func()) {
 	defer stop()
 	for {
 		select {
@@ -210,7 +213,7 @@ func (d *Daemon) presentNotices(done <-chan struct{}) {
 			return
 		case e := <-events:
 			n, ok := e.Data.(core.Notice)
-			if e.Type != "notice" || !ok || d.Bus().Clients() > 0 {
+			if e.Type != "notice" || !ok || d.Bus().Clients() > 0 || d.Bus().Shells() > 0 {
 				continue
 			}
 			d.opts.Notify(n)

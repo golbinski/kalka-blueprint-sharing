@@ -26,6 +26,8 @@ type Summary struct {
 	Prompts int `json:"prompts"`
 	Joins   int `json:"joins"`
 	Pushes  int `json:"pushes"`
+	// Shell is "desktop" while a desktop shell is attached (spec 22).
+	Shell string `json:"shell,omitempty"`
 }
 
 // Waiting is what needs the user: prompts and joins.
@@ -66,6 +68,9 @@ func (d *Node) Summary() Summary {
 	s.LastSync = d.lastSync
 	d.mu.Unlock()
 	s.PeersKnown = len(known)
+	if d.Bus().Shells() > 0 {
+		s.Shell = "desktop"
+	}
 	for _, j := range d.teams.joins.list() {
 		if j.State == JoinPending {
 			s.Joins++
