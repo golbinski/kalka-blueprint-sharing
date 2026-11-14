@@ -501,11 +501,7 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 		case p.Pinned:
 			key = "pinned, not verified"
 		}
-		fp := p.Fingerprint
-		if fp != "" && p.KeyID {
-			fp += " (key id)"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code, fp)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code, p.Fingerprint)
 	}
 	tw.Flush()
 	return exitOK

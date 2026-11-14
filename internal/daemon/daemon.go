@@ -74,8 +74,9 @@ type Options struct {
 	// Plugins resolves references (spec 10); nil means none installed.
 	Plugins Plugins
 
-	// legacy, set by tests, plays a v0.3 kalka: email id only, no caps.
-	legacy bool
+	// noKeyID, set by tests, skips registering the key id, as when a
+	// squatter holds it on a server without key-id proofs.
+	noKeyID bool
 }
 
 // Daemon is one running kalka.
@@ -166,13 +167,9 @@ func New(opts Options) (*Daemon, error) {
 	if log == nil {
 		log = io.Discard
 	}
-	caps := []string{transport.CapKeyID}
-	if opts.legacy {
-		caps = nil
-	}
 	return &Daemon{
 		cfg: cfg, dir: opts.ConfigDir, now: now, log: log, opts: opts,
-		self:   transport.Identity{Email: cfg.Email, Key: key, Caps: caps},
+		self:   transport.Identity{Email: cfg.Email, Key: key},
 		pub:    key.Public().(ed25519.PublicKey),
 		peerID: transport.PeerID(cfg.Team, cfg.Email),
 		keyID:  transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
@@ -246,11 +243,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	wg.Add(3)
 	go func() { defer wg.Done(); _ = d.Store.Watch(ctx) }()
 	go func() { defer wg.Done(); d.signalLoop(ctx, false) }()
-	if !d.opts.legacy {
+	wg.Add(1)
+	go func() { defer wg.Done(); d.joinLoop(ctx) }()
+	if !d.opts.noKeyID {
 		wg.Add(1)
 		go func() { defer wg.Done(); d.signalLoop(ctx, true) }()
-		wg.Add(1)
-		go func() { defer wg.Done(); d.joinLoop(ctx) }()
 	}
 	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
@@ -421,21 +418,15 @@ func (d *Daemon) routes(email string) ([]route, error) {
 	d.mu.Lock()
 	kep := d.kep
 	d.mu.Unlock()
-	if p, ok := d.Peers.Get(email); ok && kep != nil && p.KeyChanged == nil && p.Has(transport.CapKeyID) {
+	if p, ok := d.Peers.Get(email); ok && kep != nil && p.KeyChanged == nil {
 		if k := p.Key(); k != nil {
 			// The email id stays as a fallback for a peer whose key-id
-			// connection is down, or that went back to an older kalka.
+			// connection is down (for example held by a squatter on a
+			// server without key-id proofs).
 			return []route{{ep: kep, id: transport.KeyPeerID(k), viaKey: true}, byEmail}, nil
 		}
 	}
 	return []route{byEmail}, nil
-}
-
-// learn records what a peer announced, once its key passed pinning.
-func (d *Daemon) learn(p transport.Peer) {
-	if err := d.Peers.SetCaps(p.Email, p.Key, p.Caps); err != nil {
-		d.logf("recording capabilities of %s: %v", p.Email, err)
-	}
 }
 
 func (d *Daemon) endpoint() (*transport.Endpoint, error) {
@@ -482,7 +473,7 @@ func (d *Daemon) serve(c *transport.Conn) {
 	// Pinning waits until it is known whether this is a join: a joiner's
 	// key is vouched for by the invite, not pinned on first sight.
 	peer, err := transport.Handshake(c, d.self, d.cfg.Team, nil)
-	if err == nil && (peer.Invite == nil || d.opts.legacy) {
+	if err == nil && (peer.Invite == nil) {
 		err = d.Peers.Pin(peer.Email, peer.Key)
 	}
 	if err != nil {
@@ -491,11 +482,10 @@ func (d *Daemon) serve(c *transport.Conn) {
 		return
 	}
 	d.markPresence(peer.Email, transport.Online)
-	if peer.Invite != nil && !d.opts.legacy {
+	if peer.Invite != nil {
 		d.redeem(c, peer)
 		return
 	}
-	d.learn(peer)
 	s := d.session(c, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
 	if d.wrapStore != nil {
 		s.Store = d.wrapStore(s.Store, c)
@@ -653,7 +643,6 @@ func (d *Daemon) Sync(ctx context.Context, req SyncRequest, scope string, progre
 	if !bp.SameEmail(peer.Email, to) {
 		return res, fmt.Errorf("connected to %s instead of %s", peer.Email, to)
 	}
-	d.learn(peer)
 	s := d.session(c, peer.Email, scope, progress)
 	if err := d.confirm(s, peer); err != nil {
 		return res, err
@@ -810,8 +799,6 @@ type PeerView struct {
 	Code       string `json:"code,omitempty"`
 	// Fingerprint of the pinned key, as its key id shows it (spec 9.2).
 	Fingerprint string `json:"fingerprint,omitempty"`
-	// KeyID is set when the peer announced key ids, so it is dialled there.
-	KeyID    bool               `json:"key_id,omitempty"`
 	Presence transport.Presence `json:"presence"`
 	Checked  *time.Time         `json:"checked,omitempty"`
 }
@@ -827,7 +814,6 @@ func (d *Daemon) PeerList() []PeerView {
 				v.Code = identity.Code(d.pub, k)
 				v.Fingerprint = peerid.Display(peerid.Fingerprint(k))
 			}
-			v.KeyID = p.Has(transport.CapKeyID)
 		}
 		d.mu.Lock()
 		if pr, ok := d.presence[e]; ok {

@@ -49,7 +49,7 @@ func TestBud(t *testing.T) {
 	if !ok || id != sid || title != "Courier app rescheduling" || b.ReplyTo() != dev.ID || b.Anchor != "scope" {
 		t.Fatalf("budded %q", b.Body)
 	}
-	if b.Verify(again.KalkaID(), k.Public().(ed25519.PublicKey), false) != SigV2 {
+	if b.Verify(again.KalkaID(), k.Public().(ed25519.PublicKey)) != SigOK {
 		t.Fatal("budded entry not signed")
 	}
 	// The retry adds nothing when the backlink is there...

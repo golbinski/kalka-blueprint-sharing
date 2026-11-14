@@ -168,9 +168,8 @@ function PeerRow({ p, reload }: { p: Peer; reload: () => void }) {
       <td>
         {key}
         {p.fingerprint && (
-          <div className="mono small muted" title={p.key_id ? 'reached by its key id' : 'reached by its email id (an older kalka, or not met since it updated)'}>
+          <div className="mono small muted" title="Fingerprint of the pinned key">
             {p.fingerprint}
-            {p.key_id ? ' · key id' : ''}
           </div>
         )}
       </td>

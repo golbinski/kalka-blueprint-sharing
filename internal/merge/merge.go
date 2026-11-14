@@ -88,7 +88,7 @@ func Docs(local, in *bp.Document, sender string, keys Keys) Result {
 	// the author's pinned key wins, so a relay cannot strip a signature.
 	verified := func(e *bp.Entry) bool {
 		pub, ok := keys(e.Author)
-		return ok && e.Verify(in.KalkaID(), pub, true) >= bp.SigV1
+		return ok && e.VerifySig(in.KalkaID(), pub)
 	}
 	all := func(*bp.Entry, bool) bool { return true }
 	union := unionWith(local, in, all, verified)

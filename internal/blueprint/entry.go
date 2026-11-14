@@ -204,15 +204,9 @@ func (e *Entry) HandoffTarget() (string, bool) {
 	return m[1], true
 }
 
-// SigMessage is the message a v1 handoff signature covers (spec 6.5).
-// It covers only the 48-bit id; v0.4 writes SigMessageV2 instead.
-func SigMessage(kalkaID, entryID string) []byte {
-	return []byte(name.HandoffSigContext + "\n" + kalkaID + "\n" + entryID)
-}
-
-// SigMessageV2 is the message every entry signature written by v0.4
-// covers (spec 6.5): the full digest of the entry.
-func SigMessageV2(kalkaID, digest string) []byte {
+// SigMessage is the message every entry signature covers (spec 6.5): the
+// full digest of the entry.
+func SigMessage(kalkaID, digest string) []byte {
 	return []byte(name.EntrySigContext + "\n" + kalkaID + "\n" + digest)
 }
 
@@ -221,19 +215,17 @@ type SigState int
 
 const (
 	Unsigned SigState = iota // no sig field
-	SigBad                   // a sig that verifies under no allowed message
-	SigV1                    // a v1 handoff signature (weak; private documents only)
-	SigV2                    // a v2 signature
+	SigBad                   // a sig that does not verify
+	SigOK                    // a valid signature
 )
 
 func (s SigState) String() string {
-	return [...]string{"unsigned", "invalid", "v1", "v2"}[s]
+	return [...]string{"unsigned", "invalid", "valid"}[s]
 }
 
-// Verify checks the signature against pub: v2 first, then, if allowV1 and
-// the entry is a handoff, v1. An entry whose id does not match its content
-// never verifies.
-func (e *Entry) Verify(kalkaID string, pub ed25519.PublicKey, allowV1 bool) SigState {
+// Verify checks the signature against pub. An entry whose id does not
+// match its content never verifies.
+func (e *Entry) Verify(kalkaID string, pub ed25519.PublicKey) SigState {
 	if e.Sig == "" {
 		return Unsigned
 	}
@@ -241,25 +233,21 @@ func (e *Entry) Verify(kalkaID string, pub ed25519.PublicKey, allowV1 bool) SigS
 	if err != nil || len(pub) != ed25519.PublicKeySize || !e.Valid() {
 		return SigBad
 	}
-	if ed25519.Verify(pub, SigMessageV2(kalkaID, e.Digest()), sig) {
-		return SigV2
-	}
-	if allowV1 && e.Kind == KindHandoff && ed25519.Verify(pub, SigMessage(kalkaID, e.ID), sig) {
-		return SigV1
+	if ed25519.Verify(pub, SigMessage(kalkaID, e.Digest()), sig) {
+		return SigOK
 	}
 	return SigBad
 }
 
-// VerifySig reports whether a handoff's signature verifies against pub
-// under v2 or v1: the rule for private documents (spec 7.2).
+// VerifySig reports whether the entry's signature verifies against pub.
 func (e *Entry) VerifySig(kalkaID string, pub ed25519.PublicKey) bool {
-	return e.Verify(kalkaID, pub, true) >= SigV1
+	return e.Verify(kalkaID, pub) == SigOK
 }
 
 // Sign sets a v2 signature. Only entries the local user writes are signed
 // (spec 6.5).
 func (e *Entry) Sign(kalkaID string, sign Signer) {
-	e.Sig = base64.RawURLEncoding.EncodeToString(sign(SigMessageV2(kalkaID, e.Digest())))
+	e.Sig = base64.RawURLEncoding.EncodeToString(sign(SigMessage(kalkaID, e.Digest())))
 }
 
 // Signer signs a message with the local identity key.

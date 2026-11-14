@@ -286,9 +286,6 @@ func (d *Daemon) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, er
 				return peer.Email, &joinFailure{msg}
 			}
 			return peer.Email, errors.New(msg)
-		case "verify":
-			_ = c.Send(syncproto.Bye{Type: "bye", Reason: "declined"})
-			return peer.Email, &joinFailure{fmt.Sprintf("%s runs a kalka that does not accept invites yet: they need to update", peer.Email)}
 		case "team_log":
 			var m syncproto.TeamLog
 			if err := env.Decode(&m); err != nil {

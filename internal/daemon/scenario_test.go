@@ -56,7 +56,7 @@ type node struct {
 	folder string
 	d      *Daemon
 	stop   func()
-	legacy bool // run as a v0.3 kalka (keyid_test.go)
+	noKeyID bool // do not register the key id (keyid_test.go)
 
 	mu      sync.Mutex
 	answers map[string]bool // by prompt kind; missing means yes
@@ -78,7 +78,7 @@ func (n *node) start() {
 	d, err := New(Options{
 		Config:    &config.Config{Email: n.email, Rendezvous: n.w.url, Folder: n.folder, UIPort: 1},
 		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true, APIAddr: "127.0.0.1:0",
-		Prompter: n.prompt, legacy: n.legacy,
+		Prompter: n.prompt, noKeyID: n.noKeyID,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -27,7 +27,7 @@ func VerifiedBy(team Team, kalkaID string, e *bp.Entry) bool {
 		return false
 	}
 	for _, k := range team.Keys(e.Author) {
-		if e.Verify(kalkaID, k, false) == bp.SigV2 {
+		if e.Verify(kalkaID, k) == bp.SigOK {
 			return true
 		}
 	}

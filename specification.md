@@ -40,7 +40,7 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 
 ## 2. Design principles
 
-1. **The file is the state.** Everything needed to continue a review is in the `.md` file. `kalka` keeps no per-blueprint database, sidecar or history. Local application state is limited to configuration, the identity key, the list of known peers, and three small team files in the config directory (open invites, pending joins, peer capabilities; 5). In the folder, teams add their logs, tombstones and domain snapshots (14).
+1. **The file is the state.** Everything needed to continue a review is in the `.md` file. `kalka` keeps no per-blueprint database, sidecar or history. Local application state is limited to configuration, the identity key, the list of known peers, and two small team files in the config directory (open invites and pending joins; 5). In the folder, teams add their logs, tombstones and domain snapshots (14).
 2. **Grow-only log.** The plan body is changed only by the owner. Everyone else adds entries to a review log. Entries are never edited or removed by `kalka`, with one exception: a tombstone keeps only its own entry (20.6).
 3. **The server is not trusted.** The rendezvous server only introduces peers. Peer identity is verified end to end.
 4. **Core is concept-free.** The core handles files, peers, teams and entries. Anything domain-specific lives in a plugin. The core knows nothing about the workflow that produced a blueprint: no assumed sections, no pipeline steps, no meaning attached to frontmatter beyond the keys listed in 6.2. The blueprint reference (6.13) is guidance a document opts into, never a requirement.
@@ -126,7 +126,7 @@ Also stored in the config directory, never in the blueprint folder:
 - `invites.yaml` — open invites this installation issued as a team owner (19.7). Owner-only permissions.
 - `joins.yaml` — pending joins: tokens redeemed with `kalka join` and not yet completed (19.7). Owner-only permissions.
 
-`peers.yaml` also records, per peer, whether it announced the team capability (9.5). None of these files is ever asked for or edited by the user.
+None of these files is ever asked for or edited by the user.
 
 ---
 
@@ -214,9 +214,8 @@ Header line, strict:
 - `id`: first 12 hex characters of SHA-256 over `kind \n author \n timestamp \n anchor \n rev \n normalized entry body`. An entry whose `id` does not match its content is invalid and is dropped on merge with a visible warning.
 - `sig`: an optional seventh field ` · sig:<base64url>`, with no padding, holding an ed25519 signature by the author's identity key. It is not part of the `id` input. Two messages exist:
   - **v2**, written by `kalka` on every entry it creates, of every kind, in the UI and in `kalka comment`: `"kalka-entry-v2\n" + kalka_id + "\n" + hex(SHA-256 of the id input)`. It covers the full 256-bit digest, so it cannot be moved to another text.
-  - **v1**, written by v0.3 on handoff entries only: `"kalka-handoff-v1\n" + kalka_id + "\n" + id`. It covers only the 48-bit `id`, for which a second header and body can be found by brute force. It is still accepted for handoffs on private documents, as the limit it always was, and never for anything in a team (20.4).
 
-  Verification tries v2, then v1 where v1 is allowed. A signature covers the `kalka_id`, so entries written in a file that has none yet stay unsigned. An entry without `sig` is legal and shown as *unsigned*. An entry whose `sig` does not verify against the key `kalka` holds for its author (8.2, 19) is shown as *signature invalid* and has no effect. `kalka` never signs an entry it did not write, except when the user explicitly asks it to sign their own earlier entries; otherwise a teammate could write an entry in my name and my own `kalka` would sign it.
+  A signature covers the `kalka_id`, so entries written in a file that has none yet stay unsigned. An entry without `sig` is legal and shown as *unsigned*. An entry whose `sig` does not verify against the key `kalka` holds for its author (8.2, 19) is shown as *signature invalid* and has no effect. `kalka` never signs an entry it did not write, except when the user explicitly asks it to sign their own earlier entries; otherwise a teammate could write an entry in my name and my own `kalka` would sign it.
 
 Entry body: Markdown up to the next entry header or the end of the log.
 
@@ -428,7 +427,7 @@ If neither side can accept the other's plan, both see: "Plans diverged; owner is
 `kalka` signs every entry it writes (6.5). What a signature changes depends on where the document lives:
 
 - **Private documents (one-to-one).** A peer accepts any well-formed entry from any authenticated peer, signed or not, including entries by third parties (that is how reviewers see each other's comments). A signature that verifies against the author's pinned key shows as *signed*; a missing one as *unsigned*; a wrong one as *signature invalid*. Handoff entries move ownership, so they count only when their signature verifies (7.2). Entries written by hand or by a tool other than `kalka` stay legal and unsigned.
-- **Published documents.** An entry replicates within the team only if its v2 signature verifies against a key the team log has *ever* bound to the author's email (20.4). Unsigned entries, entries by people outside the team, and entries with v1 signatures stay in the files that hold them, marked *local only*, and do not enter the replica. Entries by removed members replicate and are marked *by a removed member*: refusing them would depend on the order in which each peer learned of the removal, and peers would never agree.
+- **Published documents.** An entry replicates within the team only if its v2 signature verifies against a key the team log has *ever* bound to the author's email (20.4). Unsigned entries, entries by people outside the team stay in the files that hold them, marked *local only*, and do not enter the replica. Entries by removed members replicate and are marked *by a removed member*: refusing them would depend on the order in which each peer learned of the removal, and peers would never agree.
 
 The `id` hash catches accidental corruption; signatures catch forgery.
 
@@ -489,7 +488,7 @@ key_id   = "kalka-k" + hex(SHA-256("kalka-key-v1|" + pubkey))[0:32]
 
 `team` in `email_id` is the optional config salt (5), not a team (19). `pubkey` is the raw 32-byte ed25519 key.
 
-- **Dialing.** If a key is known for the peer (from a team log or a pin) and the peer announced `keyid/1` (9.5) at its last contact, dial its key ID, from one's own key ID; if that ID does not answer, fall back to the email ID. A failed handshake never falls back. Otherwise dial its email ID, as v0.3 did. All team traffic uses key IDs. A first one-to-one send to a typed email uses the email ID, since no key is known yet.
+- **Dialing.** If a key is known for the peer (from a team log or a pin), dial its key ID, from one's own key ID; if that ID does not answer, fall back to the email ID. A failed handshake never falls back. Otherwise dial its email ID. All team traffic uses key IDs. A first one-to-one send to a typed email uses the email ID, since no key is known yet.
 - **What a key ID gives.** A squatter on someone's key ID is detected before pinning (8.4), so they cannot lock a user out of their pinned peers. On `kalka rendezvous` a key ID also cannot be claimed without the key (9.6). On other servers anyone holding the public key, which every team member does, can still occupy the ID and keep its owner offline; impersonation was already prevented by channel binding and pinning.
 - No directory is needed: to reach a teammate, derive an ID and connect. The server refuses a second connection with an ID already in use (`ID-TAKEN`); the UI reports this as "this email is already online elsewhere".
 
@@ -513,20 +512,20 @@ One reliable, ordered data channel labelled `kalka/1` per operation. Messages ar
 
 | Message | Fields | Notes |
 |---|---|---|
-| `hello` | `proto`, `email`, `pubkey`, `nonce`, optional `caps`, optional `invite` | Both directions, first. `caps` lists capabilities: `keyid/1` (registers and accepts key IDs, 9.2), later `team/1`. `invite` carries a join proof (19.7). |
+| `hello` | `proto`, `email`, `pubkey`, `nonce`, optional `invite` | Both directions, first. `invite` carries a join proof (19.7). |
 | `auth` | `sig` | Both directions, second. |
 | `sync_offer` | `kalka_id`, `filename`, `intent` (`sync` \| `handoff` \| `replicate`), `content` | Initiator. `replicate` is used inside a team session only and raises no prompt. |
 | `sync_reply` | `kalka_id`, `status` (`merged` \| `rejected`), `reason`, `content` | `reason`: `malformed`, `declined`, `not-owner`, `diverged`. `content` present when merged or when offering convergence. |
 | `sync_ack` | `kalka_id`, `rev` | Initiator confirms it holds the merged file. |
 | `bye` | optional `reason` | Either side. |
 | `team_sync` | `team`, `heads`, `digest` | Opens a replication session (20.3): the log heads and one digest over the inventory. |
-| `team_log` | `team`, `ops` | Log operations the other side is missing. Also sent once by an owner who admits a joiner (19.7 step 5), whatever the caps. |
+| `team_log` | `team`, `ops` | Log operations the other side is missing. Also sent once by an owner who admits a joiner (19.7 step 5). |
 | `team_inv` | `team`, `items` | Inventory lines: `kalka_id`, latest release version and plan hash, entry-set digest. |
 | `team_want` | `team`, `ids` | The documents the sender wants; each follows as a `sync_offer` with `intent: replicate`. |
 
 Unknown message types are ignored. A `proto` mismatch ends the session with a human-readable error. Connections close after `sync_ack` or 30 s of silence; a user prompt (accept, verify) extends the wait to 5 min with keep-alives.
 
-**Compatibility.** `proto` stays 1. An old peer ignores the new `hello` fields, but would wait 30 s on an unknown message, so the `team_*` messages and `intent: replicate` are sent only to peers whose `hello` listed `team/1`. The responder dispatches on the type of the first message after `auth`. Old peers take part in one-to-one syncs exactly as before. One known gap: an old peer cannot verify a v2 handoff signature, and shows such a handoff as unverified.
+The responder dispatches on the type of the first message after `auth`.
 
 ### 9.6 `kalka rendezvous`
 
@@ -742,7 +741,7 @@ Ordered so the riskiest unknown (transport on real networks) is tested before UI
 - Budding gives a seed with `status: seed`, one owner, `parent`, `origin`, `created` and a new `kalka_id`; the parent gains exactly one signed `budded` entry and its plan is unchanged; the backlink survives a sync both ways.
 
 ### R5 — Key IDs and capabilities
-- New peers connect over key IDs; new and old peers connect over email IDs; a squatter on a key ID fails without a changed-key record; `kalka rendezvous` refuses a key ID without a valid proof.
+- Known peers connect over key IDs, first contact over email IDs, with fallback to the email ID when a key ID does not answer; a squatter on a key ID fails without a changed-key record; `kalka rendezvous` refuses a key ID without a valid proof.
 
 ### R6 — Teams and invites
 - The invite flow end to end over real WebRTC: the join completes with no prompt on either side; an expired token and a reused token are refused with a clear reason, and a second `add-member` for one invite is discarded at replay.
@@ -799,7 +798,7 @@ A final pass over the design found the following. Items 1–4 change earlier agr
     - *A signature over the 12-hex entry id does not bind the text*: 48 bits can be matched by brute force, which also weakened v0.3 handoff signatures. All new signatures cover the full digest (6.5).
     - *"Body edits only by the owner" judged by the sender refuses every relay.* Published documents carry signed releases instead, and the sender no longer matters (20.4).
     - *"The lower hash wins" lets a removed owner undo the removal*, by back-dating an operation and grinding its hash. Replaced by "removal wins; the senior owner wins a mutual removal" (19.4). The product owner accepted this change.
-18. **Two IDs per daemon (v0.4).** Keeping the email ID keeps one-to-one sends to a typed email and v0.3 peers working (9.2).
+18. **Two IDs per daemon (v0.4).** Keeping the email ID keeps one-to-one sends to a typed email working (9.2).
 19. **Replication overrides "manual only" for team documents (v0.4).** One-to-one syncs keep every v0.3 rule, prompts included (18.2).
 
 ### Residual risks
@@ -831,10 +830,10 @@ Defaults apply unless answered.
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Peer IDs | Both: key ID for known keys and team traffic, email ID for first contact and v0.3 peers (9.2). |
+| 1 | Peer IDs | Both: key ID for known keys and team traffic, email ID for first contact (9.2). |
 | 2 | Team log conflicts | "Removal wins; the senior owner wins a mutual removal; hash as the last tiebreak" replaces "the lower hash wins" (19.4). |
 | 3 | Automatic replication | Team documents replicate in the background between members, with no click, accept prompt or code, into `<folder>/<team>/` (20). |
-| 4 | Installed peers | Stay compatible: protocol 1, new features behind `caps` (9.5). An old peer cannot verify a v2 handoff. |
+| 4 | Installed peers | None needed before the first release: every milestone up to v1 may change the wire protocol and formats without keeping older builds working (product owner, 2026-11-14). |
 | 5 | Joining | No manual accept in this version (18.1 question 5); an invite must name the invitee's email (19.7). |
 | 6 | Blueprint updates | An owner's edits reach the team on *Publish update*, not on save (20.4). |
 | 7 | Entries by removed members | Accepted if signed by a key the log ever bound to the author, and marked (7.6). |
@@ -948,9 +947,9 @@ Members trust each other through the team log: the keys it binds are verified fo
 ### 20.3 Sessions and scheduling
 
 - **When.** At daemon start, when a member comes online, after a local change to a team document, and every ten minutes with jitter. Each round picks at most three online members; a local change is pushed to at most five. Team members are probed only while a round needs them.
-- **A session**, over a key-ID connection with a peer that announced `team/1` (9.5): exchange log heads and one digest over the inventory (`team_sync`). If both match, the session ends after one round trip. Otherwise: missing log operations first (`team_log`), then inventory lines (`team_inv`), then the wanted documents (`team_want`, each followed by a `sync_offer` with `intent: replicate`).
+- **A session**, over a key-ID connection with another member: exchange log heads and one digest over the inventory (`team_sync`). If both match, the session ends after one round trip. Otherwise: missing log operations first (`team_log`), then inventory lines (`team_inv`), then the wanted documents (`team_want`, each followed by a `sync_offer` with `intent: replicate`).
 - **Relaying.** Any member can pass on any published document it holds. No author or owner needs to be online.
-- Peers that are not members, or that did not announce `team/1`, never see a `team_*` message.
+- Peers that are not members never see a `team_*` message.
 
 ### 20.4 Merge rules for published documents
 
@@ -994,10 +993,6 @@ Documents received from members are created in `<folder>/<team>/`, with the sani
 - The stub keeps only its release entries, the tombstone included, so that every peer can check the chain that leads to it. This is the one place where valid entries are dropped (2).
 - Tombstones are kept forever; each is a few hundred bytes.
 - A plain file deletion is not a tombstone (14).
-
-### 20.7 Compatibility
-
-Peers that do not announce `team/1` take part in one-to-one syncs as in v0.3 and in nothing else. A v0.3 peer keeps unknown entry kinds (`release`, `budded`) and the `sig` field, so a published document synced one-to-one with it round-trips intact.
 
 ---
 

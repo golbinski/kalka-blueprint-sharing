@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
@@ -16,8 +15,7 @@ import (
 	"github.com/golbinski/kalka/internal/rendezvous"
 )
 
-// keyNode registers the key id of priv (with a proof) and announces the
-// key-id capability.
+// keyNode registers the key id of priv (with a proof).
 func (h *harness) keyNode(t *testing.T, email string, priv ed25519.PrivateKey) (*node, error) {
 	t.Helper()
 	id, proof := peerid.Proof(priv, time.Now())
@@ -29,7 +27,7 @@ func (h *harness) keyNode(t *testing.T, email string, priv ed25519.PrivateKey) (
 	}
 	ep := NewEndpoint(sig, Options{Loopback: true})
 	t.Cleanup(func() { ep.Close(); sig.Close() })
-	return &node{id: Identity{Email: email, Key: priv, Caps: []string{CapKeyID}}, sig: sig, ep: ep}, nil
+	return &node{id: Identity{Email: email, Key: priv}, sig: sig, ep: ep}, nil
 }
 
 func newKey() ed25519.PrivateKey {
@@ -79,47 +77,21 @@ func TestKeyIDsNewToNew(t *testing.T) {
 	if errA != nil || errB != nil {
 		t.Fatalf("handshake: %v / %v", errA, errB)
 	}
-	if !pa.ViaKey || !pb.ViaKey || !pa.Has(CapKeyID) || !pb.Has(CapKeyID) || pa.Email != "stacks@library.example" {
+	if !pa.ViaKey || !pb.ViaKey || pa.Email != "stacks@library.example" {
 		t.Fatalf("peers: %+v / %+v", pa, pb)
 	}
 }
 
-// Old and new peers meet on email ids: the old side sends no caps, and
-// the new side learns that it must keep using email ids.
-func TestKeyIDsOldAndNew(t *testing.T) {
+// Peers that meet on email ids are not reported as key ids.
+func TestEmailIDs(t *testing.T) {
 	h := newHarness(t, &rendezvous.Server{})
-	old, cur := h.node(t, "old@library.example", Options{}), h.node(t, "new@library.example", Options{})
-	cur.id.Caps = []string{CapKeyID}
-	for _, dir := range [][2]*node{{old, cur}, {cur, old}} {
-		pa, pb, errA, errB := handshakeBoth(t, dir[0], dir[1], nil)
-		if errA != nil || errB != nil {
-			t.Fatalf("handshake: %v / %v", errA, errB)
-		}
-		for _, p := range []Peer{pa, pb} {
-			if p.ViaKey {
-				t.Fatal("email ids reported as key ids")
-			}
-			if p.Email == "old@library.example" && len(p.Caps) != 0 {
-				t.Fatalf("old peer caps: %v", p.Caps)
-			}
-			if p.Email == "new@library.example" && !p.Has(CapKeyID) {
-				t.Fatalf("new peer caps: %v", p.Caps)
-			}
-		}
+	a, b := h.node(t, "desk@library.example", Options{}), h.node(t, "stacks@library.example", Options{})
+	pa, pb, errA, errB := handshakeBoth(t, a, b, nil)
+	if errA != nil || errB != nil {
+		t.Fatalf("handshake: %v / %v", errA, errB)
 	}
-}
-
-// The hello of a v0.3 kalka, as it was on the wire: no caps.
-func TestOldHelloFixture(t *testing.T) {
-	const old = `{"type":"hello","proto":1,"email":"old@library.example","pubkey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","nonce":"AAAAAAAAAAAAAAAAAAAAAA=="}`
-	var h helloMsg
-	if err := json.Unmarshal([]byte(old), &h); err != nil || h.Caps != nil || h.Email != "old@library.example" {
-		t.Fatalf("%v %+v", err, h)
-	}
-	// And a new hello without caps marshals to exactly the old fields.
-	b, _ := json.Marshal(helloMsg{Type: "hello", Proto: 1, Email: h.Email, PubKey: h.PubKey, Nonce: h.Nonce})
-	if string(b) != old {
-		t.Fatalf("hello changed shape:\n%s\n%s", b, old)
+	if pa.ViaKey || pb.ViaKey {
+		t.Fatal("email ids reported as key ids")
 	}
 }
 
@@ -138,7 +110,7 @@ func TestKeyIDSquatter(t *testing.T) {
 	}
 	ep := NewEndpoint(sig, Options{Loopback: true})
 	t.Cleanup(func() { ep.Close(); sig.Close() })
-	squatter := &node{id: Identity{Email: "stacks@library.example", Key: newKey(), Caps: []string{CapKeyID}}, sig: sig, ep: ep}
+	squatter := &node{id: Identity{Email: "stacks@library.example", Key: newKey()}, sig: sig, ep: ep}
 
 	dialer, err := h.keyNode(t, "desk@library.example", newKey())
 	if err != nil {

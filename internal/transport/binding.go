@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/golbinski/kalka/internal/name"
@@ -23,24 +22,16 @@ func PeerID(team, email string) string { return peerid.Email(team, email) }
 // KeyPeerID derives the key peer id (spec 9.2).
 func KeyPeerID(pub ed25519.PublicKey) string { return peerid.Key(pub) }
 
-// CapKeyID is announced by peers that register and accept key ids.
-const CapKeyID = "keyid/1"
-
 // Identity is the local user.
 type Identity struct {
 	Email string
 	Key   ed25519.PrivateKey
-	// Caps are announced in hello (spec 9.5).
-	Caps []string
 }
 
 // Peer is the authenticated other side.
 type Peer struct {
 	Email string
 	Key   ed25519.PublicKey
-	// Caps are the capabilities the peer announced; none from an older
-	// kalka.
-	Caps []string
 	// ViaKey is set when the connection runs between key ids.
 	ViaKey bool
 	// Invite is the join proof the peer sent in hello, if any (spec 19.7).
@@ -55,9 +46,6 @@ type InviteClaim struct {
 	Proof string `json:"proof"`
 }
 
-// Has reports whether the peer announced capability c.
-func (p Peer) Has(c string) bool { return slices.Contains(p.Caps, c) }
-
 // Verifier decides whether a claimed key is acceptable for an email: it
 // implements pinning (spec 8.2). It returns an error to refuse.
 type Verifier func(email string, key ed25519.PublicKey) error
@@ -68,9 +56,6 @@ type helloMsg struct {
 	Email  string `json:"email"`
 	PubKey string `json:"pubkey"`
 	Nonce  string `json:"nonce"`
-	// Caps lists capabilities (spec 9.5); older peers send none and
-	// ignore it.
-	Caps []string `json:"caps,omitempty"`
 	// Invite is sent only by a joiner (spec 19.7).
 	Invite *InviteClaim `json:"invite,omitempty"`
 }
@@ -109,7 +94,7 @@ func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *
 	}
 	pub := self.Key.Public().(ed25519.PublicKey)
 	if err := c.Send(helloMsg{Type: "hello", Proto: Proto, Email: self.Email,
-		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce), Caps: self.Caps, Invite: inv}); err != nil {
+		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce), Invite: inv}); err != nil {
 		return Peer{}, err
 	}
 
@@ -159,12 +144,6 @@ func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *
 	} else if want := PeerID(team, h.Email); c.RemoteID() != want {
 		return Peer{}, fmt.Errorf("peer claims to be %s but is connected as %s", h.Email, c.RemoteID())
 	}
-	caps := make([]string, 0, len(h.Caps))
-	for _, cp := range h.Caps {
-		if len(caps) < 32 && len(cp) <= 64 {
-			caps = append(caps, cp)
-		}
-	}
 	if verify != nil {
 		if err := verify(h.Email, peerKey); err != nil {
 			return Peer{}, err
@@ -174,7 +153,7 @@ func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *
 	if iv := h.Invite; iv != nil && len(iv.ID) <= 64 && len(iv.Team) <= 64 && len(iv.Proof) <= 128 {
 		claim = iv
 	}
-	return Peer{Email: h.Email, Key: peerKey, Caps: caps, ViaKey: viaKey, Invite: claim}, nil
+	return Peer{Email: h.Email, Key: peerKey, ViaKey: viaKey, Invite: claim}, nil
 }
 
 func expect(c *Conn, typ string, v any) error {

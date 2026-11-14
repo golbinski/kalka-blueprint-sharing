@@ -204,7 +204,7 @@ func (d *Daemon) sigState(kalkaID string, e *bp.Entry) string {
 	if !ok {
 		return "unknown"
 	}
-	if e.Verify(kalkaID, key, e.Kind == bp.KindHandoff) == bp.SigBad {
+	if e.Verify(kalkaID, key) == bp.SigBad {
 		return "invalid"
 	}
 	return "verified"

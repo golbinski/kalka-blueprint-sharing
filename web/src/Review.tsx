@@ -176,7 +176,7 @@ function Badges({ e }: { e: Entry }) {
         </span>
       )}
       {e.valid && e.sig === 'unsigned' && (
-        <span className="badge" title="no signature: written by hand or by an older kalka. It stays in local files and is not shared with a team.">
+        <span className="badge" title="no signature: written by hand, not by kalka. It stays in local files and is not shared with a team.">
           unsigned
         </span>
       )}

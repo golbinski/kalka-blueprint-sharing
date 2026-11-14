@@ -282,7 +282,7 @@ func checkFile(path string, keys func(string) (ed25519.PublicKey, bool)) checkRe
 			r.Signatures.Unsigned++
 		case !ok:
 			r.Signatures.Unchecked++
-		case e.Verify(r.KalkaID, k, e.Kind == bp.KindHandoff) == bp.SigBad:
+		case e.Verify(r.KalkaID, k) == bp.SigBad:
 			r.Signatures.Invalid++
 		default:
 			r.Signatures.Verified++

@@ -85,9 +85,6 @@ type Peer struct {
 	// KeyChanged records a different key presented later. While it is set,
 	// syncs with this email are refused (spec 8.2).
 	KeyChanged *Changed `yaml:"key_changed,omitempty" json:"key_changed,omitempty"`
-	// Caps are the capabilities the peer announced at the last contact
-	// (spec 9.5); none for an older kalka.
-	Caps []string `yaml:"caps,omitempty" json:"caps,omitempty"`
 }
 
 // Changed is a refused key.
@@ -246,30 +243,6 @@ func (p *Peers) Forget(email string) (bool, error) {
 	return true, p.save()
 }
 
-// SetCaps records the capabilities a peer announced, for the pinned key
-// only; nothing is written when they did not change.
-func (p *Peers) SetCaps(email string, key ed25519.PublicKey, caps []string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	i := p.find(email)
-	if i < 0 || p.peers[i].PubKey != base64.StdEncoding.EncodeToString(key) {
-		return fmt.Errorf("no pinned key for %s matches", email)
-	}
-	c := slices.Clone(caps)
-	slices.Sort(c)
-	c = slices.Compact(c)
-	if len(c) == 0 {
-		c = nil
-	}
-	if slices.Equal(p.peers[i].Caps, c) {
-		return nil
-	}
-	p.peers[i].Caps = c
-	return p.save()
-}
-
-// Has reports whether the peer announced capability c.
-func (p Peer) Has(c string) bool { return slices.Contains(p.Caps, c) }
 
 // ErrPinClash means peers.yaml pins another key for an email than the one
 // an invite or a team log vouches for (spec 8.2). Nothing is changed: the

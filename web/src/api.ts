@@ -197,7 +197,6 @@ export interface Peer {
   key_changed?: boolean
   code?: string
   fingerprint?: string
-  key_id?: boolean
   presence: 'online' | 'offline' | 'unknown'
   checked?: string
 }

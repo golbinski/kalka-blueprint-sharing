@@ -28,20 +28,20 @@ func TestEntrySignatureV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := k.Public().(ed25519.PublicKey)
-	if e.Verify(d.KalkaID(), pub, false) != SigV2 {
+	if e.Verify(d.KalkaID(), pub) != SigOK {
 		t.Fatal("v2 does not verify")
 	}
 	// The signature survives a round trip through the file.
 	again := mustParse(t, string(d.Bytes()))
 	got := again.Items()[0].Entry
-	if got.Sig != e.Sig || got.Verify(d.KalkaID(), pub, false) != SigV2 {
+	if got.Sig != e.Sig || got.Verify(d.KalkaID(), pub) != SigOK {
 		t.Fatalf("after parse: %q", got.Header())
 	}
 	// Another document, another key, another text: no.
-	if e.Verify("000000000000", pub, false) != SigBad {
+	if e.Verify("000000000000", pub) != SigBad {
 		t.Fatal("verified for another kalka_id")
 	}
-	if e.Verify(d.KalkaID(), testKey("eve").Public().(ed25519.PublicKey), false) != SigBad {
+	if e.Verify(d.KalkaID(), testKey("eve").Public().(ed25519.PublicKey)) != SigBad {
 		t.Fatal("verified with another key")
 	}
 	// A moved signature: same id is impossible to keep cheaply, but even
@@ -49,30 +49,19 @@ func TestEntrySignatureV2(t *testing.T) {
 	moved := *e
 	moved.Body = "Five attempts."
 	moved.ID = moved.ComputeID()
-	if moved.Verify(d.KalkaID(), pub, true) != SigBad {
+	if moved.Verify(d.KalkaID(), pub) != SigBad {
 		t.Fatal("moved signature verifies")
 	}
-	if (&Entry{Kind: KindComment}).Verify(d.KalkaID(), pub, true) != Unsigned {
+	if (&Entry{Kind: KindComment}).Verify(d.KalkaID(), pub) != Unsigned {
 		t.Fatal("unsigned")
 	}
 }
 
-func TestV1HandoffOnlyWhereAllowed(t *testing.T) {
+func TestNewHandoffSigned(t *testing.T) {
 	k := testKey("dana")
-	pub := k.Public().(ed25519.PublicKey)
-	e, _ := NewEntry(KindHandoff, "dana@example.org", time.Now(), "", "0123abcd", "→ erin@example.org")
-	sig := ed25519.Sign(k, SigMessage("4be1c0ffee01", e.ID))
-	e.Sig = strings.TrimRight(b64(sig), "=")
-	if e.Verify("4be1c0ffee01", pub, true) != SigV1 || !e.VerifySig("4be1c0ffee01", pub) {
-		t.Fatal("v1 handoff refused on a private document")
-	}
-	if e.Verify("4be1c0ffee01", pub, false) != SigBad {
-		t.Fatal("v1 accepted where only v2 counts")
-	}
-	// New handoffs are written with v2.
 	h, _ := NewHandoff("4be1c0ffee01", "dana@example.org", "erin@example.org", time.Now(), "0123abcd", signerOf(k))
-	if h.Verify("4be1c0ffee01", pub, false) != SigV2 {
-		t.Fatal("new handoff is not v2")
+	if h.Verify("4be1c0ffee01", k.Public().(ed25519.PublicKey)) != SigOK {
+		t.Fatal("new handoff is not signed")
 	}
 }
 
@@ -94,7 +83,7 @@ func TestReleaseEntry(t *testing.T) {
 		len(r.Incorporates) != 1 || r.Note != "Added the invariant on redelivery attempts." {
 		t.Fatalf("release %+v %v\n%s", r, ok, d.Bytes())
 	}
-	if got.Verify(d.KalkaID(), k.Public().(ed25519.PublicKey), false) != SigV2 {
+	if got.Verify(d.KalkaID(), k.Public().(ed25519.PublicKey)) != SigOK {
 		t.Fatal("release signature")
 	}
 	// The plan hash ignores the review log and line endings.
