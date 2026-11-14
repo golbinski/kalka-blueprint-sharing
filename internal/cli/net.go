@@ -121,7 +121,7 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return exitProblems
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
-		NoUI: *noUI, OpenExternal: openBrowser,
+		NoUI: *noUI, OpenExternal: openBrowser, Autostart: daemon.SystemAutostart{},
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
 	var d *daemon.Daemon
 	if !*noPopups && !*noUI {
@@ -136,6 +136,17 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	} else {
 		opts.OpenUI = nil
+	}
+	if !*noPopups && !*noUI {
+		// Notices as notification-centre toasts where the system has
+		// them for kalka; elsewhere only the page shows them (spec 22.4).
+		opts.Notify = func(n core.Notice) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				_ = notify.Toast(ctx, n.Title, n.Message, d.URL())
+			}()
+		}
 	}
 	d, err = daemon.New(opts)
 	if err != nil {

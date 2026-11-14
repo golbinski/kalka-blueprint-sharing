@@ -44,6 +44,12 @@ type Options struct {
 	// OpenExternal, if set, opens an http or https link in the system
 	// browser (POST /api/open-external).
 	OpenExternal func(url string) error
+	// Notify, if set, shows a notice as an OS notification; it is called
+	// only while no UI page is connected, and must not block for long.
+	Notify func(core.Notice)
+	// Autostart, if set, lets the settings change the start-at-login
+	// entry (SystemAutostart in the real binary; nil in tests).
+	Autostart Autostart
 	// Lock, if set, is the single-daemon lock already taken by the caller
 	// (before the setup form). Otherwise New takes it, before the core
 	// reads anything (spec 4.1). Run releases it when it returns.
@@ -73,6 +79,7 @@ type Daemon struct {
 
 	mu       sync.Mutex
 	shutdown context.CancelFunc
+	set      settings
 }
 
 // New takes the lock and prepares a daemon around a new core node. With
@@ -89,18 +96,27 @@ func New(opts Options) (*Daemon, error) {
 	if opts.NoUI {
 		opts.Popup, opts.OpenUI = nil, nil
 	}
+	st, err := LoadState(opts.ConfigDir)
+	if err != nil {
+		opts.Lock.Release()
+		return nil, err
+	}
+	opts.Options.Paused = st.Paused
 	n, err := core.New(opts.Options)
 	if err != nil {
 		opts.Lock.Release()
 		return nil, err
 	}
+	n.SetNotifications(on(st.Notifications))
 	token := opts.Token
 	if token == "" {
 		tok := make([]byte, 32)
 		_, _ = rand.Read(tok)
 		token = hex.EncodeToString(tok)
 	}
-	return &Daemon{Node: n, opts: opts, dir: opts.ConfigDir, token: token}, nil
+	d := &Daemon{Node: n, opts: opts, dir: opts.ConfigDir, token: token}
+	d.set.st = st
+	return d, nil
 }
 
 // Validate checks the three required settings (spec 5).
@@ -141,6 +157,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 	pctx, stop := context.WithCancel(ctx)
 	defer stop()
 	go d.present(pctx)
+	go d.presentNotices(pctx.Done())
+	if d.Paused() {
+		go func() { // one notice for a start in the paused state (spec 22.3)
+			select {
+			case <-d.Ready():
+			case <-pctx.Done():
+				return
+			}
+			if d.notificationsOn() {
+				d.Bus().Publish(core.BusEvent{Type: "notice", Data: core.Notice{Kind: "paused", Title: "kalka is paused",
+					Message: "kalka started paused: it does not sync until you resume it"}})
+			}
+		}()
+	}
 	return d.Node.Run(ctx)
 }
 

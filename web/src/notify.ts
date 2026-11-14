@@ -2,7 +2,7 @@
 // cover the case the daemon cannot see: a kalka tab is open, so the daemon
 // shows no popup of its own, but the tab is in the background and the
 // prompt's modal goes unseen.
-import type { Prompt } from './api'
+import type { Notice, Prompt } from './api'
 
 const shown = new Map<string, Notification>()
 
@@ -55,4 +55,20 @@ export function notifyPrompt(p: Prompt): void {
 export function closePrompt(id: string): void {
   shown.get(id)?.close()
   shown.delete(id)
+}
+
+// notifyNotice shows a notice (spec 22.4) as a browser notification when
+// the page is hidden; it returns false when the page should show it itself.
+export function notifyNotice(n: Notice): boolean {
+  if (permission() !== 'granted' || document.visibilityState === 'visible') return false
+  try {
+    const note = new Notification(n.title ? `kalka · ${n.title}` : 'kalka', { body: n.message, tag: 'kalka-notice-' + n.kind + (n.path ?? '') })
+    note.onclick = () => {
+      window.focus()
+      note.close()
+    }
+    return true
+  } catch {
+    return false
+  }
 }

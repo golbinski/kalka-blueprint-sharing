@@ -17,6 +17,7 @@ export type Route =
   | { view: 'seeds' }
   | { view: 'team' }
   | { view: 'domains' }
+  | { view: 'settings' }
 
 export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
@@ -36,6 +37,7 @@ export function parseRoute(hash: string): Route {
   if (h === 'seeds') return { view: 'seeds' }
   if (h === 'team') return { view: 'team' }
   if (h === 'domains') return { view: 'domains' }
+  if (h === 'settings') return { view: 'settings' }
   return { view: 'list' }
 }
 

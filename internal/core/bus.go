@@ -14,7 +14,7 @@ type Bus struct {
 
 // BusEvent is one server-sent event.
 type BusEvent struct {
-	Type string `json:"type"` // folder | prompt | prompt-closed | sync | status | peers
+	Type string `json:"type"` // folder | prompt | prompt-closed | sync | status | peers | teams | refs | notice | settings
 	Data any    `json:"data,omitempty"`
 }
 
@@ -44,6 +44,20 @@ func (b *Bus) Subscribe() (<-chan BusEvent, func()) {
 		delete(b.subs, ch)
 		b.mu.Unlock()
 		b.n.Add(-1)
+	}
+}
+
+// Watch adds a subscriber inside the process (a presenter); unlike
+// Subscribe it does not count as a connected UI.
+func (b *Bus) Watch() (<-chan BusEvent, func()) {
+	ch := make(chan BusEvent, 64)
+	b.mu.Lock()
+	b.subs[ch] = struct{}{}
+	b.mu.Unlock()
+	return ch, func() {
+		b.mu.Lock()
+		delete(b.subs, ch)
+		b.mu.Unlock()
 	}
 }
 

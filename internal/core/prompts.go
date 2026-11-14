@@ -28,17 +28,17 @@ type Pending struct {
 type Hub struct {
 	mu      sync.Mutex
 	pending map[string]*Pending
-	subs    map[chan Notice]string // subscriber -> scope filter ("" = all)
+	subs    map[chan PromptEvent]string // subscriber -> scope filter ("" = all)
 }
 
-// Notice tells subscribers a prompt opened or closed.
-type Notice struct {
+// PromptEvent tells subscribers a prompt opened or closed.
+type PromptEvent struct {
 	Prompt *Pending
 	Closed bool
 }
 
 func newHub() *Hub {
-	return &Hub{pending: map[string]*Pending{}, subs: map[chan Notice]string{}}
+	return &Hub{pending: map[string]*Pending{}, subs: map[chan PromptEvent]string{}}
 }
 
 // ErrNoPrompt means the prompt was answered already or never existed.
@@ -52,12 +52,12 @@ func (h *Hub) Ask(ctx context.Context, scope string, p syncproto.Prompt) (bool, 
 	h.mu.Lock()
 	h.pending[pp.ID] = pp
 	h.mu.Unlock()
-	h.notify(Notice{Prompt: pp})
+	h.notify(PromptEvent{Prompt: pp})
 	defer func() {
 		h.mu.Lock()
 		delete(h.pending, pp.ID)
 		h.mu.Unlock()
-		h.notify(Notice{Prompt: pp, Closed: true})
+		h.notify(PromptEvent{Prompt: pp, Closed: true})
 	}()
 	select {
 	case ok := <-pp.answer:
@@ -96,8 +96,8 @@ func (h *Hub) List() []*Pending {
 }
 
 // Subscribe delivers notices for prompts of scope, or all if scope is "".
-func (h *Hub) Subscribe(scope string) (<-chan Notice, func()) {
-	ch := make(chan Notice, 16)
+func (h *Hub) Subscribe(scope string) (<-chan PromptEvent, func()) {
+	ch := make(chan PromptEvent, 16)
 	h.mu.Lock()
 	h.subs[ch] = scope
 	h.mu.Unlock()
@@ -108,7 +108,7 @@ func (h *Hub) Subscribe(scope string) (<-chan Notice, func()) {
 	}
 }
 
-func (h *Hub) notify(n Notice) {
+func (h *Hub) notify(n PromptEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for ch, scope := range h.subs {

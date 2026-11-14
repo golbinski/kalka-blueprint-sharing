@@ -79,6 +79,11 @@ func (d *Daemon) Handler() http.Handler {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
 	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
+	mux.HandleFunc("GET /api/summary", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Summary()) })
+	mux.HandleFunc("GET /api/settings", d.apiSettings)
+	mux.HandleFunc("PUT /api/settings", d.apiSettings)
+	mux.HandleFunc("POST /api/pause", d.apiPause(true))
+	mux.HandleFunc("POST /api/resume", d.apiPause(false))
 	return gate{token: d.token, port: d.port, noUI: d.opts.NoUI}.wrap(mux)
 }
 
@@ -127,6 +132,8 @@ func errKind(err error) string {
 		return "duplicate"
 	case errors.Is(err, syncproto.ErrNotVerified):
 		return "not-verified"
+	case errors.Is(err, core.ErrPaused):
+		return "paused"
 	}
 	return ""
 }

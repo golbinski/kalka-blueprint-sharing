@@ -168,3 +168,31 @@ func (c *Client) Prompts(ctx context.Context) ([]*core.Pending, error) {
 	var ps []*core.Pending
 	return ps, c.do(ctx, http.MethodGet, "/api/prompts", nil, &ps)
 }
+
+// Summary fetches the tray's one-line state.
+func (c *Client) Summary(ctx context.Context) (core.Summary, error) {
+	var s core.Summary
+	return s, c.do(ctx, http.MethodGet, "/api/summary", nil, &s)
+}
+
+// Settings fetches the settings.
+func (c *Client) Settings(ctx context.Context) (Settings, error) {
+	var s Settings
+	return s, c.do(ctx, http.MethodGet, "/api/settings", nil, &s)
+}
+
+// ApplySettings changes the settings given.
+func (c *Client) ApplySettings(ctx context.Context, in Settings) (Settings, error) {
+	var s Settings
+	return s, c.do(ctx, http.MethodPut, "/api/settings", in, &s)
+}
+
+// SetPaused pauses or resumes sync.
+func (c *Client) SetPaused(ctx context.Context, paused bool) (Settings, error) {
+	var s Settings
+	path := "/api/resume"
+	if paused {
+		path = "/api/pause"
+	}
+	return s, c.do(ctx, http.MethodPost, path, struct{}{}, &s)
+}

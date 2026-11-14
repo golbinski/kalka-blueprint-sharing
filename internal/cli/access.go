@@ -19,7 +19,6 @@ import (
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
-	"github.com/golbinski/kalka/internal/transport"
 )
 
 // NoStartEnv set to 1 makes daemon commands fail instead of starting a
@@ -144,16 +143,20 @@ func notRunningNote(w io.Writer) {
 	fmt.Fprintf(w, "(%s is not running: read from the local files; presence unknown)\n", name.Product)
 }
 
-// statusView is `kalka status --json`.
+// statusView is `kalka status --json`. Fields only a running daemon
+// knows are null without one: unknown, not zero.
 type statusView struct {
 	Daemon bool `json:"daemon"`
 	PID    int  `json:"pid,omitempty"`
 	core.Status
-	// Online is null when no daemon runs: unknown, not offline.
-	Online  *bool `json:"online"`
-	Peers   int   `json:"peers"`
-	Reached *int  `json:"peers_online"`
-	Pending *int  `json:"pending_prompts"`
+	Online      *bool      `json:"online"`
+	Paused      bool       `json:"paused"`
+	PeersKnown  int        `json:"peers_known"`
+	PeersOnline *int       `json:"peers_online"`
+	LastSync    *time.Time `json:"last_sync"`
+	Prompts     *int       `json:"prompts"`
+	Joins       int        `json:"joins"`
+	Pushes      *int       `json:"pushes"`
 }
 
 // cmdStatus is `kalka status`, a view (spec 12).
@@ -173,35 +176,42 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return report(asJSON, stdout, stderr, "daemon", err.Error())
 	}
-	peers, err := v.peers(ctx)
-	if err != nil {
-		return report(asJSON, stdout, stderr, "daemon", err.Error())
-	}
-	out := statusView{Daemon: v.live(), Status: st, Peers: len(peers)}
+	out := statusView{Daemon: v.live(), Status: st, Paused: st.Paused}
 	if v.live() {
-		online, reached, pending := st.Online, 0, 0
-		for _, p := range peers {
-			if p.Presence == transport.Online {
-				reached++
-			}
+		sum, err := v.c.Summary(ctx)
+		if err != nil {
+			return report(asJSON, stdout, stderr, "daemon", err.Error())
 		}
-		if ps, err := v.c.Prompts(ctx); err == nil {
-			pending = len(ps)
+		out.Online, out.PeersOnline, out.Prompts, out.Pushes = &sum.Online, &sum.PeersOnline, &sum.Prompts, &sum.Pushes
+		out.PeersKnown, out.Joins, out.Paused = sum.PeersKnown, sum.Joins, sum.Paused
+		if !sum.LastSync.IsZero() {
+			out.LastSync = &sum.LastSync
 		}
-		out.Online, out.Reached, out.Pending = &online, &reached, &pending
 		if dir, err := config.Dir(); err == nil {
 			if e, err := readEndpoint(dir); err == nil {
 				out.PID = e.PID
 			}
 		}
+	} else {
+		sum := v.n.Summary()
+		out.PeersKnown, out.Joins = sum.PeersKnown, sum.Joins
+		if dir, err := config.Dir(); err == nil {
+			if ds, err := daemon.LoadState(dir); err == nil {
+				out.Paused = ds.Paused
+			}
+		}
 	}
+	out.Status.Paused = out.Paused
 	if asJSON {
 		writeJSON(stdout, out)
 		return exitOK
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	row := func(k, val string) { fmt.Fprintf(tw, "%s\t%s\n", k, val) }
-	if v.live() {
+	switch {
+	case v.live() && out.Paused:
+		row("kalka", fmt.Sprintf("running (pid %d), paused: not syncing until `%s resume`", out.PID, name.Binary))
+	case v.live():
 		state := "online"
 		if !st.Online {
 			state = "offline"
@@ -210,21 +220,60 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		row("kalka", fmt.Sprintf("running (pid %d), %s", out.PID, state))
-	} else {
+	case out.Paused:
+		row("kalka", "not running (paused)")
+	default:
 		row("kalka", "not running")
 	}
 	row("you", st.Email+"  "+st.Fingerprint)
 	row("folder", st.Folder)
 	row("rendezvous", st.Rendezvous)
 	if v.live() {
-		row("peers", fmt.Sprintf("%d online of %d", *out.Reached, out.Peers))
-		row("waiting", fmt.Sprintf("%d prompt(s) to answer in the UI", *out.Pending))
+		row("peers", fmt.Sprintf("%d reachable of %d", *out.PeersOnline, out.PeersKnown))
+		last := "none since start"
+		if out.LastSync != nil {
+			last = out.LastSync.Local().Format("2006-01-02 15:04")
+		}
+		row("last sync", last)
+		row("waiting", fmt.Sprintf("%d prompt(s), %d join(s) in progress, %d team push(es) queued", *out.Prompts, out.Joins, *out.Pushes))
 	} else {
-		row("peers", fmt.Sprintf("%d known", out.Peers))
+		row("peers", fmt.Sprintf("%d known", out.PeersKnown))
+		if out.Joins > 0 {
+			row("waiting", fmt.Sprintf("%d join(s) in progress", out.Joins))
+		}
 	}
 	tw.Flush()
 	if st.Notice != "" {
 		fmt.Fprintln(stdout, "NOTICE: "+strings.TrimSpace(st.Notice))
+	}
+	return exitOK
+}
+
+// cmdPause is `kalka pause` and `kalka resume` (spec 22.3).
+func cmdPause(paused bool, args []string, stdout, stderr io.Writer) int {
+	asJSON := len(args) == 1 && args[0] == "--json"
+	if len(args) > 0 && !asJSON {
+		fmt.Fprintf(stderr, "usage: %s pause|resume [--json]\n", name.Binary)
+		return exitUsage
+	}
+	c, code := daemonFor(asJSON, stdout, stderr)
+	if c == nil {
+		return code
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := c.SetPaused(ctx, paused)
+	if err != nil {
+		return report(asJSON, stdout, stderr, "daemon", err.Error())
+	}
+	if asJSON {
+		writeJSON(stdout, s)
+		return exitOK
+	}
+	if paused {
+		fmt.Fprintf(stdout, "%s is paused: offline until `%s resume`, also after a restart. Local work goes on and is pushed after the resume.\n", name.Product, name.Binary)
+	} else {
+		fmt.Fprintf(stdout, "%s is syncing again\n", name.Product)
 	}
 	return exitOK
 }

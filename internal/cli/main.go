@@ -68,6 +68,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdStop(rest, stdout, stderr)
 	case "status":
 		return cmdStatus(rest, stdout, stderr)
+	case "pause":
+		return cmdPause(true, rest, stdout, stderr)
+	case "resume":
+		return cmdPause(false, rest, stdout, stderr)
 	case "check":
 		return cmdCheck(rest, stdout, stderr)
 	case "comment":
@@ -120,7 +124,8 @@ func usage(w io.Writer) {
   %[1]s                     make sure the daemon runs, then open its UI
   %[1]s daemon [--background] [--no-ui] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
   %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
-  %[1]s status [--json]       online state, peers reachable, prompts waiting
+  %[1]s status [--json]       online state, peers reachable, last sync, what waits, paused
+  %[1]s pause | resume [--json]   go offline and back; kept across restarts
   %[1]s autostart on|off|status [--json]   start kalka at logon
   %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
@@ -144,7 +149,7 @@ func usage(w io.Writer) {
   %[1]s version [--json]
 
 Commands that act through kalka (send, handoff, peers add|forget, verify, team changes,
-join, publish, release, delete, open) start it in the background when it is not running;
+join, publish, release, delete, open, pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 peers, team members|log|invites, domains) never start it: with none running they read the
 local files and their JSON says "daemon": false. check, comment, seed, seeds and reference

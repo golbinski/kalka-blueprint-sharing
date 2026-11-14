@@ -372,6 +372,24 @@ func TestCLIClasses(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	// Pause and resume: kept in state.yaml, seen by status, and a sync
+	// while paused fails with kind "paused".
+	if code, out, errs := w.kalka("pause", "--json"); code != 0 || !strings.Contains(out, `"paused": true`) {
+		t.Fatalf("pause: %d %s %s", code, out, errs)
+	}
+	if code, out, _ := w.kalka("status", "--json"); code != 0 || !strings.Contains(out, `"paused": true`) {
+		t.Fatalf("status paused: %s", out)
+	}
+	if code, out, _ := w.kalka("send", plan, "bob@corp.com", "--json"); code == 0 || !strings.Contains(out, `"kind": "paused"`) {
+		t.Fatalf("send while paused: %d %s", code, out)
+	}
+	if code, out, _ := w.kalka("resume"); code != 0 || !strings.Contains(out, "syncing again") {
+		t.Fatalf("resume: %d %s", code, out)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(w.dir, daemon.StateFile)); !strings.Contains(string(raw), "paused: false") {
+		t.Fatalf("state.yaml after resume:\n%s", raw)
+	}
+
 	// No configuration: a daemon command says so and starts nothing.
 	other := filepath.Join(t.TempDir(), "empty-cfg")
 	t.Setenv("KALKA_CONFIG_DIR", other)

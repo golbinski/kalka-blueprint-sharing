@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Peer, type Prompt, type Status, type SyncResult } from './api'
+import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Notice, type Peer, type Prompt, type Status, type SyncResult } from './api'
 import { PromptCard, PublishDialog, SeedDialog, SyncDialog } from './Dialogs'
-import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
+import { closePrompt, notifyNotice, notifyPrompt, permission, requestPermission } from './notify'
+import { SettingsPage } from './Settings'
 import { CanvasPage } from './Canvas'
 import { Review } from './Review'
 import { Blueprints, Peers, PreBacklog, Setup } from './Views'
@@ -93,7 +94,17 @@ export function App() {
             break
           case 'status':
             loadStatus()
+            setTeamTick((n) => n + 1)
             break
+          case 'settings':
+            loadStatus()
+            setTeamTick((n) => n + 1)
+            break
+          case 'notice': {
+            const n = data as Notice
+            if (n && !notifyNotice(n)) toast(n.message)
+            break
+          }
           case 'peers':
             loadPeers()
             setTeamTick((n) => n + 1)
@@ -210,6 +221,9 @@ export function App() {
             <a href="#/peers" className={route.view === 'peers' ? 'active' : ''}>
               Peers
             </a>
+            <a href="#/settings" className={route.view === 'settings' ? 'active' : ''}>
+              Settings
+            </a>
           </nav>
         )}
         <span className="grow" />
@@ -263,7 +277,16 @@ export function App() {
 
       <div className="banners">
         {status.notice && <div className="banner notice">{status.notice}</div>}
-        {!status.online && (
+        {status.paused && (
+          <div className="banner warn">
+            Sync is paused: kalka is offline and nothing reaches your teammates until you resume. Your own work is kept and sent
+            then.{' '}
+            <button type="button" className="link" onClick={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))}>
+              Resume sync
+            </button>
+          </div>
+        )}
+        {!status.online && !status.paused && (
           <div className="banner danger">
             Not connected to the rendezvous server{status.error ? `: ${status.error}` : ''}. Syncs cannot start until it is back;
             kalka keeps retrying.
@@ -338,6 +361,7 @@ export function App() {
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && <PreBacklog self={status.email} />}
         {route.view === 'team' && <TeamPage self={status.email} reloadKey={teamTick} />}
+        {route.view === 'settings' && <SettingsPage tick={teamTick} />}
         {route.view === 'domains' && <DomainsPage reloadKey={teamTick} list={list} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>

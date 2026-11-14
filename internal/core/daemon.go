@@ -45,6 +45,9 @@ var (
 type Options struct {
 	Config    *config.Config
 	ConfigDir string
+	// Paused starts the node paused (spec 22.3; the daemon keeps the
+	// state in state.yaml).
+	Paused bool
 	// Now is the clock for entry timestamps; nil means time.Now.
 	Now func() time.Time
 	// Log receives one line per event; nil discards.
@@ -108,7 +111,16 @@ type Node struct {
 	addresses map[string]bool // typed this session
 	pending   map[string]candidate
 	readyCh   chan struct{}
-	logMu     sync.Mutex
+	readyOnce sync.Once
+	lastSync  time.Time // guarded by mu; see noteSync
+	notes     notices
+
+	// pause (spec 22.3): paused is the state, pauseCh is closed and
+	// replaced on every change so loops can wait for one.
+	pauseMu sync.Mutex
+	paused  bool
+	pauseCh chan struct{}
+	logMu   sync.Mutex
 
 	// wrapStore, set by tests, replaces the store an incoming sync uses
 	// (fault injection for spec 16.1 scenario 6).
@@ -190,6 +202,8 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 		addresses: map[string]bool{},
 		pending:   map[string]candidate{},
 		readyCh:   make(chan struct{}),
+		paused:    opts.Paused,
+		pauseCh:   make(chan struct{}),
 	}, nil
 }
 
@@ -243,19 +257,11 @@ func (d *Node) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); _ = d.Store.Watch(ctx) }()
 	sig.Add(1)
-	go func() { defer sig.Done(); d.signalLoop(work, false) }()
-	wg.Add(1)
-	go func() { defer wg.Done(); d.joinLoop(ctx) }()
+	go func() { defer sig.Done(); d.network(ctx, work) }()
 	if !d.opts.manualReplication {
 		wg.Add(1)
 		go func() { defer wg.Done(); d.replicateLoop(ctx) }()
 	}
-	if !d.opts.noKeyID {
-		sig.Add(1)
-		go func() { defer sig.Done(); d.signalLoop(work, true) }()
-	}
-	wg.Add(1)
-	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
 	wg.Wait() // nothing new starts from here
 	drained := make(chan struct{})
@@ -270,6 +276,82 @@ func (d *Node) Run(ctx context.Context) error {
 	abort()
 	sig.Wait()
 	return nil
+}
+
+// network runs the loops that use the network while not paused: the two
+// rendezvous registrations (on work, so a stop drains sessions) and the
+// join and probe loops (which also end at a stop). A pause ends them all;
+// a resume starts them again.
+func (d *Node) network(stop, work context.Context) {
+	for work.Err() == nil {
+		paused, changed := d.pauseState()
+		if paused {
+			d.markReady() // started, and deliberately offline
+			select {
+			case <-changed:
+			case <-work.Done():
+			}
+			continue
+		}
+		nctx, cancel := context.WithCancel(work)
+		lctx, lcancel := context.WithCancel(nctx)
+		unstop := context.AfterFunc(stop, lcancel)
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() { defer wg.Done(); d.signalLoop(nctx, false) }()
+		go func() { defer wg.Done(); d.joinLoop(lctx) }()
+		go func() { defer wg.Done(); d.probeLoop(lctx) }()
+		if !d.opts.noKeyID {
+			wg.Add(1)
+			go func() { defer wg.Done(); d.signalLoop(nctx, true) }()
+		}
+		select {
+		case <-changed:
+		case <-work.Done():
+		}
+		cancel()
+		wg.Wait()
+		unstop()
+		lcancel()
+	}
+}
+
+func (d *Node) markReady() { d.readyOnce.Do(func() { close(d.readyCh) }) }
+
+// ErrPaused is returned by actions that need the network while paused.
+var ErrPaused = errors.New(name.Product + " is paused: resume sync to do this")
+
+// Paused reports whether kalka is paused (spec 22.3).
+func (d *Node) Paused() bool {
+	p, _ := d.pauseState()
+	return p
+}
+
+func (d *Node) pauseState() (bool, <-chan struct{}) {
+	d.pauseMu.Lock()
+	defer d.pauseMu.Unlock()
+	return d.paused, d.pauseCh
+}
+
+// SetPaused takes kalka offline or back online. Local work goes on while
+// paused; pushes queued meanwhile go out after the resume.
+func (d *Node) SetPaused(p bool) {
+	d.pauseMu.Lock()
+	if d.paused == p {
+		d.pauseMu.Unlock()
+		return
+	}
+	d.paused = p
+	close(d.pauseCh)
+	d.pauseCh = make(chan struct{})
+	d.pauseMu.Unlock()
+	if p {
+		d.logf("paused: offline until resumed")
+	} else {
+		d.logf("resumed")
+		d.kickTeam("")
+	}
+	d.bus.Publish(BusEvent{Type: "status"})
 }
 
 // isStopping reports whether Run's ctx has ended.
@@ -375,7 +457,7 @@ func (d *Node) signalLoop(ctx context.Context, key bool) {
 			d.logf("connected to %s as %s", d.srv.URL, d.cfg.Email)
 			if !ready {
 				ready = true
-				close(d.readyCh)
+				d.markReady()
 			}
 		}
 		for {
@@ -474,7 +556,7 @@ func (d *Node) session(ch syncproto.Channel, peer, scope string, progress func(s
 		}
 		return d.Prompts.Ask(ctx, scope, p)
 	}
-	return &syncproto.Session{Ch: ch, Self: d.self.Email, Peer: peer, Keys: d.keys, Store: d.Store, Ask: ask, Now: d.now, Progress: progress}
+	return &syncproto.Session{Ch: ch, Self: d.self.Email, Peer: peer, Keys: d.keys, Store: noticeStore{d.Store, d}, Ask: ask, Now: d.now, Progress: progress}
 }
 
 // confirm runs code verification for an authenticated peer.
@@ -526,6 +608,9 @@ func (d *Node) serve(c *transport.Conn) {
 		return
 	}
 	results, err := s.Respond()
+	if err == nil {
+		d.noteSync()
+	}
 	d.bus.Publish(BusEvent{Type: "peers"})
 	for _, r := range results {
 		d.bus.Publish(BusEvent{Type: "sync", Data: r})
@@ -575,6 +660,9 @@ func (e *ErrOffline) Error() string {
 // Sync syncs a blueprint with a peer, or hands it off (spec 7.1, 7.4).
 func (d *Node) Sync(ctx context.Context, req SyncRequest, scope string, progress func(string)) (syncproto.Result, error) {
 	var res syncproto.Result
+	if d.Paused() {
+		return res, ErrPaused
+	}
 	to := strings.TrimSpace(req.To)
 	if !bp.ValidEmail(to) {
 		return res, fmt.Errorf("%q is not an email address", req.To)
@@ -679,6 +767,9 @@ func (d *Node) Sync(ctx context.Context, req SyncRequest, scope string, progress
 		return res, err
 	}
 	res, err = s.Initiate(syncproto.Request{File: f, Offer: offer, Intent: intent})
+	if err == nil {
+		d.noteSync()
+	}
 	d.bus.Publish(BusEvent{Type: "peers"})
 	if err == nil && intent == IntentHandoff {
 		d.mu.Lock()
@@ -900,6 +991,7 @@ type Status struct {
 	Rendezvous string `json:"rendezvous"`
 	Folder     string `json:"folder"`
 	Online     bool   `json:"online"`
+	Paused     bool   `json:"paused"`
 	Error      string `json:"error,omitempty"`
 	// Notice is the permanent public-cloud warning (spec 9.7).
 	Notice string `json:"notice,omitempty"`
@@ -915,7 +1007,8 @@ func (d *Node) State() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	s := Status{Email: d.self.Email, PeerID: d.peerID, KeyPeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
-		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, KeyOnline: d.kep != nil, KeyError: d.keyErr}
+		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, KeyOnline: d.kep != nil, KeyError: d.keyErr,
+		Paused: d.Paused()}
 	if d.cloud {
 		s.Notice = CloudNotice
 	}

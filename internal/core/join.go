@@ -60,6 +60,9 @@ func (d *Node) Joins() []JoinView {
 // join and dials the owner now and then once a minute until the invite
 // expires.
 func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
+	if d.Paused() {
+		return JoinView{}, ErrPaused
+	}
 	iv, err := teamlog.ParseToken(token)
 	if err != nil {
 		return JoinView{}, fmt.Errorf("%w: copy the whole line the team owner sent", err)
@@ -207,8 +210,10 @@ func (d *Node) tryJoin(ctx context.Context, id string) {
 	switch {
 	case err == nil:
 		d.logf("joined team %s", iv.TeamName)
+		d.notice(Notice{Kind: NoticeJoinDone, Title: iv.TeamName, Team: iv.TeamName, Message: "you joined the team " + iv.TeamName})
 	case errors.As(err, &fail):
 		d.logf("joining %s failed: %v", iv.TeamName, err)
+		d.notice(Notice{Kind: NoticeJoinFail, Title: iv.TeamName, Team: iv.TeamName, Message: "joining " + iv.TeamName + " failed: " + fail.msg})
 	default:
 		d.logf("joining %s: %v; trying again in %s", iv.TeamName, err, JoinEvery)
 	}
@@ -411,6 +416,11 @@ func (d *Node) redeem(c *transport.Conn, peer transport.Peer) {
 			_ = env.Decode(&b)
 			if b.Reason == syncproto.ByeJoined {
 				d.logf("%s joined the team", peer.Email)
+				team := peer.Invite.Team
+				if h, err := d.heldTeam(team); err == nil {
+					team = h.dir.Name
+				}
+				d.notice(Notice{Kind: NoticeJoined, Title: team, Team: team, Message: peer.Email + " joined " + team + " with your invite"})
 			} else {
 				d.logf("join by %s: their kalka refused the log: %s", peer.Email, b.Detail)
 			}

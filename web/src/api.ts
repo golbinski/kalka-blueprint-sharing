@@ -13,8 +13,41 @@ export interface Status {
   rendezvous: string
   folder: string
   online: boolean
+  paused?: boolean
   error?: string
   notice?: string
+}
+
+// Summary is the one-line state (spec 22.1).
+export interface Summary {
+  online: boolean
+  paused: boolean
+  error?: string
+  peers_online: number
+  peers_known: number
+  last_sync?: string
+  prompts: number
+  joins: number
+  pushes: number
+}
+
+// Settings are the daemon's own settings (spec 22.2).
+export interface Settings {
+  paused?: boolean
+  notifications?: boolean
+  keep_running_on_close?: boolean
+  start_at_login?: boolean
+  start_at_login_available?: boolean
+  start_at_login_error?: string
+}
+
+// Notice is a notification the daemon decided on (spec 22.4).
+export interface Notice {
+  kind: string
+  title: string
+  message: string
+  path?: string
+  team?: string
 }
 
 export interface BlueprintInfo {
@@ -435,6 +468,10 @@ export interface Reassigned {
 }
 
 export const api = {
+  summary: () => call<Summary>('GET', '/api/summary'),
+  settings: () => call<Settings>('GET', '/api/settings'),
+  applySettings: (s: Settings) => call<Settings>('PUT', '/api/settings', s),
+  setPaused: (paused: boolean) => call<Settings>('POST', paused ? '/api/pause' : '/api/resume', {}),
   teams: () => call<Team[] | null>('GET', '/api/teams').then((l) => l ?? []),
   createTeam: (name: string) => call<Team>('POST', '/api/teams', { name }),
   invite: (team: string, email: string, expires: string) => call<InviteResult>('POST', `/api/teams/${enc(team)}/invites`, { email, expires }),
@@ -511,13 +548,13 @@ export const api = {
   },
 }
 
-export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs' | 'teams'
+export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs' | 'teams' | 'notice' | 'settings'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs', 'teams']
+  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs', 'teams', 'notice', 'settings']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

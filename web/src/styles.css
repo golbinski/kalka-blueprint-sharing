@@ -1497,3 +1497,25 @@ button.link.danger {
   width: auto;
   flex: none;
 }
+
+/* Settings view (spec 22.2) */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+.setting {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.setting input {
+  margin-top: 3px;
+}
+.setting > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

@@ -672,6 +672,10 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.Offer) (bool, *R
 		}
 		d.snapshotHead(h, path, doc)
 		d.notePushed(id)
+		if live != nil {
+			d.commentNotice(live.Doc, doc, path)
+		}
+		d.domainNotice(h, doc)
 		return true, planRef
 	}
 	return refuse(in.Title(), "the file kept changing while it was merged")
@@ -848,6 +852,9 @@ func (d *Node) ReplicateNow(ctx context.Context, team string) (TeamStatus, error
 	if team == "" {
 		return TeamStatus{}, errors.New("no team given")
 	}
+	if d.Paused() {
+		return TeamStatus{}, ErrPaused
+	}
 	d.round(ctx, team, true)
 	d.repl.mu.Lock()
 	defer d.repl.mu.Unlock()
@@ -860,6 +867,9 @@ func (d *Node) ReplicateNow(ctx context.Context, team string) (TeamStatus, error
 
 // round reaches up to RoundPeers online members (PushPeers for a push).
 func (d *Node) round(ctx context.Context, team string, force bool) {
+	if d.Paused() {
+		return // a queued push stays queued for the resume
+	}
 	r := d.repl
 	r.mu.Lock()
 	push := r.push[team]
@@ -916,6 +926,7 @@ func (d *Node) round(ctx context.Context, team string, force bool) {
 			}
 			continue
 		}
+		d.noteSync()
 		st.Reached = append(st.Reached, email)
 		st.Refused = append(st.Refused, res.Refused...)
 		st.Received += len(res.Received)
@@ -994,6 +1005,7 @@ func (d *Node) replicaRespond(c *transport.Conn, peer transport.Peer, first tran
 		d.logf("replication from %s: %v", peer.Email, err)
 		return
 	}
+	d.noteSync()
 	if len(res.Received) > 0 || len(res.Refused) > 0 {
 		d.logf("replication from %s: %d received, %d refused", peer.Email, len(res.Received), len(res.Refused))
 		d.repl.mu.Lock()
