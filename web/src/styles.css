@@ -1230,3 +1230,144 @@ button.icon {
 .seed-link {
   font-weight: 600;
 }
+
+/* ---- Canvas review (spec 11.1); sizes match canvasLayout.ts ---- */
+.canvas-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 32px 24px;
+  min-width: 0;
+}
+.canvas-area {
+  overflow: auto;
+  min-height: 300px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+.cv-card {
+  position: absolute;
+  display: block;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+a.cv-card:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+a.cv-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cv-sec {
+  padding: 12px 16px;
+}
+.cv-sec-title {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-sec-text,
+.cv-note-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-2);
+}
+.cv-sec-text {
+  line-height: 20px;
+}
+.cv-foot {
+  line-height: 24px;
+  height: 24px;
+}
+.cv-general,
+.cv-orphaned {
+  background: var(--ground);
+  border-style: dashed;
+}
+.cv-note {
+  padding: 10px 12px;
+}
+.cv-note.kind-deviation {
+  background: var(--div-soft);
+  border-color: var(--div-line);
+}
+.cv-note.kind-handoff,
+.cv-note.kind-release,
+.cv-note.kind-budded {
+  background: var(--ground);
+}
+.cv-note-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  height: 20px;
+  line-height: 20px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cv-note-head .author {
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-flag {
+  color: var(--div-ink);
+}
+.cv-note-text {
+  font-size: 13px;
+  line-height: 18px;
+}
+.cv-ref {
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+}
+.cv-ref .ref {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-ref-state {
+  font-family: var(--sans);
+}
+.cv-edge {
+  fill: none;
+  stroke: #8d8c86;
+  stroke-width: 1.5;
+}
+.cv-edge-ref {
+  stroke: var(--accent);
+  stroke-dasharray: 5 4;
+}
+.flash {
+  animation: flash 2s ease-out;
+}
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+    outline: 3px solid var(--accent);
+  }
+}

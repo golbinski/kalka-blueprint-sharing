@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Peer, type Prompt, type Status, type SyncResult } from './api'
 import { PromptCard, SeedDialog, SyncDialog } from './Dialogs'
 import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
+import { CanvasPage } from './Canvas'
 import { Review } from './Review'
 import { Blueprints, Peers, PreBacklog, Setup } from './Views'
 import { TracePage } from './Trace'
-import { docHref, roleText, traceHref, useRoute } from './util'
+import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
 
 type Toast = { id: number; text: string }
 
@@ -30,7 +31,7 @@ export function App() {
       return false
     }
   })
-  const docPath = route.view === 'doc' || route.view === 'trace' ? route.path : ''
+  const docPath = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas' ? route.path : ''
   const docPathRef = useRef(docPath)
   // A dialog belongs to the document it was opened on.
   useEffect(() => setSeedFor(null), [docPath])
@@ -167,7 +168,7 @@ export function App() {
   if (status.setup) return <Setup status={status} />
 
   const changedKeys = peers.filter((p) => p.key_changed)
-  const inDoc = route.view === 'doc' || route.view === 'trace'
+  const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas'
 
   return (
     <>
@@ -201,9 +202,9 @@ export function App() {
               <a className={route.view === 'doc' ? 'active' : ''} href={docHref(doc.rel)}>
                 Document
               </a>
-              <span className="disabled" title="Canvas review comes in a later milestone">
+              <a className={route.view === 'canvas' ? 'active' : ''} href={canvasHref(doc.rel)}>
                 Canvas
-              </span>
+              </a>
               {doc.traces.length > 0 ? (
                 <a className={route.view === 'trace' ? 'active' : ''} href={traceHref(doc.rel, route.view === 'trace' ? route.index : 0)}>
                   Trace
@@ -310,6 +311,7 @@ export function App() {
           </div>
         )}
         {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} />}
+        {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && <PreBacklog self={status.email} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>

@@ -104,3 +104,49 @@ export function renderParts(src: string, firstLine: number): Part[] {
   flush(tokens.length)
   return out
 }
+
+// refsIn lists the plugin references (spec 10.1) a Markdown text links
+// to, in order of first appearance, as written.
+export function refsIn(src: string): string[] {
+  const seen = new Set<string>()
+  const walk = (ts: ReturnType<typeof md.parse>) => {
+    for (const t of ts) {
+      if (t.type === 'link_open') {
+        const href = String(t.attrGet('href') ?? '')
+        if (pluginRef(href)) seen.add(href)
+      }
+      if (t.children) walk(t.children)
+    }
+  }
+  walk(md.parse(src, {}))
+  return [...seen]
+}
+
+// plainText is a rough one-paragraph reading of Markdown for previews:
+// headings, fences and markup are dropped, references keep their label.
+export function plainText(src: string): string {
+  const out: string[] = []
+  let fence = ''
+  for (const line of src.split('\n')) {
+    const f = /^\s*(```+|~~~+)\s*(\S*)/.exec(line)
+    if (fence) {
+      if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = ''
+      continue
+    }
+    if (f) {
+      fence = f[1]
+      out.push(f[2] === 'trace' ? '[trace]' : f[2] === 'mermaid' ? '[diagram]' : '[code]')
+      continue
+    }
+    if (/^\s{0,3}#{1,6}\s/.test(line)) continue
+    out.push(line)
+  }
+  return out
+    .join(' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]*>/g, '')
+    .replace(/(^|\s)(>|[-*+]|\d+\.)\s+/g, '$1')
+    .replace(/[*_`|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}

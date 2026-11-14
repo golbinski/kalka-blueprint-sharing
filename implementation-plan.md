@@ -219,7 +219,7 @@ Choices made while implementing that the spec does not spell out:
 - **Live updates** use SSE (`/api/events`), with these events: `folder`, `status`, `peers`, `prompt`, `prompt-closed`, `sync`. When a prompt arrives and no UI is connected, the daemon opens the browser (A8), at most once a minute.
 - **Rendering untrusted Markdown**: raw HTML is escaped. Only `http`, `https` and `#` links are kept, and external links open in a new tab with `noopener noreferrer`. Images become links, since the CSP blocks remote images and they could track readers.
 - **Fonts**: system font stacks, no embedded fonts.
-- **Canvas and Trace tabs** are shown disabled until M6 and M7. The mockups' Review log tab is left out (Q5).
+- **Canvas and Trace tabs** were shown disabled until M6 and M7 (both done; see 6e and 6n). The mockups' Review log tab is left out (Q5).
 - **Build**: `make` runs `npm ci && npm run build` into `internal/ui/dist`, which is embedded. The build output is not committed. A binary built without it serves a "UI not built" page.
 
 **Prompts with no terminal (Q3, after M3):** `internal/notify` shows a native dialog: AppleScript `display dialog` on macOS (the texts are passed as arguments, never put into the script), `MessageBoxW` on Windows (closed with `WM_CLOSE` when the prompt ends), and `zenity` on Linux. With no dialog available, the browser opens instead, at most once a minute. One popup shows at a time. It closes when its prompt is answered or times out, and "Later" is not asked again for that prompt. Terminal prompts remain only when stdin is a terminal. The page asks once for notification permission and notifies about prompts while hidden. Packaging to-do: `kalka autostart on|off` (Task Scheduler at logon or HKCU Run, with no console window; LaunchAgent on macOS), toasts with an AUMID shortcut on Windows, and an `.app` bundle on macOS. Not tested on a real Windows desktop yet.
@@ -437,6 +437,15 @@ Order from here: R1 reference and hints, R2 team log library, R3 signed entries 
   - Daemon: budding from a reviewer's copy with the backlink and seed surviving syncs both ways; backlink retry with no second seed; promotion by the owner only; handoff of a seed, then promotion.
   - CLI: id given to a local parent, seed written beside it, signed backlink, `seeds` output.
 - **Not yet.** Publishing a seed with its parent's team waits for R7.
+
+## 6n. M6 status: canvas review
+
+- **No graph library.** The canvas is drawn by hand like the trace view (absolute cards, one SVG for the lines), so `@xyflow/react` (A9) was not added: the layout is a column per kind and needs no dragging, edge routing or saved state.
+- **Layout** (`web/src/canvasLayout.ts`): body sections as cards down the middle in reading order, then General and, when there are any, Orphaned, as in the linear view. Entries are notes to the right, joined to their section's card; replies sit under the note they answer, indented (at most four levels) and joined to it. Plugin references a section links to (`refsIn`) are small cards to its left, joined with a dashed line. Card heights come from text length (`plainText`, clamped lines), never from the browser, so the same document gives the same layout. Nothing is saved; zoom is per page view.
+- **Shared grouping** (`web/src/entries.ts`): `groupEntries` decides where an entry belongs, for the linear view and the canvas alike, so both show the same entries.
+- **Selecting.** A note opens the linear view at `?at=e-<id>`; a section card at `?at=s-<slug>` (`general`, `orphaned` for the other two). The linear view scrolls the target to the middle and outlines it for two seconds. A reference card opens the same popup as in the linear view.
+- **UI.** The Canvas tab is enabled (route `#/canvas/<path>`), with zoom in, zoom out, Fit and a legend. Checked in Chrome with the test folder: references resolve in place, and a note opens the document scrolled to it.
+- **Tests** (`canvasLayout.test.ts`): every section and entry of the linear view appears beside the card the linear view puts it under (including nested headings, replies to entries missing from the file and orphans); reply threading; references once per section; reading order without overlap; the same layout for the same input; General without entries; note texts for handoffs, seeds and releases; `refsIn` and `plainText`.
 
 ## 7. Sequencing and rough size
 

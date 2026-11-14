@@ -11,6 +11,7 @@ export function localTime(utc: string): string {
 export type Route =
   | { view: 'list' }
   | { view: 'doc'; path: string }
+  | { view: 'canvas'; path: string }
   | { view: 'trace'; path: string; index: number; node?: string }
   | { view: 'peers' }
   | { view: 'seeds' }
@@ -19,6 +20,7 @@ export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
   const q = new URLSearchParams(query ?? '')
   if (h.startsWith('doc/')) return { view: 'doc', path: decodeURIComponent(h.slice(4)) }
+  if (h.startsWith('canvas/')) return { view: 'canvas', path: decodeURIComponent(h.slice(7)) }
   if (h.startsWith('trace/')) {
     const rest = h.slice(6)
     const i = rest.lastIndexOf('/')
@@ -32,6 +34,10 @@ export function parseRoute(hash: string): Route {
 
 export function docHref(rel: string): string {
   return '#/doc/' + encodeURIComponent(rel)
+}
+
+export function canvasHref(rel: string): string {
+  return '#/canvas/' + encodeURIComponent(rel)
 }
 
 // traceHref names trace block `index` (0-based) of a blueprint; the URL

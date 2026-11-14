@@ -4,6 +4,7 @@ import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
 import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
+import { groupEntries } from './entries'
 import { docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
@@ -403,35 +404,18 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
   const [draft, setDraft] = useState<Draft | null>(null)
   const [selection, setSelection] = useState<{ slug: string; text: string } | null>(null)
 
-  const { bySlug, general, orphaned, replies, byId } = useMemo(() => {
-    const byId = new Map(doc.entries.map((e) => [e.id, e]))
-    const replies = new Map<string, Entry[]>()
-    const top: Entry[] = []
-    for (const e of doc.entries) {
-      if (e.reply_to && byId.has(e.reply_to)) {
-        replies.set(e.reply_to, [...(replies.get(e.reply_to) ?? []), e])
-      } else top.push(e)
-    }
-    const slugOf = new Map<string, string>()
-    for (const s of doc.sections) for (const sl of s.slugs) slugOf.set(sl, s.heading?.slug ?? '')
-    const bySlug = new Map<string, Entry[]>()
-    const general: Entry[] = []
-    const orphaned: Entry[] = []
-    for (const e of top) {
-      if (!e.section) general.push(e)
-      else if (e.orphaned || !slugOf.has(e.section)) orphaned.push(e)
-      else {
-        const k = slugOf.get(e.section)!
-        bySlug.set(k, [...(bySlug.get(k) ?? []), e])
-      }
-    }
-    return { bySlug, general, orphaned, replies, byId }
-  }, [doc])
+  const { bySlug, general, orphaned, replies, byId } = useMemo(() => groupEntries(doc), [doc])
 
   // Scroll to a section or entry named in the location, once.
   useEffect(() => {
     const id = new URLSearchParams(location.hash.split('?')[1] ?? '').get('at')
-    if (id) document.getElementById(id)?.scrollIntoView()
+    const el = id ? document.getElementById(id) : null
+    if (!el) return
+    el.scrollIntoView({ block: 'center' })
+    // Show which one was meant (from the canvas, say).
+    el.classList.add('flash')
+    const t = setTimeout(() => el.classList.remove('flash'), 2000)
+    return () => clearTimeout(t)
   }, [])
 
   const captureSelection = (slug: string) => {
@@ -489,7 +473,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
       <HintStrip doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
       {doc.sections.map(sectionView)}
-      <section className="sec general">
+      <section className="sec general" id="general">
         <div className="sec-body">
           <h2 className="log-title">General</h2>
           <p className="muted">Entries about the whole plan. {plural(doc.entries.length, 'entry', 'entries')} in the review log.</p>
@@ -512,7 +496,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
         </aside>
       </section>
       {orphaned.length > 0 && (
-        <section className="sec">
+        <section className="sec" id="orphaned">
           <div className="sec-body">
             <h2 className="log-title">Orphaned</h2>
             <p className="muted">These entries point at headings that are no longer in the plan.</p>
