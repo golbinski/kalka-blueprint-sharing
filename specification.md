@@ -2,11 +2,13 @@
 
 *Kalka* (Polish: tracing paper, carbon copy) is the working name. It appears in the binary, the plugin prefix (`kalka-plugin-<scheme>`), the frontmatter key (`kalka_id`) and protocol strings. Keep the name in one constant per component so a later rename is cheap; availability of the name has not been checked.
 
-Specification v0.4 · 2026-11-13 · status: ready for implementation
+Specification v0.5 · 2026-11-14 · status: ready for implementation
 
-This document is the hand-over to the implementation agent. Sections 1–15 and 19–21 are normative. Section 16 gives milestones and acceptance criteria. Section 17 records what changed during the final review and why. Section 18 lists open questions and the decisions taken on them; each open question has a default so work is not blocked.
+This document is the hand-over to the implementation agent. Sections 1–15 and 19–23 are normative. Section 16 gives milestones and acceptance criteria. Section 17 records what changed during the final review and why. Section 18 lists open questions and the decisions taken on them; each open question has a default so work is not blocked.
 
 v0.4 adds teams with roles and a signed operation log (19), replication of team documents between members (20), a threat model (21), seeds (6.11), team domain documents (6.12), and the blueprint reference (6.13). The new sections were appended so that existing section numbers, which the code cites, stay valid. The triage behind v0.4 is `docs/plan-teams-replication.md`.
+
+v0.5 makes kalka a background desktop app: one daemon per user that runs from login whether or not a window is open, a CLI that stays first class, and a desktop shell with a window and a tray icon (4, 22). It adds the daemon lock and `kalka daemon` (4.1), hardens the local API (13), and covers platforms and distribution (23). The triage behind v0.5 is `docs/plan-desktop-app.md`.
 
 Wording: **must** is a requirement, **should** is a strong default the implementer may deviate from with a written reason, **may** is optional.
 
@@ -95,11 +97,22 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 
 Components:
 
-- **`kalka` daemon** — one Go process. Watches the folder, serves the web UI on localhost, maintains the rendezvous connection, runs syncs, invokes plugins.
-- **Web UI** — single-page app embedded in the binary. Reads and comments; triggers sync and handoff.
-- **CLI** — the same binary. File-only commands work without the daemon; network commands talk to the running daemon.
+- **Core** — Go packages with no UI code: identity and keys, the team log, document storage and merge, replication, P2P networking, the invite flow, the blueprint reference. All networking and sync live here; the web UI never talks to a peer or to the rendezvous.
+- **Daemon** — one long-running process per user and machine that hosts the core. It watches the folder, keeps the rendezvous connection, runs syncs and replication, invokes plugins, and serves the local API and the web UI on localhost (13). Closing every window never stops it.
+- **CLI** — the `kalka` binary. File commands work without a daemon; daemon commands talk to the running daemon over the local API and start one when none runs (12).
+- **Desktop shell** — `kalka-desktop`: a window showing the web UI and a tray icon (22). It hosts the daemon in its own process or attaches to one already running (4.1). It is optional: everything works without it.
+- **Web UI** — single-page app embedded in the binary, shown in the desktop window or a browser tab. A pure view over the local API.
 - **Plugins** — separate executables named `kalka-plugin-<scheme>`, JSON over stdio.
 - **Rendezvous** — any PeerJS-protocol server: the public PeerJS cloud (demo), stock `peerjs-server`, or `kalka rendezvous` (same binary, adds TURN).
+
+### 4.1 One daemon per user
+
+- The daemon takes an exclusive lock on `<config>/daemon.lock` before anything else, the setup form included: `flock` on macOS and Linux, `LockFileEx` on Windows. The kernel releases it when the process ends, however it ends, so there is no stale lock. The PID in the file is for messages only.
+- A second start finds the lock held. `kalka daemon` prints "already running (pid N)" and exits 0. The desktop shell attaches to the running daemon, or asks the shell that already runs to show its window, and exits 0.
+- **Placement.** The desktop shell runs the daemon in its own process when it gets the lock. When a headless daemon holds the lock, the shell attaches to it as a client. Either way the window and the tray use only the local API.
+- A daemon started by the CLI is always headless, also where the desktop shell is installed: an agent's command never makes a window or a tray icon appear. A shell started later attaches.
+- Known limit: two config directories naming the same blueprint folder are not prevented. That is a deliberate setup (used in tests); a lock inside the folder would have to work on network shares, where file locks are unreliable.
+- **Restricted environments.** Where policy blocks autostart or tray apps, `kalka daemon`, started by hand or by any scheduler, is a fully supported way to run kalka (23.4).
 
 ---
 
@@ -125,6 +138,10 @@ Also stored in the config directory, never in the blueprint folder:
 - `plugins/` — optional directory searched before `PATH`.
 - `invites.yaml` — open invites this installation issued as a team owner (19.7). Owner-only permissions.
 - `joins.yaml` — pending joins: tokens redeemed with `kalka join` and not yet completed (19.7). Owner-only permissions.
+- `daemon.lock` — the single-daemon lock (4.1).
+- `daemon.json` — the running daemon's PID, local API address and per-start token (13). Owner-only permissions. Removed at exit.
+- `state.yaml` — settings the daemon owns and writes: `paused`, `notifications`, `keep_running_on_close`, `close_notice_shown`, `autostart_initialized` (22). Changed only through the local API.
+- `kalka.log` — log of a daemon started in the background or by the desktop shell.
 
 None of these files is ever asked for or edited by the user.
 
@@ -595,7 +612,7 @@ Separate binary in the same repository, shipped alongside `kalka`. Uses the user
 
 ## 11. Web UI
 
-Served from the binary (`embed.FS`). The frontend is prebuilt in CI; end users need no Node toolchain.
+Served from the binary (`embed.FS`). The frontend is prebuilt in CI; end users need no Node toolchain. It is shown in the desktop window (22) or in a browser tab (`kalka open`); it is the same page from the same localhost address either way, a pure view over the local API (13).
 
 ### 11.1 Views
 
@@ -609,6 +626,7 @@ Served from the binary (`embed.FS`). The frontend is prebuilt in CI; end users n
 - **Pre-backlog** — seeds held locally, including the team's (6.11): title, owner, parent, age; *Promote* for the owner.
 - **Team** — members, owners, domain owners, open invites, the log rendered as a readable history, a replication status line (last round, peers reached, documents refused and why), and *Join* (paste a token), *Invite*, *Remove* (with a preview of the documents to be reassigned), *Add owner*, *Assign domain*.
 - **Domains** — the team's domain documents with version and owner; *Release* for the domain owner, with a checklist of open comments to mark as incorporated; a version switcher over local snapshots.
+- **Settings (v0.5)** — start at login, keep running when the window is closed, notifications, pause (22). The two window settings are hidden in a browser tab.
 
 The UI updates live from the daemon (SSE or WebSocket) when files change or syncs arrive.
 
@@ -625,42 +643,68 @@ Blueprints from peers are untrusted input rendered in a page that can trigger fi
 
 ## 12. CLI
 
-| Command | Needs daemon | Purpose |
+The CLI is a first-class interface: agents and scripts use it, it works without the desktop shell, and on machines where the shell is not installed. Commands fall into four classes.
+
+| Class | With a daemon running | With no daemon |
 |---|---|---|
-| `kalka` | starts it | Run the daemon and open the UI. |
-| `kalka check <file>` | no | Validate format; exit code for use in scripts and agents. |
-| `kalka comment <file> --anchor <slug> [--kind deviation] [--re <id>]` | no | Append an entry; body from `-m` or stdin. Author is the configured email. |
-| `kalka send <file> <email>` | yes | Sync a blueprint with a peer. |
-| `kalka handoff <file> <email>` | yes | Hand ownership over. |
-| `kalka peers` | yes | List peers and presence. |
-| `kalka verify <email>` | yes | Show the verification code; `--confirm` marks verified. |
-| `kalka rendezvous [flags]` | — | Run the server mode. |
-| `kalka version` | no | Version and protocol numbers. |
-| `kalka reference export [-o <file>] [--force]` | no | Write `BLUEPRINT-REFERENCE.md` (6.13), to stdout by default. Never overwrites without `--force`. |
-| `kalka reference version` | no | Print the embedded reference version. |
-| `kalka seed <parent> [--from <entry id>] --title <t> [-m <text>]` | no | Bud a seed (6.11). |
-| `kalka seeds` | no | List the pre-backlog. |
-| `kalka team create <name>` | yes | Create a team; you are its first owner. |
-| `kalka team invite <email> [--expires <dur>]` | yes | Print an invite token (19.7). Team owners only. |
-| `kalka join <token> [--wait <dur>]` | yes | Redeem an invite; waits briefly for the owner, then leaves the retry to the daemon. |
-| `kalka team members\|log\|invites` | yes | Show the roster, the log, or the invites made on this installation. |
-| `kalka team remove\|add-owner\|remove-owner <email>` | yes | Roster changes (19.3). |
-| `kalka team assign-domain <domain> <email>` | yes | Appoint a domain owner. |
-| `kalka publish <file> --team <team>` | yes | Publish a document to a team (20.1); again later to publish an update. |
-| `kalka release <file> [-m <text>] [--incorporates <id>,...]` | yes | Release a domain version (6.12). |
-| `kalka delete <file>` | yes | Delete a published document for the team (20.6). |
-| `kalka domains` | yes | List domain documents and versions. |
+| **File** | Not used | Not used, and none is started. Writes follow 14 (re-read and redo on change), so they are safe beside a running daemon. |
+| **Daemon** | Over the local API (13) | One is started in the background (`kalka daemon --background`) and the command runs once it answers. `--no-start` or `KALKA_NO_START=1` fails instead, with exit code 1 and `"kind": "not-running"` in JSON. |
+| **View** | Over the local API, with live data (presence, online state) | Read from the local files in process; nothing is started. Live fields are reported as unknown and JSON carries `"daemon": false`. |
+| **Control** | `daemon`: exits 0 (4.1). `stop`: asks it to stop and waits. | `daemon`: runs. `stop`: nothing to do, exits 0. |
+
+| Command | Class | Purpose |
+|---|---|---|
+| `kalka` | — | Make sure a daemon runs, then open the UI: the desktop window if a shell is attached, else the browser. |
+| `kalka daemon [--background] [--no-ui]` | control | Run the daemon in the foreground (prompts are asked in the terminal), or as at login with `--background` (no browser, notifications, log to `kalka.log`). `--no-ui` serves the API but not the web UI. |
+| `kalka stop` | control | Stop the running daemon after its running rounds finish. |
+| `kalka status` | view | Online state, peers reachable, last sync, pending items, paused. |
+| `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). |
+| `kalka open [--print]` | daemon | Open the UI in the browser, or print its URL. |
+| `kalka autostart on\|off\|status` | file | Start kalka at login (22.2). |
+| `kalka setup --email … --rendezvous … --folder …` | file | Write the three settings. |
+| `kalka check <file>` | file | Validate format; exit code for use in scripts and agents. |
+| `kalka comment <file> --anchor <slug> [--kind deviation] [--re <id>]` | file | Append an entry; body from `-m` or stdin. Author is the configured email. |
+| `kalka send <file> <email>` | daemon | Sync a blueprint with a peer. |
+| `kalka handoff <file> <email>` | daemon | Hand ownership over. |
+| `kalka peers` | view | List peers and presence. |
+| `kalka peers add\|forget <email>` | daemon | Change the known peers. |
+| `kalka verify <email>` | daemon | Show the verification code; `--confirm` marks verified. |
+| `kalka rendezvous [flags]` | file | Run the server mode. |
+| `kalka version` | file | Version and protocol numbers. |
+| `kalka reference export [-o <file>] [--force]` | file | Write `BLUEPRINT-REFERENCE.md` (6.13), to stdout by default. Never overwrites without `--force`. |
+| `kalka reference version` | file | Print the embedded reference version. |
+| `kalka seed <parent> [--from <entry id>] --title <t> [-m <text>]` | file | Bud a seed (6.11). |
+| `kalka seeds` | file | List the pre-backlog. |
+| `kalka team create <name>` | daemon | Create a team; you are its first owner. |
+| `kalka team invite <email> [--expires <dur>]` | daemon | Print an invite token (19.7). Team owners only. |
+| `kalka join <token> [--wait <dur>]` | daemon | Redeem an invite; waits briefly for the owner, then leaves the retry to the daemon. |
+| `kalka team members\|log\|invites` | view | Show the roster, the log, or the invites made on this installation. |
+| `kalka team remove\|add-owner\|remove-owner <email>` | daemon | Roster changes (19.3). |
+| `kalka team assign-domain <domain> <email>` | daemon | Appoint a domain owner. |
+| `kalka publish <file> --team <team>` | daemon | Publish a document to a team (20.1); again later to publish an update. |
+| `kalka release <file> [-m <text>] [--incorporates <id>,...]` | daemon | Release a domain version (6.12). |
+| `kalka delete <file>` | daemon | Delete a published document for the team (20.6). |
+| `kalka domains` | view | List domain documents and versions. |
 
 All commands support `--json` for agents. The review log is plain Markdown, so any downstream tool can read it directly without `kalka`. `kalka comment` signs with the identity key from the config directory (6.5); it still needs no daemon.
+
+The rule behind the classes: one writer for everything shared beyond a single file. Daemon commands are those that write the team log, the config directory, a release or a tombstone, or need the network. File commands touch one blueprint file under the rules of 14. Views exist so that an agent's read in a sandbox does not register on a rendezvous server as a side effect.
+
+A daemon command with no configuration fails with "kalka is not set up"; it does not start a daemon that would wait for the setup form.
 
 ---
 
 ## 13. Local HTTP API
 
-- Bind to `127.0.0.1` only.
-- Validate the `Host` header (defeats DNS rebinding).
-- Require a per-start random token on every request (delivered in the URL that `kalka` opens, then held as a cookie); state-changing requests also require a matching `Origin`.
-- The CLI reads the token from a file in the config directory with user-only permissions.
+One local API, used by the web UI (in the desktop window or a browser tab), the desktop shell's tray, and the CLI. There is no second transport (18.3, decision 7).
+
+- Bind to `127.0.0.1` only, on `ui_port` (default 7717). The port is fixed so that the page's per-origin storage survives restarts.
+- Validate the `Host` header against the loopback address and port (defeats DNS rebinding).
+- Require the per-start random token on every `/api/` request. The page gets it in the URL that `kalka open` or the shell loads, which the daemon exchanges for an HTTP-only, same-site cookie; the CLI sends it as a bearer header.
+- Requests that change state must carry an `Origin` equal to the daemon's own origin, or none (the CLI). When a `Sec-Fetch-Site` header is present it must be `same-origin` or `none`. A web page elsewhere that aims requests at `localhost` is refused.
+- The token is in `daemon.json` in the config directory, written owner-only (mode 0600; on Windows an ACL restricted to the current user). Another local user cannot read it. The user's own processes can, as they can read the identity key: they are trusted with the user's files.
+- `--no-ui` stops the daemon from serving the web UI; the API stays up for the CLI and the shell.
+- Links the page opens to the outside go through `POST /api/open-external` when it runs in the desktop window: only `http` and `https` are accepted, and the system browser opens them. The window never navigates away from the loopback origin.
 
 ---
 
@@ -679,11 +723,14 @@ All commands support `--json` for agents. The review log is plain Markdown, so a
 
 ## 15. Technology
 
-- Go, no CGO, single static binary per platform: `windows/amd64` first, then `darwin/arm64`, `linux/amd64`.
+- Go. The `kalka` binary (CLI and headless daemon) has no CGO: a single static binary per platform, `windows/amd64` first, then `darwin/arm64`, `linux/amd64`.
+- Desktop shell: Wails v3, pinned to an exact release (18.3, decision 8). It is built only with the `desktop` build tag, so `go build ./...`, `go vet ./...` and `go test ./...` never need it. On Windows it needs no CGO; on macOS and Linux it does (23).
+- What the user installs is one product per platform (23.1): on Windows a per-user installer holding `kalka.exe` and `kalka-desktop.exe`; on macOS `Kalka.app` with one executable that is also the CLI; on Linux one archive with `kalka` and `kalka-desktop`.
+- No bundled Node.js or Chromium: Node is a build-time tool for the web UI only, and the window uses the system webview.
 - WebRTC: `pion/webrtc`; TURN: `pion/turn`.
 - File watching: `fsnotify`.
 - Frontend: TypeScript with a small framework of the implementer's choice, built to static assets and embedded.
-- Releases: reproducible cross-compiled archives containing `kalka` and `kalka-plugin-gh`.
+- Releases: reproducible archives containing `kalka`, `kalka-plugin-gh` and, where the host can build it, the desktop shell; see 23.5 for signing.
 - Pin dependency versions at implementation time; do not assume the versions current when this was written.
 
 ---
@@ -753,6 +800,27 @@ Ordered so the riskiest unknown (transport on real networks) is tested before UI
 
 ### R8 — Domain documents
 - A domain release signed by a non-assigned owner is applied by no peer, and each says why; a release reaches an offline member through a relay; snapshots never show as duplicates; the newer-version indicator appears and can be dismissed.
+
+### D1 — Core and daemon split
+- No behaviour change. A test walks the import graph: the core imports no HTTP, UI or notification package.
+
+### D2 — Daemon lock
+- A second `kalka daemon` exits 0 and names the first; the lock is released when the holder is killed; the macOS LaunchAgent restarts a crashed daemon without starting two.
+
+### D3 — Local API hardening
+- Requests without the token, with a wrong token, with a foreign `Origin` or `Sec-Fetch-Site: cross-site` on a write, or with a wrong `Host` are refused with 403; `daemon.json` is owner-only; `--no-ui` serves no page.
+
+### D4 — CLI with and without a daemon
+- Each class behaves as in 12 with and without a running daemon; a daemon command starts a headless daemon and runs; `--no-start` fails with `not-running`; views read local files and report `"daemon": false`.
+
+### D5 — Sync controls, settings and notices (headless)
+- Replication and incoming syncs continue with no window and no browser page connected; pause takes the daemon offline and survives a restart; each notice of 22.4 is raised once, and not when notifications are off.
+
+### D6 — Desktop shell
+- Closing the window hides it and the daemon keeps syncing; the one-time notice appears once; `--hidden` starts with no window; the shell attaches to a headless daemon; start at login toggles per platform.
+
+### D7 — Builds and packaging
+- One build entry point produces the headless binaries for all targets and the desktop shell for the targets the host can build; the Windows installer installs per user without elevation; unsigned builds succeed and say so.
 
 ### 16.1 End-to-end scenarios
 
@@ -847,6 +915,22 @@ Defaults apply unless answered.
 | 13 | Team log format | `<team>-team.log`, one JSON operation per line; the team is identified by the hash of `create-team` (19.1). |
 | 14 | Publishing | A `team:` frontmatter key plus a first release, by the owner, one team per document (20.1). |
 | 15 | Deletion | A tombstone is a final release; the stub and the last full copy are kept under `.kalka/` (20.6). |
+
+### 18.3 Decisions (v0.5, desktop app, product owner 2026-11-14)
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Networking in the front end | None: WebRTC, signaling and sync were already in Go (`internal/transport`, `internal/peerjs`); the web UI only calls the local API and its event stream. Nothing moved. |
+| 2 | Shell and daemon | The shell runs the daemon in process when it takes the lock, and attaches when a headless daemon holds it (4.1). Wails' own single-instance feature is not used; the lock answers the question. |
+| 3 | Commands and the daemon | Four classes (12). The request's "read-only commands work on local files" became "file commands never need a daemon": `comment` and `seed` already wrote safely without one. |
+| 4 | Pause | Fully offline: both rendezvous registrations closed, replication, joins and probes stopped. Peers see a closed laptop; no wire change. It survives a restart and is always visible (22.3). |
+| 5 | Invite joins | No approval step; the invite is the approval. "A pending invite join" notifies the owner that someone joined with their invite, and the joiner that the join completed or failed (22.4). |
+| 6 | One product per platform | One per-user installer or bundle per platform (23.1). On Windows it holds two executables built from the same code, because Windows fixes a program as console or GUI at link time: a console program opens a console window at login, a GUI program prints nothing to a terminal. On Linux the desktop shell links WebKitGTK and would not start where it is missing, so the static `kalka` stays separate. |
+| 7 | Local IPC | The same loopback HTTP API for the page, the shell and the CLI, with token, `Host`, `Origin` and `Sec-Fetch-Site` checks (13). No Unix socket and no named pipe: one transport is simpler, the window needs loopback HTTP anyway (the Wails asset server on Windows delivers only complete responses, which breaks the event stream), and owner-only permissions on `daemon.json` protect the token. |
+| 8 | Wails version | v3, pinned to an exact release: it has the tray, a cancellable close, a hidden start and notifications built in; v2 has no tray and is in maintenance. Fallback tray: `fyne.io/systray`, only if the Wails tray fails a platform. Reasoning and sources: `docs/plan-desktop-app.md` §3. |
+| 9 | Signing | No certificates yet. Signing is a configuration step; unsigned builds succeed and say so (23.5). |
+| 10 | Windows testing | Done by the product owner on a real Windows PC after the work; until then Windows-specific code is compiled and unit tested only. |
+| 11 | Updates | No auto-updater until builds are signed. |
 
 ---
 
@@ -1018,4 +1102,85 @@ What the design protects, and what it does not:
 - **The rendezvous server is not trusted.** It can refuse service, keep a peer offline by occupying its ID (on servers other than `kalka rendezvous`, 9.2), and see who connects to whom. It cannot read or alter a sync (channel binding, 8.4) or impersonate a member (pinned keys and the team log).
 - **Members can comment in their own name only.** Entries are signed (6.5); a forged entry does not enter the replica (7.6). Entries written outside `kalka` stay unsigned and local.
 - **Private documents stay private.** One function decides what replicates (20.1); a private document never appears in an inventory, and requests for it look like requests for unknown ids.
+- **The local API is reachable by local processes and by web pages aimed at `localhost`.** It answers only with the per-start token, checks `Host` against DNS rebinding, and refuses state changes from foreign origins (13). Another local user cannot read the token (owner-only `daemon.json`). Processes of the same user are trusted, as they can read the identity key anyway.
 - **Out of scope:** a member's machine being compromised; traffic analysis; denial of service by a member flooding operations, which other members see in the log and can answer by removal.
+
+---
+
+## 22. Desktop app
+
+Team replication works only while members are online at the same time, so kalka runs in the background from login, independent of any window. The desktop shell gives that background process a window and a tray icon.
+
+### 22.1 Window and tray
+
+- The window shows the web UI (11) from the daemon's localhost address. Nothing is bound into the page; it behaves exactly as in a browser tab.
+- **Tray menu:** *Open kalka*; a status line ("Online · 4 of 6 peers reachable · last sync 14:02", "Paused", or "Offline: rendezvous not reachable"); "N waiting for you" when prompts or joins are pending, opening the window on them; *Pause sync* / *Resume sync*; *Start at login* with a check mark; *Quit kalka*.
+- The status comes from `GET /api/summary`: peers whose last probe says online out of all known peers and members; the latest replication round that reached a member or completed one-to-one sync; prompts waiting for an answer, joins not completed, and teams with a push still queued. The tray refreshes on the daemon's events, at most once a second.
+- **Quit** asks first: "kalka will stop syncing with your team until you start it again." It then stops the daemon after its running rounds finish. When the shell is attached to a headless daemon, quitting stops that daemon too, and the question says so.
+
+### 22.2 Settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Start at login | on, set once at the shell's first start | A per-user entry, no admin rights: Windows `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, macOS a LaunchAgent in `~/Library/LaunchAgents`, Linux an XDG autostart file. The entry starts the shell with `--hidden`, or `kalka daemon --background` where no shell is installed. The system's entry is the truth; it is not copied into `state.yaml`. |
+| Keep running when closed | on | Closing the window hides it. The first time, one notification says that kalka keeps syncing and where its icon is. Off: closing the window quits the shell, and an in-process daemon stops with it. |
+| Notifications | on | One switch for the notices of 22.4. Prompts still show in the window when it is off. |
+| Pause | off | 22.3. |
+
+- `--hidden` starts the shell with no window shown; autostart passes it. Starting the shell again always shows the window.
+- On Linux without a tray host (stock GNOME without an extension), closing minimizes instead of hiding, so the window stays reachable.
+
+### 22.3 Pause
+
+Pause takes kalka offline: the daemon closes its rendezvous registrations and stops replication, joins and presence probes. Local work continues (comments, seeds, publish and release write locally and are pushed after resume). While paused, commands that need the network (`send`, `handoff`, `join`) fail with `"kind": "paused"`. The pause is kept in `state.yaml` and survives a restart; the tray icon has a paused state, the UI shows a banner, and a start in the paused state raises one notification.
+
+### 22.4 Notifications
+
+The core decides; the shell or the headless daemon shows them as OS notifications. A click opens the window (or the browser) on the subject.
+
+| Notice | When |
+|---|---|
+| Handoff waiting | An incoming handoff needs an answer (as today, with the verification and new-blueprint prompts). |
+| New comments on your document | A sync or replication adds entries by someone else (not releases, handoffs or `budded`) to a document the local user owns. One notice per document per sync or round; a first copy raises none. |
+| Someone joined with your invite | The owner's side, when a join is admitted. |
+| Your join completed or failed | The joiner's side, when a join reaches a final state. Retries raise nothing. |
+| Newer domain version | A received release raises a domain to a version above the one a document owned by the local user references. One notice per domain and version. |
+
+On macOS, an unsigned build cannot post to the notification centre; it shows prompts as dialogs and other notices only in the window. In a browser tab the page's own browser notifications remain; in the desktop window they are not used.
+
+---
+
+## 23. Platforms and distribution
+
+### 23.1 What is installed
+
+| Platform | Package | Contents |
+|---|---|---|
+| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH` and a Start-menu shortcut with kalka's AppUserModelID | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe` |
+| macOS | `Kalka.app` in `~/Applications`, or anywhere | One executable, which is the shell without arguments and the CLI with them; `kalka` on the `PATH` is a symlink to it |
+| Linux | One archive | `kalka` (static), `kalka-desktop`, a `.desktop` file and an icon, and the list of system packages the shell needs |
+
+The headless archives of 15 remain for servers, containers and machines without a desktop.
+
+### 23.2 Windows
+
+- WebView2 is preinstalled on Windows 10 and 11, but can be missing or removed by policy. Before opening a window the shell reads the runtime version from the registry keys Microsoft documents for the Evergreen runtime. If it is missing, a native message names the download and offers "Open kalka in the browser instead", which keeps the daemon running and uses `kalka open`. The window is never blank.
+- Notifications need the Start-menu shortcut with the AppUserModelID, which the installer creates.
+
+### 23.3 macOS and Linux
+
+- macOS: notifications and a clean tray need a signed bundle (23.5). Unsigned bundles are ad-hoc signed so they start on Apple Silicon.
+- Linux: the shell needs GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04 or newer as the stated base). The tray uses StatusNotifierItem; stock GNOME shows it only with an extension (22.2).
+- Webview rendering differences found during the work are listed here.
+
+### 23.4 Restricted environments
+
+Where IT policy blocks autostart entries, tray apps or the webview, run `kalka daemon` by hand, from a login script, or from any scheduler, and use the browser through `kalka open`. Every feature except the tray and the window works this way. What IT needs to allow: outgoing WebSocket to the rendezvous server, UDP or TURN for WebRTC (9), and a loopback TCP port for the local API (13).
+
+### 23.5 Code signing
+
+Signing is a configuration step of the release build, and its absence is not an error: an unsigned build succeeds and says "unsigned" per artifact.
+
+- Windows: an Authenticode code-signing certificate (on a hardware token or a cloud signing service, as certificate authorities issue them today) and a timestamp server. The build runs a configured signing command on every executable. Unsigned builds trigger SmartScreen; `docs/install.md` explains how to run them.
+- macOS: Apple Developer Program membership, a Developer ID Application certificate, the hardened runtime, notarization and stapling. The build reads the identity and the notary profile from the environment.
+- Linux: no signing; `SHA256SUMS` as today.
