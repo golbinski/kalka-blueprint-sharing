@@ -112,13 +112,16 @@ func TestTraceViewReferences(t *testing.T) {
 	if r := v.Refs["gh:src/notify.py"]; !r.Pending || r.Plugin != "kalka-plugin-gh" {
 		t.Fatalf("not pending: %+v", r)
 	}
-	select {
-	case e := <-events:
-		if e.Type != "refs" {
-			t.Fatalf("event %+v", e)
+	for deadline := time.After(5 * time.Second); ; {
+		select {
+		case e := <-events:
+			if e.Type != "refs" {
+				continue // presence and status events may come first
+			}
+		case <-deadline:
+			t.Fatal("no refs event")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no refs event")
+		break
 	}
 	v, _ = alice.d.Document(ctx, "plan.md")
 	got = nil

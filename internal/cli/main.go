@@ -47,10 +47,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {
 	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && args[0] != "-h" && args[0] != "--help") {
-		return cmdDaemon(args, stdin, stdout, stderr)
+		return cmdStart(args, stdout, stderr)
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
+	case "daemon":
+		return cmdDaemon(rest, stdin, stdout, stderr)
+	case "stop":
+		return cmdStop(rest, stdout, stderr)
 	case "check":
 		return cmdCheck(rest, stdout, stderr)
 	case "comment":
@@ -100,8 +104,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
-  %[1]s [--no-open]           run the daemon and open the UI (prompts for incoming syncs are asked here too)
-  %[1]s --background          run the daemon as at logon: no browser, notifications, output to kalka.log
+  %[1]s                     make sure the daemon runs, then open its UI
+  %[1]s daemon [--background] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
+  %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
   %[1]s autostart on|off|status [--json]   start kalka at logon
   %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]

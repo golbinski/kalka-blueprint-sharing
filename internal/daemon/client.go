@@ -153,3 +153,12 @@ func (c *Client) Sync(ctx context.Context, req core.SyncRequest, on func(Event))
 	}
 	return sc.Err()
 }
+
+// Shutdown asks the daemon to stop and returns its PID. The daemon
+// finishes running rounds first; use Wait to see it gone.
+func (c *Client) Shutdown(ctx context.Context) (int, error) {
+	var r struct {
+		PID int `json:"pid"`
+	}
+	return r.PID, c.do(ctx, http.MethodPost, "/api/shutdown", struct{}{}, &r)
+}

@@ -36,8 +36,9 @@ func plistPath() (string, error) {
 
 func domain() string { return "gui/" + strconv.Itoa(os.Getuid()) }
 
-// plist is the LaunchAgent. No KeepAlive: a second kalka (started by
-// hand) holds the port, and launchd would restart this one in a loop.
+// plist is the LaunchAgent. KeepAlive restarts kalka only after a crash:
+// a second start exits 0 when another daemon holds the lock (spec 4.1),
+// so launchd does not loop.
 func plist(exe string) []byte {
 	var b bytes.Buffer
 	esc := func(s string) string {
@@ -55,14 +56,22 @@ func plist(exe string) []byte {
 	<array>
 		<string>%s</string>
 		<string>%s</string>
+		<string>%s</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
 	<key>ProcessType</key>
 	<string>Interactive</string>
 </dict>
 </plist>
-`, esc(name.AppID), esc(exe), BackgroundFlag)
+`, esc(name.AppID), esc(exe), Args[0], Args[1])
 	return b.Bytes()
 }
 
@@ -119,7 +128,7 @@ func get() (Status, error) {
 					S string `xml:",chardata"`
 				}
 				if xml.Unmarshal([]byte("<x>"+prog+"</x>"), &u) == nil {
-					s.Command = u.S + " " + BackgroundFlag
+					s.Command = u.S + " " + ArgString
 					_, statErr := os.Stat(u.S)
 					s.Stale = statErr != nil
 				}

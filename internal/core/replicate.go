@@ -802,15 +802,15 @@ func (d *Node) replicateLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-start:
-			d.background(func() { d.replicateAll(ctx, false) })
+			d.background(func() { d.replicateAll(d.work, false) })
 		case <-tick:
 			tick = next()
-			d.background(func() { d.replicateAll(ctx, false) })
+			d.background(func() { d.replicateAll(d.work, false) })
 		case team := <-d.repl.kick:
 			if team == "" {
-				d.background(func() { d.replicateAll(ctx, false) })
+				d.background(func() { d.replicateAll(d.work, false) })
 			} else {
-				d.background(func() { d.round(ctx, team, false) })
+				d.background(func() { d.round(d.work, team, false) })
 			}
 		case ev := <-folder:
 			d.localChange(ev.Path)
@@ -901,8 +901,14 @@ func (d *Node) round(ctx context.Context, team string, force bool) {
 			continue
 		}
 		st.Tried++
+		if d.isStopping() {
+			break // the peers left are tried at the next start
+		}
 		res, err := d.replicateWith(ctx, h, email, key)
 		if err != nil {
+			if d.isStopping() {
+				break
+			}
 			var off *ErrOffline
 			if !errors.As(err, &off) {
 				lastErr = err
@@ -948,9 +954,12 @@ func (d *Node) replicateWith(ctx context.Context, h *held, email string, key ed2
 	var c *transport.Conn
 	for i, r := range rs {
 		dctx, cancel := context.WithTimeout(ctx, DialTimeout)
+		if d.stopping != nil {
+			context.AfterFunc(d.stopping, cancel) // a stop drains sessions, not dials
+		}
 		c, err = r.ep.Dial(dctx, r.id)
 		cancel()
-		if err == nil || ctx.Err() != nil || i == len(rs)-1 {
+		if err == nil || ctx.Err() != nil || d.isStopping() || i == len(rs)-1 {
 			break
 		}
 	}

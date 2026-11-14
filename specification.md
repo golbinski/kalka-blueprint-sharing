@@ -655,8 +655,8 @@ The CLI is a first-class interface: agents and scripts use it, it works without 
 | Command | Class | Purpose |
 |---|---|---|
 | `kalka` | — | Make sure a daemon runs, then open the UI: the desktop window if a shell is attached, else the browser. |
-| `kalka daemon [--background] [--no-ui]` | control | Run the daemon in the foreground (prompts are asked in the terminal), or as at login with `--background` (no browser, notifications, log to `kalka.log`). `--no-ui` serves the API but not the web UI. |
-| `kalka stop` | control | Stop the running daemon after its running rounds finish. |
+| `kalka daemon [--background] [--no-ui] [--no-popups]` | control | Run the daemon in the foreground (prompts are asked in the terminal), or as at login with `--background` (no browser, notifications, log to `kalka.log`). `--no-ui` serves the API but not the web UI. `--no-popups` shows no popups or notifications: prompts wait in the UI and the terminal. |
+| `kalka stop [--wait <dur>]` | control | Stop the running daemon after its running rounds finish; waits up to `--wait` (default 1m). |
 | `kalka status` | view | Online state, peers reachable, last sync, pending items, paused. |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). |
 | `kalka open [--print]` | daemon | Open the UI in the browser, or print its URL. |

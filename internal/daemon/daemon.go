@@ -11,9 +11,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/golbinski/kalka/internal/core"
+	"github.com/golbinski/kalka/internal/lockfile"
 	"github.com/golbinski/kalka/internal/name"
 )
 
@@ -34,6 +38,23 @@ type Options struct {
 	// It returns true for "open", false for "later", and must close and
 	// return when ctx ends. An error falls back to OpenUI.
 	Popup func(ctx context.Context, title, message string) (bool, error)
+	// Lock, if set, is the single-daemon lock already taken by the caller
+	// (before the setup form). Otherwise New takes it, before the core
+	// reads anything (spec 4.1). Run releases it when it returns.
+	Lock *lockfile.Lock
+}
+
+// LockFile is the single-daemon lock in the config directory (spec 4.1).
+const LockFile = "daemon.lock"
+
+// AcquireLock takes the single-daemon lock of a config directory without
+// waiting. A running daemon makes it fail with a *lockfile.Held error that
+// names its PID (errors.Is(err, lockfile.ErrHeld)).
+func AcquireLock(configDir string) (*lockfile.Lock, error) {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, err
+	}
+	return lockfile.Acquire(filepath.Join(configDir, LockFile))
 }
 
 // Daemon is one running kalka: the core node and its local API.
@@ -43,12 +64,25 @@ type Daemon struct {
 	dir     string
 	token   string
 	apiAddr string
+
+	mu       sync.Mutex
+	shutdown context.CancelFunc
 }
 
-// New prepares a daemon around a new core node.
+// New takes the lock and prepares a daemon around a new core node. With
+// another daemon running on the config directory it fails with a
+// *lockfile.Held error.
 func New(opts Options) (*Daemon, error) {
+	if opts.Lock == nil {
+		l, err := AcquireLock(opts.ConfigDir)
+		if err != nil {
+			return nil, err
+		}
+		opts.Lock = l
+	}
 	n, err := core.New(opts.Options)
 	if err != nil {
+		opts.Lock.Release()
 		return nil, err
 	}
 	token := opts.Token
@@ -63,8 +97,16 @@ func New(opts Options) (*Daemon, error) {
 // Validate checks the three required settings (spec 5).
 var Validate = core.Validate
 
-// Run serves the local API and runs the node until ctx ends.
+// Run serves the local API and runs the node until ctx
+// ends or Shutdown is called. Background work such as a running
+// replication round finishes before it returns.
 func (d *Daemon) Run(ctx context.Context) error {
+	defer d.opts.Lock.Release()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d.mu.Lock()
+	d.shutdown = cancel
+	d.mu.Unlock()
 	ln := d.opts.Listener
 	if ln != nil || d.opts.APIAddr != "-" {
 		addr := d.opts.APIAddr
@@ -112,6 +154,15 @@ func (d *Daemon) present(ctx context.Context) {
 		case r := <-pop.results:
 			pop.finished(ctx, r)
 		}
+	}
+}
+
+// Shutdown asks Run to stop; it returns at once.
+func (d *Daemon) Shutdown() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.shutdown != nil {
+		d.shutdown()
 	}
 }
 

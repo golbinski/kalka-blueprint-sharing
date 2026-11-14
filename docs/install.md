@@ -19,7 +19,7 @@ The answer itself (accept, compare the code) is always given in the kalka page, 
 1. Unzip to a folder of your own, for example `%LOCALAPPDATA%\Programs\kalka`. Keep the three `.exe` files together.
 2. Run `kalka.exe` once. The browser opens the setup form: your email, the rendezvous your team uses, and your blueprint folder.
 3. In a terminal in that folder, run `kalka autostart on`. This:
-   - adds `"…\kalkaw.exe" --background` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`;
+   - adds `"…\kalkaw.exe" daemon --background` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`;
    - registers kalka's notification identity under `HKCU\Software\Classes\AppUserModelId\com.github.golbinski.kalka`;
    - starts kalka now, in the background.
 
@@ -51,5 +51,6 @@ Popups need `zenity`. Without it, kalka opens the browser instead, at most once 
 
 - `kalka autostart status` shows what runs at logon, and warns if that program has been moved or deleted. After moving the binaries, run `kalka autostart on` again from the new place.
 - In the background, kalka writes to `kalka.log` in its config folder. One older file is kept as `kalka.log.1` once the log passes 5 MB.
-- Starting kalka a second time while it runs fails with "is kalka already running?". `kalka open` opens the running one.
+- One kalka runs per user. `kalka` starts it in the background when it is not running, then opens its page. A second `kalka daemon` prints "already running (pid N)" and exits. `kalka stop` stops it once running rounds finish.
+- `kalka daemon` runs it in a terminal instead, where prompts can also be answered with y or n. `--no-popups` keeps prompts in the page and the terminal only.
 - Plugins are found in `<config>/plugins` first, then on PATH. `kalka-plugin-gh` needs the GitHub CLI (`gh`), logged in.

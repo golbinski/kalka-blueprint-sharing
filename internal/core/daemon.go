@@ -69,18 +69,24 @@ type Options struct {
 type Node struct {
 	// bg tracks work started in the background (rounds, takeovers after a
 	// log change) so Run returns only when it is done.
-	bg     sync.WaitGroup
-	cfg    *config.Config
-	dir    string
-	now    func() time.Time
-	log    io.Writer
-	opts   Options
-	self   transport.Identity
-	pub    ed25519.PublicKey
-	peerID string // email id
-	keyID  string // key id (spec 9.2)
-	srv    peerjs.Server
-	cloud  bool
+	bg sync.WaitGroup
+	// work is the context of background work. It outlives Run's ctx by
+	// up to DrainTimeout, so a stop lets running rounds finish.
+	work context.Context
+	// stopping is Run's ctx: once it ends no new connection is made, so a
+	// round still dialing an offline peer does not hold a stop up.
+	stopping context.Context
+	cfg      *config.Config
+	dir      string
+	now      func() time.Time
+	log      io.Writer
+	opts     Options
+	self     transport.Identity
+	pub      ed25519.PublicKey
+	peerID   string // email id
+	keyID    string // key id (spec 9.2)
+	srv      peerjs.Server
+	cloud    bool
 
 	Peers   *identity.Peers
 	Store   *store.Store
@@ -200,15 +206,25 @@ func (d *Node) logf(format string, a ...any) {
 	fmt.Fprintf(d.log, "%s %s\n", d.now().Format("15:04:05"), fmt.Sprintf(format, a...))
 }
 
+// DrainTimeout bounds how long a stopping node waits for running
+// background work (replication rounds) before it cancels it.
+var DrainTimeout = 30 * time.Second
+
 // Run runs the node (rendezvous, syncs, replication, joins, probes) until
-// ctx ends. It serves nothing; the daemon around it does (spec 4).
+// ctx ends. It serves nothing; the daemon around it does (spec 4). When
+// ctx ends, no new work starts; running rounds finish, still connected to
+// the rendezvous, for up to DrainTimeout (spec 12, `kalka stop`).
 func (d *Node) Run(ctx context.Context) error {
+	work, abort := context.WithCancel(context.WithoutCancel(ctx))
+	defer abort()
+	d.work, d.stopping = work, ctx
 	d.refs.ctx = ctx // plugin calls end with the daemon
 	go d.forward(ctx)
-	var wg sync.WaitGroup
-	wg.Add(3)
+	var wg, sig sync.WaitGroup
+	wg.Add(1)
 	go func() { defer wg.Done(); _ = d.Store.Watch(ctx) }()
-	go func() { defer wg.Done(); d.signalLoop(ctx, false) }()
+	sig.Add(1)
+	go func() { defer sig.Done(); d.signalLoop(work, false) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); d.joinLoop(ctx) }()
 	if !d.opts.manualReplication {
@@ -216,15 +232,29 @@ func (d *Node) Run(ctx context.Context) error {
 		go func() { defer wg.Done(); d.replicateLoop(ctx) }()
 	}
 	if !d.opts.noKeyID {
-		wg.Add(1)
-		go func() { defer wg.Done(); d.signalLoop(ctx, true) }()
+		sig.Add(1)
+		go func() { defer sig.Done(); d.signalLoop(work, true) }()
 	}
+	wg.Add(1)
 	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
-	wg.Wait()
-	d.bg.Wait()
+	wg.Wait() // nothing new starts from here
+	drained := make(chan struct{})
+	go func() { d.bg.Wait(); close(drained) }()
+	select {
+	case <-drained:
+	case <-time.After(DrainTimeout):
+		d.logf("stopping: background work still running after %s, cancelling it", DrainTimeout)
+		abort()
+		<-drained
+	}
+	abort()
+	sig.Wait()
 	return nil
 }
+
+// isStopping reports whether Run's ctx has ended.
+func (d *Node) isStopping() bool { return d.stopping != nil && d.stopping.Err() != nil }
 
 // background runs f in a goroutine that Run waits for.
 func (d *Node) background(f func()) {

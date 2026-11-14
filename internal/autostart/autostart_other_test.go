@@ -17,7 +17,7 @@ func TestDesktopEntry(t *testing.T) {
 	os.WriteFile(exe, []byte("x"), 0o755)
 
 	s, err := Enable(exe)
-	if err != nil || !s.Enabled || s.Stale || !strings.HasSuffix(s.Command, " --background") {
+	if err != nil || !s.Enabled || s.Stale || !strings.HasSuffix(s.Command, " daemon --background") {
 		t.Fatalf("enable: %+v %v", s, err)
 	}
 	if got, ok := unquoteFirst(s.Command); !ok || got != exe {

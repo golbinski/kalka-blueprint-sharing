@@ -48,7 +48,7 @@ Exec=%s %s
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-`, name.Product, quoteExec(exe), BackgroundFlag))
+`, name.Product, quoteExec(exe), ArgString))
 }
 
 func enable(exe string) (Status, error) {

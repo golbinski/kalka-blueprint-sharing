@@ -39,7 +39,7 @@ func enable(exe string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	err = k.SetStringValue(name.Product, `"`+w+`" `+BackgroundFlag)
+	err = k.SetStringValue(name.Product, `"`+w+`" `+ArgString)
 	k.Close()
 	if err != nil {
 		return Status{}, err
@@ -110,7 +110,14 @@ func start(exe string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(w, BackgroundFlag)
+	return detached(w)
+}
+
+// spawn runs exe itself detached; DETACHED_PROCESS gives it no console.
+func spawn(exe string) error { return detached(exe) }
+
+func detached(exe string) error {
+	cmd := exec.Command(exe, Args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP}
 	if err := cmd.Start(); err != nil {
 		return err

@@ -513,6 +513,16 @@ D1 done (core, daemon and CLI split):
 - `internal/cli`: the whole CLI, `cli.Run(args, stdin, stdout, stderr)`. `cmd/kalka` is a thin main, so the desktop shell can link the same CLI. Release builds set `internal/cli.version`.
 - `TestCoreImports`: the core imports no `net/http` itself, and nothing it reaches in this module imports the UI, popups, daemon, CLI, desktop shell, autostart or Wails.
 
+D2 done (the lock, `kalka daemon`, `kalka stop`):
+
+- `internal/lockfile`: an exclusive, non-blocking lock (flock; `LockFileEx` on one byte far past the content on Windows, so the PID stays readable). The PID in the file is for messages only. A killed holder leaves its PID, and the lock is free at once.
+- `daemon.New` takes `<config>/daemon.lock` before the core reads anything, unless the caller passes one in `Options.Lock`. The CLI takes it before the setup form. `Run` releases it last, after `daemon.json` is gone. `POST /api/shutdown` and `Client.Shutdown` stop a daemon.
+- Stopping drains: when Run's context ends, no new work starts and no new connection is made (dials are cancelled, further peers of a round are skipped). Sessions already connected finish on a work context that outlives the stop by up to `core.DrainTimeout` (30 s). The rendezvous connections stay up until then.
+- CLI: `kalka daemon [--background] [--no-popups]` (a second one prints "already running (pid N)" and exits 0); `kalka stop [--wait 1m] [--json]` (waits for the lock to come free; with none running it exits 0); bare `kalka` starts `kalka daemon --background` detached when nothing answers, then opens the UI. `--no-open` and the bare-`kalka` daemon mode are gone.
+- Autostart runs `kalka daemon --background` (`autostart.Args`). The macOS LaunchAgent has `KeepAlive` with `SuccessfulExit` false, so launchd restarts kalka only after a crash. `autostart.Spawn` is the detached start the CLI uses (Setsid; `DETACHED_PROCESS` on Windows).
+- Tests: `TestAcquireTwice`, `TestKilledHolder` (lockfile); `TestOneDaemonPerConfigDir` (two daemons in one process, another port, shutdown over the API, restart); `TestSingleDaemon` (the CLI in subprocesses: a second start, a second `ui_port`, kill with no clean-up and a stale `daemon.json`, `kalka stop`, auto-start in the background); `TestStopDrains` (core). Checked by hand: with an offline team peer, `kalka stop` took 10 s before dials were cancelled on stop, and 0.2 s after.
+- Not run on Windows yet (no machine; D8). `--no-ui` is D3.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

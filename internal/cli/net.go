@@ -27,25 +27,33 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/golbinski/kalka/internal/autostart"
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/daemon"
+	"github.com/golbinski/kalka/internal/lockfile"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/plugin"
 )
 
-// cmdDaemon runs the daemon and opens the UI. Without a config it first
-// serves the setup form on the same port. A prompt for an incoming sync
-// shows in the UI; with no UI open, a native popup offers to open it. When
-// started from a terminal, prompts are asked there too.
+// cmdDaemon is `kalka daemon`: run the daemon until stopped (spec 4.1,
+// 12). It takes the single-daemon lock first, before the setup form; when
+// another daemon holds it, it says so and exits 0. Without a config it
+// first serves the setup form. In the foreground, prompts for incoming
+// syncs are asked in the terminal too; with no UI page open, a native
+// popup or notification offers to open the UI.
 func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet(name.Binary, flag.ContinueOnError)
+	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	noOpen := fs.Bool("no-open", false, "do not open the UI in a browser, and show no popups")
-	background := fs.Bool("background", false, "run at logon: no browser at start, prompts as notifications, output to <config>/kalka.log")
+	background := fs.Bool("background", false, "run as at logon: prompts as notifications, output to <config>/kalka.log")
+	noPopups := fs.Bool("no-popups", false, "show no popups or notifications; prompts wait in the UI (and the terminal)")
 	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "daemon: unexpected argument %q\n", fs.Arg(0))
 		return exitUsage
 	}
 	dir, err := config.Dir()
@@ -64,24 +72,26 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stdin = nil
 		fmt.Fprintf(logf, "\n%s %s %s starting in the background\n", time.Now().Format(time.RFC3339), name.Binary, version)
 	}
+	lock, err := daemon.AcquireLock(dir)
+	if errors.Is(err, lockfile.ErrHeld) {
+		fmt.Fprintf(stdout, "%s %v\n", name.Product, err)
+		return exitOK
+	} else if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	defer lock.Release() // after a failure before Run; Run releases it too
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	tok := make([]byte, 32)
 	_, _ = rand.Read(tok)
 	token := hex.EncodeToString(tok)
-	// openUI opens the browser on request (a popup's "Open kalka"); the
-	// first page at start is skipped in the background.
+	// openUI opens the browser on request: the setup form, or a popup's
+	// "Open kalka".
 	openUI := func(url string) {
-		if *noOpen {
-			return
-		}
 		if err := openBrowser(url); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
 		}
-	}
-	open := openUI
-	if *background {
-		open = func(string) {}
 	}
 
 	cfg, err := config.Load()
@@ -108,10 +118,10 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI,
+	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
 	var d *daemon.Daemon
-	if !*noOpen {
+	if !*noPopups {
 		// A notification-centre toast where the system has one for kalka
 		// (Windows, after `kalka autostart on`), else a popup.
 		opts.Popup = func(ctx context.Context, title, msg string) (bool, error) {
@@ -121,6 +131,8 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			return false, err
 		}
+	} else {
+		opts.OpenUI = nil
 	}
 	d, err = daemon.New(opts)
 	if err != nil {
@@ -138,17 +150,170 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return
 		}
 		st := d.State()
-		fmt.Fprintf(stdout, "%s running as %s, folder %s\nUI: %s\n", name.Product, st.Email, st.Folder, d.URL())
+		fmt.Fprintf(stdout, "%s running as %s, folder %s (pid %d)\nUI: %s\n", name.Product, st.Email, st.Folder, os.Getpid(), d.URL())
 		if st.Notice != "" {
 			fmt.Fprintln(stdout, "NOTICE: "+st.Notice)
 		}
-		open(d.URL())
 	}()
 	if err := d.Run(ctx); err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
+	fmt.Fprintf(stdout, "%s stopped\n", name.Product)
 	return exitOK
+}
+
+// cmdStart is bare `kalka`: make sure a daemon runs, then open the UI
+// in the browser (spec 12). The desktop shell, when attached, takes over
+// opening the UI in D6.
+func cmdStart(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		fmt.Fprintf(stderr, "%s: unexpected argument %q (did you mean `%[1]s daemon %[2]s`?)\n", name.Binary, args[0])
+		usage(stderr)
+		return exitUsage
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	if _, err := config.Load(); errors.Is(err, config.ErrMissing) {
+		// The new daemon opens the setup form itself.
+		if err := spawnDaemon(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitProblems
+		}
+		fmt.Fprintf(stdout, "%s is not set up yet: finish setup in the browser that opens.\n", name.Product)
+		return exitOK
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
+	defer cancel()
+	if _, err := ensureDaemon(ctx, dir); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	return cmdOpen(nil, stdout, stderr)
+}
+
+// startTimeout bounds how long the CLI waits for a daemon it started.
+const startTimeout = 20 * time.Second
+
+// ensureDaemon returns a client of the running daemon, starting one in
+// the background when none answers. A second start racing this one finds
+// the lock held and exits, so there is still one daemon.
+func ensureDaemon(ctx context.Context, dir string) (*daemon.Client, error) {
+	if c := answering(ctx, dir); c != nil {
+		return c, nil
+	}
+	if err := spawnDaemon(); err != nil {
+		return nil, err
+	}
+	t := time.NewTicker(100 * time.Millisecond)
+	defer t.Stop()
+	for {
+		if c := answering(ctx, dir); c != nil {
+			return c, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("started %s in the background, but it did not answer; see %s", name.Product, filepath.Join(dir, name.Product+".log"))
+		case <-t.C:
+		}
+	}
+}
+
+// answering returns a client if a daemon answers its status call.
+func answering(ctx context.Context, dir string) *daemon.Client {
+	c, err := daemon.Connect(dir)
+	if err != nil {
+		return nil
+	}
+	sctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := c.Status(sctx); err != nil {
+		return nil
+	}
+	return c
+}
+
+// spawnDaemon starts `kalka daemon --background` detached.
+func spawnDaemon() error {
+	exe, err := autostart.Executable()
+	if err != nil {
+		return err
+	}
+	return autostart.Spawn(exe)
+}
+
+// cmdStop is `kalka stop`: ask the daemon to stop and wait until it has,
+// running rounds included. With none running there is nothing to do.
+func cmdStop(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "machine-readable output")
+	wait := fs.Duration("wait", time.Minute, "how long to wait for running rounds to finish")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	report := func(stopped bool, pid int) int {
+		if *asJSON {
+			writeJSON(stdout, map[string]any{"was_running": stopped, "pid": pid})
+		} else if stopped {
+			fmt.Fprintf(stdout, "%s stopped (pid %d)\n", name.Product, pid)
+		} else {
+			fmt.Fprintf(stdout, "%s is not running\n", name.Product)
+		}
+		return exitOK
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *wait)
+	defer cancel()
+	c := answering(ctx, dir)
+	if c == nil {
+		if pid := lockHolder(dir); pid != 0 {
+			fmt.Fprintf(stderr, "%s holds the lock (pid %d) but its API does not answer; it may still be starting or waiting for setup\n", name.Product, pid)
+			return exitProblems
+		}
+		return report(false, 0)
+	}
+	pid, err := c.Shutdown(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
+	for lockHolder(dir) != 0 {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintf(stderr, "%s (pid %d) is still finishing after %s\n", name.Product, pid, *wait)
+			return exitProblems
+		case <-t.C:
+		}
+	}
+	return report(true, pid)
+}
+
+// lockHolder returns the PID holding the single-daemon lock, -1 when it is
+// held by an unknown process, or 0 when it is free.
+func lockHolder(dir string) int {
+	l, err := daemon.AcquireLock(dir)
+	if err == nil {
+		l.Release()
+		return 0
+	}
+	var h *lockfile.Held
+	if errors.As(err, &h) {
+		if h.PID > 0 {
+			return h.PID
+		}
+		return -1
+	}
+	return 0
 }
 
 // openLog opens <config>/kalka.log for appending, keeping one older file

@@ -20,7 +20,7 @@ func TestLaunchAgent(t *testing.T) {
 	os.WriteFile(exe, []byte("x"), 0o755)
 
 	s, err := Enable(exe)
-	if err != nil || !s.Enabled || s.Stale || s.Command != exe+" --background" {
+	if err != nil || !s.Enabled || s.Stale || s.Command != exe+" daemon --background" {
 		t.Fatalf("enable: %+v %v", s, err)
 	}
 	if len(calls) != 2 || !strings.HasPrefix(calls[0], "bootout gui/") || !strings.HasPrefix(calls[1], "bootstrap gui/") || !strings.HasSuffix(calls[1], s.Where) {

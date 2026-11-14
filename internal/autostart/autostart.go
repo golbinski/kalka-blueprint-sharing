@@ -8,8 +8,9 @@
 //   - macOS: a LaunchAgent in ~/Library/LaunchAgents, loaded with launchctl.
 //   - Linux: an XDG autostart entry in ~/.config/autostart.
 //
-// The daemon is started with --background: no browser at start, prompts
-// as native notifications or popups, output to <config>/kalka.log.
+// The entry runs `kalka daemon --background`: no browser at start,
+// prompts as native notifications or popups, output to <config>/kalka.log.
+// A second start finds the single-daemon lock held and exits 0 (spec 4.1).
 package autostart
 
 import (
@@ -18,8 +19,11 @@ import (
 	"path/filepath"
 )
 
-// BackgroundFlag is the daemon flag autostart passes.
-const BackgroundFlag = "--background"
+// Args are the arguments autostart and Spawn pass to the binary.
+var Args = []string{"daemon", "--background"}
+
+// ArgString is Args as one command-line string; no argument needs quoting.
+const ArgString = "daemon --background"
 
 // Status describes the autostart entry.
 type Status struct {
@@ -63,3 +67,7 @@ var StartsOnEnable = startsOnEnable
 // Start launches the background daemon detached from this process, as the
 // logon entry would.
 func Start(exe string) error { return start(exe) }
+
+// Spawn runs exe with Args detached from this process, with no console
+// and no terminal: how the CLI starts a missing daemon (spec 12).
+func Spawn(exe string) error { return spawn(exe) }
