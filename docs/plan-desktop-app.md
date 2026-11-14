@@ -622,3 +622,29 @@ Only the ones that change the plan. Each has the default the plan uses if there 
 5. **Signing.** Will there be an Authenticode certificate (a cloud signing service or a hardware token) and an Apple Developer membership, and who holds them? *Default: none for now; builds are unsigned, signing is wired but unconfigured, and macOS notifications work only in the window.*
 6. **Two binaries, and how Windows users get them.** Is `kalka` plus `kalka-desktop` acceptable in place of "a single binary per platform" (T14)? And is a zip enough for Windows, or is a per-user installer with the WebView2 bootstrapper part of this work? *Default: two binaries; a zip now, the installer as the next step after D8.*
 7. **A Unix socket on Windows instead of a named pipe.** The request names a pipe. A socket gives one transport on all three systems and no new dependency (D2). *Default: the socket if spike 2 passes, otherwise the pipe.*
+
+---
+
+## 9. Product owner answers (2026-11-14)
+
+These override the sections above where they differ.
+
+1. **Windows machine.** Not available during the work; the product owner runs integration testing on a Windows PC at the end. So the Windows spike in D0 is dropped, D8 becomes that integration pass, and `docs/desktop-testing.md` (written in D7) is its script. Everything Windows-specific is built to compile and is unit tested on the Mac (`GOOS=windows` vet and tests where they run), and is marked untested on real hardware until the pass.
+2. **No remote, no CI yet.** The `.github/workflows` part of D7 waits. Builds are made by hand with `tools/release`.
+3. **Invite joins.** The owner issued the invite, so there is no approval step. The notification is "someone joined with your invite" (to the owner) and "your join completed or failed" (to the joiner), as section D8 already assumed.
+4. **Pause** means fully offline, as section D6 proposed.
+5. **Signing.** No certificates at this stage. Signing stays a configuration step; builds are unsigned and say so.
+6. **One installer, per user.** The goal behind "single binary" is one thing to install and one product. That is met by a single per-user installer, now in scope (it moves from "next step" into D7):
+   - **Windows:** an NSIS installer with `RequestExecutionLevel user` into `%LOCALAPPDATA%\Programs\kalka`. It puts the folder on the user's `PATH`, adds a Start-menu shortcut with kalka's AppUserModelID, and checks for WebView2. Inside are two executables built from the same code: `kalka.exe` (console) and `kalka-desktop.exe` (GUI). They are not folded into one file. Windows fixes a program as console or GUI when it is linked. A console program started at login or from a shortcut opens a console window. A GUI program prints nothing to a terminal: `cmd` and PowerShell return to the prompt at once and its output lands after it. That breaks the CLI for people (agents reading a pipe would be fine). This is why the archive already holds `kalka.exe` and `kalkaw.exe`.
+   - **macOS:** one binary. `Kalka.app` holds the only executable, and `kalka` on the `PATH` is a symlink to it. The frameworks it links against are on every Mac.
+   - **Linux** (lower priority): the static `kalka` plus `kalka-desktop`, because a binary linked against WebKitGTK does not start where WebKitGTK is missing (servers, containers). Both go in one tar archive.
+7. **One local API: the same REST endpoints the browser uses, for the window and the CLI.** The window loads the UI from the daemon's loopback HTTP server exactly as a browser tab does, which section D2 already planned. The change is that the CLI keeps using that server too, as it does today, so **there is no Unix socket and no named pipe**. The request says *prefer* a socket. One transport is simpler, and with these protections loopback HTTP is safe enough for this threat model:
+   - it listens on 127.0.0.1 only;
+   - every `/api/` request needs the per-session token;
+   - `Host` is checked against the loopback address, against DNS rebinding;
+   - `Origin` and `Sec-Fetch-Site` are checked on every request that changes state, so web pages aimed at `localhost` are refused;
+   - the token is kept in `daemon.json`, written owner-only (0600; owner-only ACL on Windows via `fsutil.WritePrivate`). Another local user cannot read it, and the user's own processes are already trusted with the user's files and key.
+
+   So D3 becomes "local API hardening" (2 days instead of 3): no `internal/ipc`, no `kalka.sock`, no `/api/ui-url` change of transport. `--no-ui` still exists and stops the daemon from serving the page; the API stays up for the CLI. This is recorded in the spec as a decision with its reasoning.
+
+**Revised sizes.** D0 3 days (spec, plus a macOS spike once the Wails dependency may be downloaded), D3 2 days, D7 6 days (installer added, CI dropped), D8 is the product owner's pass. About 33 days of work before that pass.
