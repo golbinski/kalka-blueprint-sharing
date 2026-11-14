@@ -1,0 +1,935 @@
+package daemon
+
+// Team replication (spec 20): every member keeps a replica of the team's
+// published documents. Sessions run between members over key ids, with no
+// prompts: log heads and a digest first, then missing log operations, then
+// inventories, then the wanted documents.
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/merge"
+	"github.com/golbinski/kalka/internal/store"
+	"github.com/golbinski/kalka/internal/syncproto"
+	"github.com/golbinski/kalka/internal/teamlog"
+	"github.com/golbinski/kalka/internal/transport"
+)
+
+// Replication timing and limits (spec 20.3).
+var (
+	ReplicateEvery = 10 * time.Minute
+	// RoundPeers is how many online members a scheduled round reaches;
+	// PushPeers how many a local change is pushed to.
+	RoundPeers = 3
+	PushPeers  = 5
+	// RoundGap is the least time between two rounds of one team that were
+	// not caused by a local change.
+	RoundGap = 15 * time.Second
+	// PushDelay gathers local changes before a push.
+	PushDelay = 2 * time.Second
+)
+
+// logTeam is a replayed team log as the merge needs it.
+type logTeam struct{ st *teamlog.State }
+
+func (t logTeam) Keys(email string) []ed25519.PublicKey {
+	var out []ed25519.PublicKey
+	for e, keys := range t.st.Keys {
+		if !bp.SameEmail(e, email) {
+			continue
+		}
+		for _, k := range keys {
+			if pk, err := teamlog.DecodeKey(k); err == nil {
+				out = append(out, pk)
+			}
+		}
+	}
+	return out
+}
+
+func (t logTeam) Override(id string) (string, int64, bool) {
+	a, ok := t.st.Reassigned[strings.ToLower(id)]
+	return a.Owner, a.After, ok
+}
+
+// held is a team log held locally, replayed.
+type held struct {
+	dir teamDir
+	st  *teamlog.State
+	ops []teamlog.Op
+}
+
+func (h *held) team() logTeam { return logTeam{h.st} }
+
+// memberKey returns the key the log binds to a current member.
+func (h *held) memberKey(email string) (ed25519.PublicKey, bool) {
+	m, ok := memberOf(h.st, email)
+	if !ok {
+		return nil, false
+	}
+	k, err := teamlog.DecodeKey(m.PubKey)
+	return k, err == nil
+}
+
+func (h *held) isMember(email string, key ed25519.PublicKey) bool {
+	k, ok := h.memberKey(email)
+	return ok && k.Equal(key)
+}
+
+func (d *Daemon) heldTeam(team string) (*held, error) {
+	t, ok := d.teamByHash(team)
+	if !ok {
+		return nil, fmt.Errorf("team %s is not held here", short(team))
+	}
+	st, ops, _, _, err := d.load(t)
+	if err != nil {
+		return nil, err
+	}
+	return &held{dir: t, st: st, ops: ops}, nil
+}
+
+// heldByName finds a team the local user belongs to by the name a
+// document's `team:` key carries.
+func (d *Daemon) heldByName(name string) (*held, error) {
+	var found []*held
+	for _, t := range d.teamDirs() {
+		if t.Name != name {
+			continue
+		}
+		h, err := d.heldTeam(t.Team)
+		if err == nil && h.isMember(d.self.Email, d.pub) {
+			found = append(found, h)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return nil, fmt.Errorf("you are not a member of a team named %s", name)
+	case 1:
+		return found[0], nil
+	}
+	return nil, fmt.Errorf("two teams you belong to are named %s", name)
+}
+
+func short(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
+}
+
+// teamDoc is one published document of the replication set.
+type teamDoc struct {
+	item  syncproto.InvItem
+	path  string // the live file, or the tombstone
+	tomb  bool
+	doc   *bp.Document
+	raw   []byte
+	chain merge.ReleaseChain
+}
+
+func entriesOf(doc *bp.Document) []*bp.Entry {
+	var out []*bp.Entry
+	for _, it := range doc.Items() {
+		if it.Entry != nil {
+			out = append(out, it.Entry)
+		}
+	}
+	return out
+}
+
+// describe computes a document's inventory line, or false when it has no
+// valid release under this log and so does not replicate (spec 20.1).
+func describe(h *held, doc *bp.Document) (syncproto.InvItem, merge.ReleaseChain, bool) {
+	id := doc.KalkaID()
+	ch := merge.Releases(entriesOf(doc), id, h.team())
+	head, ok := ch.Head()
+	if !ok {
+		return syncproto.InvItem{}, ch, false
+	}
+	var ids []string
+	for _, e := range entriesOf(doc) {
+		if e.Valid() && merge.VerifiedBy(h.team(), id, e) {
+			ids = append(ids, e.ID)
+		}
+	}
+	slices.Sort(ids)
+	sum := sha256.Sum256([]byte(strings.Join(slices.Compact(ids), ",")))
+	return syncproto.InvItem{ID: id, Version: head.Release.Version, Plan: head.Release.Plan,
+		Entries: hex.EncodeToString(sum[:16]), Deleted: head.Release.Deleted}, ch, true
+}
+
+func tombDir(h *held) string  { return filepath.Join(h.dir.Dir, ".kalka", "tombstones") }
+func trashDir(h *held) string { return filepath.Join(h.dir.Dir, ".kalka", "trash") }
+
+// replicaSet lists the team's published documents held here: files with
+// `team: <name>` and a valid release, and the tombstones (spec 20.1, 20.6).
+// Nothing else ever enters an inventory.
+func (d *Daemon) replicaSet(h *held) map[string]teamDoc {
+	set := map[string]teamDoc{}
+	for _, in := range d.Store.List() {
+		if in.KalkaID == "" || in.Duplicate {
+			continue
+		}
+		f, err := d.Store.Load(in.Path)
+		if err != nil || f.Doc.Team() != h.dir.Name || f.Doc.HasErrors() {
+			continue
+		}
+		if item, ch, ok := describe(h, f.Doc); ok {
+			set[item.ID] = teamDoc{item: item, path: f.Path, doc: f.Doc, raw: f.Raw, chain: ch}
+		}
+	}
+	tombs, _ := filepath.Glob(filepath.Join(tombDir(h), "*.md"))
+	for _, p := range tombs {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		doc, err := bp.Parse(raw)
+		if err != nil || doc.KalkaID() == "" {
+			continue
+		}
+		if item, ch, ok := describe(h, doc); ok && item.Deleted {
+			set[item.ID] = teamDoc{item: item, path: p, tomb: true, doc: doc, raw: raw, chain: ch}
+		}
+	}
+	return set
+}
+
+func digest(set map[string]teamDoc) string {
+	lines := make([]string, 0, len(set))
+	for _, td := range set {
+		it := td.item
+		lines = append(lines, fmt.Sprintf("%s %d %s %s %t", it.ID, it.Version, it.Plan, it.Entries, it.Deleted))
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:16])
+}
+
+func inventory(set map[string]teamDoc) []syncproto.InvItem {
+	out := make([]syncproto.InvItem, 0, len(set))
+	for _, td := range set {
+		out = append(out, td.item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// wants lists what to ask for from the other side's inventory: documents
+// not held, newer versions, and differing entry sets. A local tombstone is
+// final and wants nothing.
+func wants(mine map[string]teamDoc, theirs []syncproto.InvItem) []string {
+	var out []string
+	for _, t := range theirs {
+		m, ok := mine[t.ID]
+		switch {
+		case !ok:
+			out = append(out, t.ID)
+		case m.item.Deleted:
+		case t.Deleted, t.Version > m.item.Version, t.Entries != m.item.Entries, t.Version == m.item.Version && t.Plan != m.item.Plan:
+			out = append(out, t.ID)
+		}
+	}
+	return out
+}
+
+// missingOps are the operations of h not among their heads or the heads'
+// ancestors as far as h knows them.
+func missingOps(h *held, theirHeads []string) []json.RawMessage {
+	byHash := map[string]teamlog.Op{}
+	for _, o := range h.ops {
+		byHash[o.Hash()] = o
+	}
+	have := map[string]bool{}
+	var walk func(string)
+	walk = func(x string) {
+		if have[x] {
+			return
+		}
+		have[x] = true
+		if o, ok := byHash[x]; ok {
+			for _, p := range o.Prev {
+				walk(p)
+			}
+		}
+	}
+	for _, x := range theirHeads {
+		walk(x)
+	}
+	out := []json.RawMessage{}
+	for _, o := range h.ops {
+		if !have[o.Hash()] {
+			out = append(out, json.RawMessage(o.Encode()))
+		}
+	}
+	return out
+}
+
+// mergeOps adds the valid operations of one team from a peer to its log,
+// and returns how many were new. Badly signed operations are not written.
+func (d *Daemon) mergeOps(h *held, raws []json.RawMessage) (int, error) {
+	var ops []teamlog.Op
+	for _, r := range raws {
+		o, err := teamlog.Decode(r)
+		if err != nil || !o.VerifySig() {
+			continue
+		}
+		if o.Team != h.dir.Team && !(o.Kind == teamlog.CreateTeam && o.Hash() == h.dir.Team) {
+			continue
+		}
+		ops = append(ops, o)
+	}
+	if len(ops) == 0 {
+		return 0, nil
+	}
+	before := len(h.ops)
+	d.teams.mu.Lock()
+	all, err := teamlog.AppendFile(h.dir.Log, ops)
+	d.teams.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	st, _ := teamlog.Replay(h.dir.Team, all)
+	h.ops, h.st = all, st
+	if n := len(all) - before; n > 0 {
+		d.bus.Publish(BusEvent{Type: "teams"})
+		return n, nil
+	}
+	return 0, nil
+}
+
+// Refusal is a team document that was not written, and why (spec 20.2).
+type Refusal struct {
+	KalkaID string    `json:"kalka_id"`
+	Title   string    `json:"title,omitempty"`
+	From    string    `json:"from"`
+	Reason  string    `json:"reason"`
+	At      time.Time `json:"at"`
+}
+
+// SessionResult is one replication session.
+type SessionResult struct {
+	Peer        string    `json:"peer"`
+	Equal       bool      `json:"equal"`
+	OpsIn       int       `json:"ops_in"`
+	Received    []string  `json:"received"` // kalka_ids written
+	Sent        []string  `json:"sent"`
+	Refused     []Refusal `json:"refused,omitempty"`
+	Unavailable int       `json:"unavailable,omitempty"`
+}
+
+// exchange runs a session for one team on an authenticated channel.
+// first is the peer's team_sync when this side responds.
+func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string, first *transport.Envelope) (SessionResult, error) {
+	res := SessionResult{Peer: peer.Email, Received: []string{}, Sent: []string{}}
+	if d.wrapChan != nil {
+		ch = d.wrapChan(ch)
+	}
+	s := &syncproto.Session{Ch: ch, Peer: peer.Email}
+	responder := first != nil
+	// end says why this side stops. The initiator then waits for the
+	// responder to close, so nothing still in flight is cut off; a
+	// responder that refuses gives its bye a moment to leave.
+	end := func(reason string) {
+		_ = ch.Send(syncproto.Bye{Type: "bye", Reason: reason})
+		if responder {
+			time.Sleep(200 * time.Millisecond)
+			return
+		}
+		for {
+			if _, err := ch.Receive(syncproto.ByeWait); err != nil {
+				return
+			}
+		}
+	}
+	recv := func(typ string, v any) error {
+		for {
+			env, err := ch.Receive(syncproto.Silence)
+			if err != nil {
+				return fmt.Errorf("no answer from %s: %w", peer.Email, err)
+			}
+			switch env.Type {
+			case "keepalive":
+				continue
+			case "bye":
+				var b syncproto.Bye
+				_ = env.Decode(&b)
+				if b.Reason == syncproto.ByeNotMember {
+					return fmt.Errorf("%s does not count you as a member of the team yet", peer.Email)
+				}
+				return &syncproto.PeerEnded{Reason: b.Reason, Detail: b.Detail}
+			case typ:
+				return env.Decode(v)
+			}
+			return fmt.Errorf("%s sent %q, expected %s", peer.Email, env.Type, typ)
+		}
+	}
+	_ = s
+
+	h, err := d.heldTeam(team)
+	if err != nil || !h.isMember(d.self.Email, d.pub) {
+		if responder {
+			end(syncproto.ByeNotMember) // the same answer for an unknown team
+		}
+		return res, errors.New("not a member of that team")
+	}
+	set := d.replicaSet(h)
+	var theirs syncproto.TeamSync
+	mine := func() syncproto.TeamSync {
+		return syncproto.TeamSync{Type: "team_sync", Team: team, Heads: h.st.Heads, Digest: digest(set)}
+	}
+	if responder {
+		if err := first.Decode(&theirs); err != nil {
+			return res, err
+		}
+		if err := ch.Send(mine()); err != nil {
+			return res, err
+		}
+	} else {
+		if !h.isMember(peer.Email, peer.Key) {
+			return res, fmt.Errorf("%s is not a member of %s under this key", peer.Email, h.dir.Name)
+		}
+		if err := ch.Send(mine()); err != nil {
+			return res, err
+		}
+		if err := recv("team_sync", &theirs); err != nil {
+			return res, err
+		}
+	}
+	if theirs.Team != team {
+		end("invalid")
+		return res, errors.New("the peer answered for another team")
+	}
+	if slices.Equal(theirs.Heads, h.st.Heads) && theirs.Digest == digest(set) {
+		res.Equal = true
+		if responder {
+			_ = recv("bye", &struct{}{})
+		} else {
+			end(syncproto.ByeDone)
+		}
+		return res, nil
+	}
+
+	// Log operations first. Each side sends only to someone it counts as
+	// a member; the responder checks the initiator after merging, so a
+	// newly added member can bring the operation that adds them.
+	var tl syncproto.TeamLog
+	sendLog := func() error {
+		return ch.Send(syncproto.TeamLog{Type: "team_log", Team: team, Ops: missingOps(h, theirs.Heads)})
+	}
+	takeLog := func() error {
+		if err := recv("team_log", &tl); err != nil {
+			return err
+		}
+		n, err := d.mergeOps(h, tl.Ops)
+		res.OpsIn = n
+		return err
+	}
+	if responder {
+		if err := takeLog(); err != nil {
+			return res, err
+		}
+		if !h.isMember(peer.Email, peer.Key) {
+			end(syncproto.ByeNotMember)
+			return res, fmt.Errorf("%s is not a member of %s", peer.Email, h.dir.Name)
+		}
+		if err := sendLog(); err != nil {
+			return res, err
+		}
+	} else {
+		if err := sendLog(); err != nil {
+			return res, err
+		}
+		if err := takeLog(); err != nil {
+			return res, err
+		}
+		if !h.isMember(peer.Email, peer.Key) {
+			end(syncproto.ByeNotMember)
+			return res, fmt.Errorf("%s is no longer a member of %s", peer.Email, h.dir.Name)
+		}
+	}
+	if res.OpsIn > 0 {
+		d.afterLogChange(h)
+	}
+	set = d.replicaSet(h) // the log may have changed what counts
+
+	// Inventories, then wants, initiator first in each pair.
+	var inv syncproto.TeamInv
+	var tw syncproto.TeamWant
+	myInv := syncproto.TeamInv{Type: "team_inv", Team: team, Items: inventory(set)}
+	steps := []func() error{
+		func() error { return ch.Send(myInv) },
+		func() error { return recv("team_inv", &inv) },
+	}
+	if responder {
+		steps[0], steps[1] = steps[1], steps[0]
+	}
+	for _, f := range steps {
+		if err := f(); err != nil {
+			return res, err
+		}
+	}
+	myWants := wants(set, inv.Items)
+	steps = []func() error{
+		func() error { return ch.Send(syncproto.TeamWant{Type: "team_want", Team: team, IDs: myWants}) },
+		func() error { return recv("team_want", &tw) },
+	}
+	if responder {
+		steps[0], steps[1] = steps[1], steps[0]
+	}
+	for _, f := range steps {
+		if err := f(); err != nil {
+			return res, err
+		}
+	}
+	if len(tw.IDs) > 1000 {
+		end("invalid")
+		return res, errors.New("the peer asked for too many documents")
+	}
+
+	give := func() error {
+		for _, id := range tw.IDs {
+			off := syncproto.Offer{Type: "sync_offer", KalkaID: id, Intent: syncproto.IntentReplicate}
+			if td, ok := set[strings.ToLower(id)]; ok {
+				if rep, err := merge.Replica(td.doc, h.team()); err == nil {
+					off.Filename, off.Content = filepath.Base(td.path), string(rep.Bytes())
+					res.Sent = append(res.Sent, td.item.ID)
+				}
+			}
+			// Anything else, a private document included, gets the
+			// answer for a document that does not exist.
+			if err := ch.Send(off); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	take := func() error {
+		for range myWants {
+			var off syncproto.Offer
+			if err := recv("sync_offer", &off); err != nil {
+				return err
+			}
+			if off.Intent != syncproto.IntentReplicate || !slices.Contains(myWants, off.KalkaID) {
+				return fmt.Errorf("%s sent an offer that was not asked for", peer.Email)
+			}
+			if off.Content == "" {
+				res.Unavailable++
+				continue
+			}
+			written, ref := d.applyReplica(h, peer.Email, off)
+			if ref != nil {
+				res.Refused = append(res.Refused, *ref)
+			} else if written {
+				res.Received = append(res.Received, off.KalkaID)
+			}
+		}
+		return nil
+	}
+	steps = []func() error{give, take}
+	if responder {
+		steps = []func() error{take, give}
+	}
+	for _, f := range steps {
+		if err := f(); err != nil {
+			return res, err
+		}
+	}
+	if responder {
+		_ = recv("bye", &struct{}{})
+	} else {
+		end(syncproto.ByeDone)
+	}
+	return res, nil
+}
+
+// applyReplica merges one received document (spec 20.4) and writes it, or
+// reports why it was refused. Nothing that fails a check is written.
+func (d *Daemon) applyReplica(h *held, from string, off syncproto.Offer) (bool, *Refusal) {
+	refuse := func(title, reason string) (bool, *Refusal) {
+		return false, &Refusal{KalkaID: off.KalkaID, Title: title, From: from, Reason: reason, At: d.now().UTC()}
+	}
+	in, err := bp.Parse([]byte(off.Content))
+	if err != nil {
+		return refuse("", "damaged file: "+err.Error())
+	}
+	if in.KalkaID() != strings.ToLower(off.KalkaID) {
+		return refuse(in.Title(), "the file's kalka_id is not the one asked for")
+	}
+	if in.Team() != h.dir.Name {
+		return refuse(in.Title(), "the file is not published to this team")
+	}
+	id := in.KalkaID()
+	unlock, ok := d.Store.Lock(id, syncproto.LockWait)
+	if !ok {
+		return refuse(in.Title(), "the document is busy in another sync; it comes again in the next round")
+	}
+	defer unlock()
+	for attempt := 0; attempt < 3; attempt++ {
+		set := d.replicaSet(h)
+		var local *bp.Document
+		var live *store.File
+		if td, ok := set[id]; ok {
+			local = td.doc
+			if !td.tomb {
+				live, _ = d.Store.Load(td.path)
+			}
+		} else if f, err := d.Store.Find(id); err == nil && f != nil {
+			local, live = f.Doc, f
+		}
+		if live != nil {
+			local = live.Doc
+		}
+		res := merge.DocsTeam(local, in, from, d.keys, h.team())
+		switch res.Outcome {
+		case merge.Rejected:
+			return refuse(in.Title(), res.Detail)
+		case merge.Unchanged:
+			return false, nil
+		}
+		doc := res.Doc
+		if doc.Deleted() {
+			if err := d.writeTombstone(h, doc, live); err != nil {
+				return refuse(in.Title(), err.Error())
+			}
+			d.logf("%s was deleted for team %s (from %s)", in.Title(), h.dir.Name, from)
+			return true, nil
+		}
+		if td, ok := set[id]; ok && td.tomb {
+			return false, nil // a tombstone is final
+		}
+		if live != nil {
+			err = d.Store.Update(live, doc)
+			if errors.Is(err, fsutil.ErrChanged) {
+				continue
+			}
+		} else {
+			if err = os.MkdirAll(h.dir.Dir, 0o755); err == nil {
+				_, err = d.Store.CreateIn(h.dir.Dir, doc, strings.TrimSuffix(off.Filename, ".md"))
+			}
+		}
+		if err != nil {
+			return refuse(in.Title(), err.Error())
+		}
+		d.notePushed(id)
+		return true, nil
+	}
+	return refuse(in.Title(), "the file kept changing while it was merged")
+}
+
+// writeTombstone stores a deletion stub and moves the last full copy to
+// the team's trash (spec 20.6).
+func (d *Daemon) writeTombstone(h *held, stub *bp.Document, live *store.File) error {
+	if err := os.MkdirAll(tombDir(h), 0o755); err != nil {
+		return err
+	}
+	if err := fsutil.WriteAtomic(filepath.Join(tombDir(h), stub.KalkaID()+".md"), stub.Bytes(), nil); err != nil {
+		return err
+	}
+	if live != nil {
+		if err := os.MkdirAll(trashDir(h), 0o755); err != nil {
+			return err
+		}
+		base := strings.TrimSuffix(filepath.Base(live.Path), ".md")
+		dst := filepath.Join(trashDir(h), fmt.Sprintf("%s.%s.md", base, stub.KalkaID()[:8]))
+		if err := fsutil.WriteAtomic(dst, live.Raw, nil); err != nil {
+			return err
+		}
+		if err := os.Remove(live.Path); err != nil {
+			return err
+		}
+		d.Store.Forget(live.Path)
+	}
+	d.bus.Publish(BusEvent{Type: "teams"})
+	return nil
+}
+
+// --- scheduling (spec 20.3) ---
+
+// TeamStatus is the replication status line of one team.
+type TeamStatus struct {
+	LastRound time.Time `json:"last_round,omitzero"`
+	Reached   []string  `json:"reached"`
+	Tried     int       `json:"tried"`
+	Error     string    `json:"error,omitempty"`
+	Refused   []Refusal `json:"refused"`
+	Received  int       `json:"received"`
+}
+
+type replication struct {
+	mu      sync.Mutex
+	status  map[string]*TeamStatus
+	lastRun map[string]time.Time
+	push    map[string]bool // teams with a pending push
+	kick    chan string
+	pushed  map[string]time.Time // documents written by replication, to not push them back at once
+	running map[string]bool
+}
+
+func newReplication() *replication {
+	return &replication{status: map[string]*TeamStatus{}, lastRun: map[string]time.Time{}, push: map[string]bool{},
+		kick: make(chan string, 64), pushed: map[string]time.Time{}, running: map[string]bool{}}
+}
+
+func (d *Daemon) notePushed(id string) {
+	d.repl.mu.Lock()
+	d.repl.pushed[id] = time.Now()
+	d.repl.mu.Unlock()
+}
+
+// kickTeam asks for a round of team (or "" for all), soon.
+func (d *Daemon) kickTeam(team string) {
+	select {
+	case d.repl.kick <- team:
+	default:
+	}
+}
+
+// pushTeam asks for a push of a local change.
+func (d *Daemon) pushTeam(team string) {
+	d.repl.mu.Lock()
+	d.repl.push[team] = true
+	d.repl.mu.Unlock()
+	time.AfterFunc(PushDelay, func() { d.kickTeam(team) })
+}
+
+// replicateLoop runs rounds at start, on kicks, and every ReplicateEvery
+// with jitter.
+func (d *Daemon) replicateLoop(ctx context.Context) {
+	folder, stop := d.Store.Subscribe()
+	defer stop()
+	next := func() <-chan time.Time {
+		j := time.Duration(rand.Int64N(int64(ReplicateEvery/5) + 1))
+		return time.After(ReplicateEvery - ReplicateEvery/10 + j)
+	}
+	tick := next()
+	start := time.After(2 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-start:
+			go d.replicateAll(ctx, false)
+		case <-tick:
+			tick = next()
+			go d.replicateAll(ctx, false)
+		case team := <-d.repl.kick:
+			if team == "" {
+				go d.replicateAll(ctx, false)
+			} else {
+				go d.round(ctx, team, false)
+			}
+		case ev := <-folder:
+			d.localChange(ev.Path)
+		}
+	}
+}
+
+// localChange pushes a change to a published document, unless replication
+// itself just wrote it.
+func (d *Daemon) localChange(path string) {
+	f, err := d.Store.Load(path)
+	if err != nil || f.Doc.Team() == "" {
+		return
+	}
+	d.repl.mu.Lock()
+	at, recent := d.repl.pushed[f.Doc.KalkaID()]
+	d.repl.mu.Unlock()
+	if recent && time.Since(at) < 5*time.Second {
+		return
+	}
+	if h, err := d.heldByName(f.Doc.Team()); err == nil {
+		d.pushTeam(h.dir.Team)
+	}
+}
+
+func (d *Daemon) replicateAll(ctx context.Context, force bool) {
+	for _, t := range d.teamDirs() {
+		d.round(ctx, t.Team, force)
+	}
+}
+
+// ReplicateNow runs one round of team now, for tests and the UI's
+// "Replicate now".
+func (d *Daemon) ReplicateNow(ctx context.Context, team string) (TeamStatus, error) {
+	if team == "" {
+		return TeamStatus{}, errors.New("no team given")
+	}
+	d.round(ctx, team, true)
+	d.repl.mu.Lock()
+	defer d.repl.mu.Unlock()
+	st := d.repl.status[team]
+	if st == nil {
+		return TeamStatus{}, errors.New("no round ran")
+	}
+	return *st, nil
+}
+
+// round reaches up to RoundPeers online members (PushPeers for a push).
+func (d *Daemon) round(ctx context.Context, team string, force bool) {
+	r := d.repl
+	r.mu.Lock()
+	push := r.push[team]
+	if r.running[team] || (!force && !push && time.Since(r.lastRun[team]) < RoundGap) {
+		r.mu.Unlock()
+		return
+	}
+	r.running[team], r.push[team], r.lastRun[team] = true, false, time.Now()
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.running[team] = false
+		r.mu.Unlock()
+	}()
+
+	h, err := d.heldTeam(team)
+	if err != nil || !h.isMember(d.self.Email, d.pub) {
+		return
+	}
+	limit := RoundPeers
+	if push {
+		limit = PushPeers
+	}
+	var others []string
+	for email := range h.st.Members {
+		if !bp.SameEmail(email, d.self.Email) {
+			others = append(others, email)
+		}
+	}
+	rand.Shuffle(len(others), func(i, j int) { others[i], others[j] = others[j], others[i] })
+	st := TeamStatus{Reached: []string{}, Refused: []Refusal{}}
+	var lastErr error
+	for _, email := range others {
+		if len(st.Reached) >= limit || ctx.Err() != nil {
+			break
+		}
+		key, ok := h.memberKey(email)
+		if !ok {
+			continue
+		}
+		st.Tried++
+		res, err := d.replicateWith(ctx, h, email, key)
+		if err != nil {
+			var off *ErrOffline
+			if !errors.As(err, &off) {
+				lastErr = err
+				d.logf("replication of %s with %s: %v", h.dir.Name, email, err)
+			}
+			continue
+		}
+		st.Reached = append(st.Reached, email)
+		st.Refused = append(st.Refused, res.Refused...)
+		st.Received += len(res.Received)
+	}
+	st.LastRound = d.now().UTC()
+	if lastErr != nil && len(st.Reached) == 0 {
+		st.Error = lastErr.Error()
+	}
+	r.mu.Lock()
+	if old := r.status[team]; old != nil && len(st.Refused) == 0 {
+		st.Refused = old.Refused // keep the last refusals visible until a round has new ones
+	}
+	if len(st.Refused) > 20 {
+		st.Refused = st.Refused[len(st.Refused)-20:]
+	}
+	r.status[team] = &st
+	r.mu.Unlock()
+	d.bus.Publish(BusEvent{Type: "teams"})
+}
+
+// replicateWith runs one session with a member, dialing the key the log
+// binds to them (spec 8.2: the log's key, not the pin, for team traffic).
+func (d *Daemon) replicateWith(ctx context.Context, h *held, email string, key ed25519.PublicKey) (SessionResult, error) {
+	ep, err := d.endpoint()
+	if err != nil {
+		return SessionResult{}, err
+	}
+	d.mu.Lock()
+	kep := d.kep
+	d.mu.Unlock()
+	rs := []route{}
+	if kep != nil {
+		rs = append(rs, route{ep: kep, id: transport.KeyPeerID(key), viaKey: true})
+	}
+	rs = append(rs, route{ep: ep, id: transport.PeerID(d.cfg.Team, email)})
+	var c *transport.Conn
+	for i, r := range rs {
+		dctx, cancel := context.WithTimeout(ctx, DialTimeout)
+		c, err = r.ep.Dial(dctx, r.id)
+		cancel()
+		if err == nil || ctx.Err() != nil || i == len(rs)-1 {
+			break
+		}
+	}
+	if errors.Is(err, transport.ErrOffline) {
+		d.markPresence(email, transport.Offline)
+		return SessionResult{}, &ErrOffline{Email: email}
+	}
+	if err != nil {
+		return SessionResult{}, err
+	}
+	defer c.Close()
+	d.markPresence(email, transport.Online)
+	verify := func(e string, k ed25519.PublicKey) error {
+		if !bp.SameEmail(e, email) || !k.Equal(key) {
+			return fmt.Errorf("the peer is not %s with the key the team log names", email)
+		}
+		return nil
+	}
+	peer, err := transport.Handshake(c, d.self, d.cfg.Team, verify)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	return d.exchange(c, peer, h.dir.Team, nil)
+}
+
+// replicaRespond answers an incoming team_sync.
+func (d *Daemon) replicaRespond(c *transport.Conn, peer transport.Peer, first transport.Envelope) {
+	var ts syncproto.TeamSync
+	_ = first.Decode(&ts)
+	res, err := d.exchange(c, peer, ts.Team, &first)
+	if err != nil {
+		d.logf("replication from %s: %v", peer.Email, err)
+		return
+	}
+	if len(res.Received) > 0 || len(res.Refused) > 0 {
+		d.logf("replication from %s: %d received, %d refused", peer.Email, len(res.Received), len(res.Refused))
+		d.repl.mu.Lock()
+		st := d.repl.status[ts.Team]
+		if st == nil {
+			st = &TeamStatus{Reached: []string{}, Refused: []Refusal{}}
+			d.repl.status[ts.Team] = st
+		}
+		st.Refused = append(st.Refused, res.Refused...)
+		st.Received += len(res.Received)
+		d.repl.mu.Unlock()
+		d.bus.Publish(BusEvent{Type: "teams"})
+	}
+}
+
+// replStatus returns the status line of team.
+func (d *Daemon) replStatus(team string) *TeamStatus {
+	d.repl.mu.Lock()
+	defer d.repl.mu.Unlock()
+	if st := d.repl.status[team]; st != nil {
+		c := *st
+		return &c
+	}
+	return nil
+}

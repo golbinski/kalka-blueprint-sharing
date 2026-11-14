@@ -7,6 +7,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -50,13 +51,14 @@ func (w *world) now() time.Time {
 }
 
 type node struct {
-	w      *world
-	email  string
-	cfgDir string
-	folder string
-	d      *Daemon
-	stop   func()
+	w       *world
+	email   string
+	cfgDir  string
+	folder  string
+	d       *Daemon
+	stop    func()
 	noKeyID bool // do not register the key id (keyid_test.go)
+	autoRepl bool // run the replication loop (otherwise rounds run only when a test asks)
 
 	mu      sync.Mutex
 	answers map[string]bool // by prompt kind; missing means yes
@@ -78,7 +80,7 @@ func (n *node) start() {
 	d, err := New(Options{
 		Config:    &config.Config{Email: n.email, Rendezvous: n.w.url, Folder: n.folder, UIPort: 1},
 		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true, APIAddr: "127.0.0.1:0",
-		Prompter: n.prompt, noKeyID: n.noKeyID,
+		Prompter: n.prompt, noKeyID: n.noKeyID, manualReplication: !n.autoRepl, Log: testLog(n.email),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -560,4 +562,19 @@ func TestScenario10OfflinePeer(t *testing.T) {
 	if p := alice.d.Probe(ctx, "dave@corp.com"); p != transport.Offline {
 		t.Fatalf("probe: %s", p)
 	}
+}
+
+// testLog shows a daemon's log when KALKA_TEST_LOG is set.
+func testLog(email string) io.Writer {
+	if os.Getenv("KALKA_TEST_LOG") == "" {
+		return nil
+	}
+	return prefixWriter{email + ": "}
+}
+
+type prefixWriter struct{ p string }
+
+func (w prefixWriter) Write(b []byte) (int, error) {
+	os.Stderr.WriteString(w.p + string(b))
+	return len(b), nil
 }

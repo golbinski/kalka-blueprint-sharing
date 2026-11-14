@@ -183,7 +183,7 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
           shown in the history below.
         </div>
       )}
-      <p className="muted small">Documents are not replicated between members yet; publishing to a team comes in a later version.</p>
+      {t.me !== 'none' && <Replication t={t} self={self} run={run} />}
       {err && <div className="error-box">{err}</div>}
 
       <h3>Members</h3>
@@ -271,6 +271,20 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
       {owner && <AssignForm t={t} run={run} />}
 
       {owner && <Invites t={t} run={run} />}
+
+      {(t.deleted?.length ?? 0) > 0 && (
+        <>
+          <h3>Deleted for the team</h3>
+          <ul className="plain">
+            {t.deleted!.map((d) => (
+              <li key={d.kalka_id}>
+                {d.title || d.kalka_id} · deleted by {d.by === self ? 'you' : d.by} at version {d.version}
+              </li>
+            ))}
+          </ul>
+          <p className="muted small">The last full copy of each is in the team folder's .kalka/trash.</p>
+        </>
+      )}
 
       <h3>History</h3>
       <ol className="team-log">
@@ -438,5 +452,57 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
       )}
       {open.length === 0 && t.invites.length === 0 && <p className="muted small">No invites made on this installation.</p>}
     </>
+  )
+}
+
+// Replication is the team's status line (spec 11.1, 20.3): the last round,
+// who was reached, what was refused and why, and Replicate now.
+function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => Promise<unknown>) => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const r = t.replication
+  const reached = r?.reached ?? []
+  const refused = r?.refused ?? []
+  const others = t.members.filter((m) => m.email !== self).length
+  return (
+    <div className="replication">
+      <p className="small">
+        {plural(t.published, 'published document')} held here.{' '}
+        {others === 0 ? (
+          'No other members to replicate with yet.'
+        ) : !r?.last_round ? (
+          'No replication round yet.'
+        ) : (
+          <>
+            Last round {localTime(r.last_round)}: reached {reached.length > 0 ? reached.join(', ') : 'nobody'}
+            {r.tried > reached.length ? ` (${r.tried - reached.length} not online)` : ''}
+            {r.received > 0 ? `, ${plural(r.received, 'document')} received` : ''}.
+          </>
+        )}{' '}
+        {others > 0 && (
+          <button
+            type="button"
+            className="link"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              await run(() => api.replicate(t.team))
+              setBusy(false)
+            }}
+          >
+            {busy ? 'Replicating…' : 'Replicate now'}
+          </button>
+        )}
+      </p>
+      {r?.error && <p className="error-text small">{r.error}</p>}
+      {refused.length > 0 && (
+        <ul className="plain small">
+          {refused.map((x, i) => (
+            <li key={i}>
+              <span className="cv-flag">refused</span> {x.title || x.kalka_id} from {x.from}: {x.reason}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

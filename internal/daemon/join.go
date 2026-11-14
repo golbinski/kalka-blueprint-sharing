@@ -357,6 +357,7 @@ func (d *Daemon) acceptJoinLog(iv teamlog.Invite, m syncproto.TeamLog) error {
 		}
 	}
 	d.bus.Publish(BusEvent{Type: "teams"})
+	d.kickTeam(iv.Team)
 	return nil
 }
 

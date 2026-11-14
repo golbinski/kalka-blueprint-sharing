@@ -26,7 +26,6 @@ const (
 	// when kalka starts at logon.
 	BackgroundBinary = Product + "w"
 
-
 	// EntrySigContext prefixes the message signed in any entry (spec 6.5,
 	// v2): it covers the full digest of the entry, not the 48-bit id.
 	EntrySigContext = Product + "-entry-v2"

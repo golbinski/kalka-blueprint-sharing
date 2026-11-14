@@ -291,6 +291,8 @@ func (d *Daemon) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
 	}
 	st, _ := teamlog.Replay(t.Team, all)
 	d.bus.Publish(BusEvent{Type: "teams"})
+	defer d.pushTeam(t.Team)
+	defer func() { go d.afterLogChange(&held{dir: t, st: st, ops: all}) }()
 	h := ops[0].Hash()
 	if !st.Effective[h] {
 		reason := "it is not effective"
@@ -564,6 +566,20 @@ type TeamView struct {
 	BadLines []teamlog.BadLine `json:"bad_lines,omitempty"`
 	Rejected int               `json:"rejected,omitempty"`
 	Pending  int               `json:"pending,omitempty"`
+	// Replication is the last round's status line (spec 11.1).
+	Replication *TeamStatus `json:"replication,omitempty"`
+	// Published counts the team's published documents held here; Deleted
+	// lists the tombstones.
+	Published int          `json:"published"`
+	Deleted   []DeletedDoc `json:"deleted"`
+}
+
+// DeletedDoc is a document deleted for the team.
+type DeletedDoc struct {
+	KalkaID string `json:"kalka_id"`
+	Title   string `json:"title"`
+	Version int64  `json:"version"`
+	By      string `json:"by"`
 }
 
 // MemberView is one current member.
@@ -685,6 +701,28 @@ func (d *Daemon) teamView(t teamDir) TeamView {
 		v.Invites = append(v.Invites, iv)
 	}
 	v.History = history(st, ops)
+	v.Replication = d.replStatus(t.Team)
+	v.Deleted = []DeletedDoc{}
+	h := &held{dir: t, st: st, ops: ops}
+	for _, td := range d.replicaSet(h) {
+		if !td.tomb {
+			v.Published++
+			continue
+		}
+		dd := DeletedDoc{KalkaID: td.item.ID, Title: td.item.ID, Version: td.item.Version}
+		if head, ok := td.chain.Head(); ok {
+			dd.By = head.Entry.Author
+		}
+		if matches, _ := filepath.Glob(filepath.Join(trashDir(h), "*."+td.item.ID[:8]+".md")); len(matches) > 0 {
+			if raw, err := os.ReadFile(matches[0]); err == nil {
+				if doc, err := bp.Parse(raw); err == nil && doc.Title() != "" {
+					dd.Title = doc.Title()
+				}
+			}
+		}
+		v.Deleted = append(v.Deleted, dd)
+	}
+	sort.Slice(v.Deleted, func(i, j int) bool { return v.Deleted[i].Title < v.Deleted[j].Title })
 	return v
 }
 

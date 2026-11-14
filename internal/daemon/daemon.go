@@ -24,6 +24,7 @@ import (
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/identity"
+	"github.com/golbinski/kalka/internal/merge"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
@@ -77,6 +78,9 @@ type Options struct {
 	// noKeyID, set by tests, skips registering the key id, as when a
 	// squatter holds it on a server without key-id proofs.
 	noKeyID bool
+	// manualReplication, set by tests, runs replication rounds only when
+	// asked (ReplicateNow), so scenarios are deterministic.
+	manualReplication bool
 }
 
 // Daemon is one running kalka.
@@ -99,6 +103,7 @@ type Daemon struct {
 	bus     *Bus
 	refs    *refCache
 	teams   *teams
+	repl    *replication
 
 	token string
 
@@ -120,6 +125,9 @@ type Daemon struct {
 	// wrapStore, set by tests, replaces the store an incoming sync uses
 	// (fault injection for spec 16.1 scenario 6).
 	wrapStore func(syncproto.Store, *transport.Conn) syncproto.Store
+	// wrapChan, set by tests, wraps the channel of replication sessions
+	// (recording what leaves this daemon).
+	wrapChan func(syncproto.Channel) syncproto.Channel
 }
 
 type presence struct {
@@ -176,6 +184,7 @@ func New(opts Options) (*Daemon, error) {
 		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
 		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(), refs: newRefCache(opts.Plugins, now),
 		teams:     newTeams(opts.ConfigDir),
+		repl:      newReplication(),
 		token:     token,
 		presence:  map[string]presence{},
 		addresses: map[string]bool{},
@@ -245,6 +254,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go func() { defer wg.Done(); d.signalLoop(ctx, false) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); d.joinLoop(ctx) }()
+	if !d.opts.manualReplication {
+		wg.Add(1)
+		go func() { defer wg.Done(); d.replicateLoop(ctx) }()
+	}
 	if !d.opts.noKeyID {
 		wg.Add(1)
 		go func() { defer wg.Done(); d.signalLoop(ctx, true) }()
@@ -470,23 +483,37 @@ func (d *Daemon) confirm(s *syncproto.Session, peer transport.Peer) error {
 // serve handles an incoming connection.
 func (d *Daemon) serve(c *transport.Conn) {
 	defer c.Close()
-	// Pinning waits until it is known whether this is a join: a joiner's
-	// key is vouched for by the invite, not pinned on first sight.
+	// Pinning waits until the kind of session is known: a joiner's key is
+	// vouched for by the invite, a member's by the team log (spec 8.2).
 	peer, err := transport.Handshake(c, d.self, d.cfg.Team, nil)
-	if err == nil && (peer.Invite == nil) {
-		err = d.Peers.Pin(peer.Email, peer.Key)
-	}
 	if err != nil {
 		d.refuse(c, err)
 		d.logf("refused a connection: %v", err)
 		return
 	}
-	d.markPresence(peer.Email, transport.Online)
 	if peer.Invite != nil {
+		d.markPresence(peer.Email, transport.Online)
 		d.redeem(c, peer)
 		return
 	}
-	s := d.session(c, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
+	// The responder dispatches on the first message (spec 9.5).
+	first, err := c.Receive(syncproto.Silence)
+	if err != nil {
+		d.logf("connection from %s: %v", peer.Email, err)
+		return
+	}
+	d.markPresence(peer.Email, transport.Online)
+	if first.Type == "team_sync" {
+		d.replicaRespond(c, peer, first)
+		return
+	}
+	if err := d.Peers.Pin(peer.Email, peer.Key); err != nil {
+		d.refuse(c, err)
+		d.logf("refused a connection: %v", err)
+		return
+	}
+	ch := syncproto.Prepend(c, first)
+	s := d.session(ch, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
 	if d.wrapStore != nil {
 		s.Store = d.wrapStore(s.Store, c)
 	}
@@ -698,6 +725,29 @@ func (d *Daemon) candidate(f *store.File, to string) (*bp.Document, error) {
 	if err := doc.AddEntry(e); err != nil {
 		return nil, err
 	}
+	// A published document's handoff is also a release naming the new
+	// owner; only a member can receive it (spec 20.1, 20.4).
+	if t := doc.Team(); t != "" {
+		h, err := d.heldByName(t)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := h.memberKey(to); !ok {
+			return nil, fmt.Errorf("%s is not a member of %s: a published document goes only to members; delete it for the team first to hand it to someone else", to, t)
+		}
+		ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.team())
+		releaser, v := nextReleaser(ch, h.team(), doc.KalkaID(), f.Doc.Owner())
+		if !bp.SameEmail(releaser, d.self.Email) {
+			return nil, fmt.Errorf("only %s can hand this document off", releaser)
+		}
+		r, err := bp.NewRelease(doc, strings.ToLower(d.self.Email), d.now(), v, false, nil, "handed off to "+to, d.signer())
+		if err != nil {
+			return nil, err
+		}
+		if err := doc.AddEntry(r); err != nil {
+			return nil, err
+		}
+	}
 	data := doc.Bytes()
 	if doc, err = bp.Parse(data); err != nil {
 		return nil, err
@@ -717,6 +767,9 @@ func (d *Daemon) markPresence(email string, p transport.Presence) {
 	d.mu.Unlock()
 	if old != p {
 		d.bus.Publish(BusEvent{Type: "peers"})
+	}
+	if p == transport.Online && old != transport.Online {
+		d.memberOnline(email)
 	}
 }
 
@@ -798,9 +851,9 @@ type PeerView struct {
 	KeyChanged bool   `json:"key_changed,omitempty"`
 	Code       string `json:"code,omitempty"`
 	// Fingerprint of the pinned key, as its key id shows it (spec 9.2).
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Presence transport.Presence `json:"presence"`
-	Checked  *time.Time         `json:"checked,omitempty"`
+	Fingerprint string             `json:"fingerprint,omitempty"`
+	Presence    transport.Presence `json:"presence"`
+	Checked     *time.Time         `json:"checked,omitempty"`
 }
 
 // PeerList lists pinned peers and addresses typed this session.

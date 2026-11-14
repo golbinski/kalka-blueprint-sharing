@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Peer, type Prompt, type Status, type SyncResult } from './api'
-import { PromptCard, SeedDialog, SyncDialog } from './Dialogs'
+import { PromptCard, PublishDialog, SeedDialog, SyncDialog } from './Dialogs'
 import { closePrompt, notifyPrompt, permission, requestPermission } from './notify'
 import { CanvasPage } from './Canvas'
 import { Review } from './Review'
@@ -21,6 +21,7 @@ export function App() {
   const [docErr, setDocErr] = useState('')
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [dialog, setDialog] = useState<'sync' | 'handoff' | null>(null)
+  const [publishing, setPublishing] = useState(false)
   const [seedFor, setSeedFor] = useState<{ from?: Entry } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [live, setLive] = useState(true)
@@ -229,6 +230,11 @@ export function App() {
                 Create seed
               </button>
             )}
+            {doc.role === 'owner' && !doc.team && !doc.problems.some((p) => p.severity === 'error') && (
+              <button type="button" onClick={() => setPublishing(true)} title="Share this blueprint with every member of a team">
+                Publish to team…
+              </button>
+            )}
             {doc.role === 'owner' && (
               <button type="button" onClick={() => setDialog('handoff')}>
                 Hand off to…
@@ -347,6 +353,16 @@ export function App() {
             setDialog(null)
             loadDoc()
             loadPeers()
+          }}
+        />
+      )}
+      {publishing && doc && (
+        <PublishDialog
+          doc={doc}
+          onClose={() => setPublishing(false)}
+          onDone={() => {
+            loadDoc()
+            loadList()
           }}
         />
       )}

@@ -543,3 +543,11 @@ func (s *Store) dropBelow(dir string) {
 		s.publish(Event{Path: p, Removed: true, External: true})
 	}
 }
+
+// Forget re-reads path after kalka removed or moved it, so the index does
+// not wait for the watcher.
+func (s *Store) Forget(path string) {
+	if changed, _ := s.refresh(path); changed {
+		s.publish(Event{Path: path, Removed: true})
+	}
+}

@@ -122,6 +122,119 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   )
 }
 
+// TeamStrip heads a published document (spec 11.1, 19.5, 20): its team
+// and version, the owner's Publish update and Delete for the team, and
+// what is off about the document's ownership.
+function TeamStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [note, setNote] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const t = doc.team
+  if (!t) return null
+  const act = async (f: () => Promise<unknown>) => {
+    setBusy(true)
+    setErr('')
+    try {
+      await f()
+      setNote('')
+      setConfirmDelete(false)
+      reload()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  if (!t.held) {
+    return (
+      <div className="hints team-strip">
+        <div className="hint">
+          <span className="hint-label">team</span>
+          <span className="hint-text">
+            Published to {t.team}, a team you are not a member of on this installation. It does not replicate from here.
+          </span>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="hints team-strip">
+      <div className="hint">
+        <span className="hint-label">team</span>
+        <span className="hint-text">
+          Published to <a href="#/team">{t.team}</a>
+          {t.version > 0 ? `, version ${t.version}` : ''}.
+          {t.unreleased && t.can_act && ' Your edits since then are not released to the team yet.'}
+          {t.unreleased && !t.can_act && ` This copy has edits that are not released; only ${t.releaser} releases versions.`}
+        </span>
+        {t.can_act && t.unreleased && (
+          <>
+            <input
+              className="release-note"
+              placeholder="note (optional)"
+              value={note}
+              disabled={busy}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <button type="button" className="link" disabled={busy} onClick={() => act(() => api.publish(doc.rel, note))}>
+              Publish update
+            </button>
+          </>
+        )}
+        {t.can_act &&
+          (confirmDelete ? (
+            <>
+              <span className="hint-text">Delete for every member? The last copy goes to the team folder's trash.</span>
+              <button type="button" className="link danger" disabled={busy} onClick={() => act(() => api.deleteForTeam(doc.rel))}>
+                Delete for the team
+              </button>
+              <button type="button" className="link" disabled={busy} onClick={() => setConfirmDelete(false)}>
+                Keep it
+              </button>
+            </>
+          ) : (
+            <button type="button" className="link" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              Delete for the team…
+            </button>
+          ))}
+      </div>
+      {t.disputed && (
+        <div className="hint warn">
+          <span className="hint-text">
+            Ownership is disputed: two releases claim the same version. No one can release until a team owner reassigns the
+            document.
+          </span>
+        </div>
+      )}
+      {t.reassigned_to && (
+        <div className="hint">
+          <span className="hint-text">
+            Reassigned to {t.reassigned_to}; their kalka takes it over and publishes the next version when it has the releases
+            up to the cut-off.
+          </span>
+        </div>
+      )}
+      {t.owner_not_member && (
+        <div className="hint warn">
+          <span className="hint-text">
+            {t.releaser} is no longer a member of {t.team}. A team owner reassigns the document from the Team page by removing
+            them, or the document stays at version {t.version}.
+          </span>
+        </div>
+      )}
+      {(t.local_only ?? 0) > 0 && (
+        <div className="hint">
+          <span className="hint-text">
+            {plural(t.local_only ?? 0, 'entry stays', 'entries stay')} in this file only: unsigned, or by someone outside the
+            team.
+          </span>
+        </div>
+      )}
+      {err && <div className="error-text">{err}</div>}
+    </div>
+  )
+}
+
 export interface Draft {
   anchor: string
   re?: string
@@ -188,6 +301,16 @@ function Badges({ e }: { e: Entry }) {
       {e.handoff === 'unverified' && (
         <span className="badge warn" title={e.handoff_note}>
           unverified handoff
+        </span>
+      )}
+      {e.valid && e.team_state === 'local-only' && e.sig !== 'unsigned' && e.sig !== 'invalid' && (
+        <span className="badge" title="signed by someone the team log does not know: it stays in this file and does not replicate to the team">
+          local only
+        </span>
+      )}
+      {e.valid && e.team_state === 'removed-member' && (
+        <span className="badge" title={`${e.author} is no longer a member of the team; the entry was signed while they were and still replicates`}>
+          removed member
         </span>
       )}
     </>
@@ -469,6 +592,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
 
   return (
     <RefLayer doc={doc} className="review">
+      <TeamStrip doc={doc} reload={reload} />
       <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}

@@ -70,6 +70,8 @@ export interface Entry {
   handoff_target?: string
   handoff_note?: string
   unparsed?: string
+  /** For a published document: signed by a member, a removed member, or only in this file (spec 11.1). */
+  team_state?: 'member' | 'removed-member' | 'local-only'
 }
 
 export interface Problem {
@@ -167,6 +169,43 @@ export interface Doc {
   traces: Trace[]
   refs: Record<string, RefView>
   seed?: { parent?: string; parent_rel?: string; parent_title?: string; backlink_missing?: boolean }
+  team?: TeamDocState
+}
+
+/** What the document view shows about a published document (spec 11.1, 19.5). */
+export interface TeamDocState {
+  team: string
+  held: boolean
+  version: number
+  releaser?: string
+  can_act?: boolean
+  unreleased?: boolean
+  disputed?: boolean
+  reassigned_to?: string
+  owner_not_member?: boolean
+  local_only?: number
+  void_releases?: number
+}
+export interface PublishResult {
+  path: string
+  team: string
+  version: number
+  local_only: number
+}
+export interface Refusal {
+  kalka_id: string
+  title?: string
+  from: string
+  reason: string
+  at: string
+}
+export interface ReplicationStatus {
+  last_round?: string
+  reached: string[] | null
+  tried: number
+  error?: string
+  refused: Refusal[] | null
+  received: number
 }
 
 export interface SeedRow {
@@ -323,6 +362,9 @@ export interface Team {
   bad_lines?: { line: number; error: string }[]
   rejected?: number
   pending?: number
+  replication?: ReplicationStatus
+  published: number
+  deleted: { kalka_id: string; title: string; version: number; by: string }[] | null
 }
 export interface InviteResult {
   token: string
@@ -362,6 +404,9 @@ export const api = {
   removeMember: (team: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/remove`, { email }),
   setOwner: (team: string, email: string, owner: boolean) => call<Team>('POST', `/api/teams/${enc(team)}/owners`, { email, owner }),
   assignDomain: (team: string, domain: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/domains`, { domain, email }),
+  publish: (path: string, note = '', team = '') => call<PublishResult>('POST', '/api/publish', { path, team, note }),
+  deleteForTeam: (path: string) => call<object>('POST', '/api/delete', { path }),
+  replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),
   seeds: () => call<SeedRow[] | null>('GET', '/api/seeds').then((l) => l ?? []),

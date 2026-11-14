@@ -50,6 +50,8 @@ type DocView struct {
 	Refs   map[string]RefView `json:"refs"`
 	// Seed is set for a document with status: seed (spec 6.11).
 	Seed *SeedInfo `json:"seed,omitempty"`
+	// Team is set for a document published to a team (spec 20).
+	Team *TeamDocState `json:"team,omitempty"`
 }
 
 // SeedInfo describes a seed in the document view.
@@ -92,6 +94,9 @@ type EntryView struct {
 	BuddedRel   string `json:"budded_rel,omitempty"`
 	// Unparsed is text in the log after this entry that is not an entry.
 	Unparsed string `json:"unparsed,omitempty"`
+	// TeamState, for a published document: member, removed-member or
+	// local-only (spec 11.1, 20.4).
+	TeamState string `json:"team_state,omitempty"`
 }
 
 // resolve turns a path from the UI (relative to the folder, or absolute)
@@ -153,6 +158,11 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 	v.Traces, v.Refs = d.refViews(doc, func() { d.bus.Publish(BusEvent{Type: "refs", Data: map[string]string{"path": rel}}) })
 	v.LogLead = strings.TrimSpace(bp.Normalize(strings.Join(doc.Lead(), "")))
 
+	v.Team = d.teamDocState(doc)
+	var th *held
+	if v.Team != nil && v.Team.Held {
+		th, _ = d.heldByName(v.Team.Team)
+	}
 	rev := doc.Rev()
 	for _, it := range doc.Items() {
 		e := it.Entry
@@ -167,6 +177,12 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		ev.Sig = d.sigState(v.KalkaID, e)
+		if th != nil {
+			ev.TeamState = d.entryTeamState(th, v.KalkaID, e)
+			if ev.TeamState != "local-only" {
+				ev.Sig = "verified" // by a key the team log binds (spec 8.2)
+			}
+		}
 		if id, title, ok := e.Budded(); ok {
 			ev.BuddedSeed, ev.BuddedTitle = id, title
 			if sf, err := d.Store.Find(id); err == nil && sf != nil {

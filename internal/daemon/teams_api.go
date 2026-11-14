@@ -68,6 +68,50 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/teams/{team}/domains", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
 		return d.AssignDomain(teamRef(r), q.Domain, q.Email)
 	}))
+	mux.HandleFunc("POST /api/publish", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+			Team string `json:"team"`
+			Note string `json:"note"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		res, err := d.Publish(q.Path, q.Team, q.Note)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("POST /api/delete", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.Delete(q.Path); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct{}{})
+	})
+	mux.HandleFunc("POST /api/teams/{team}/replicate", func(w http.ResponseWriter, r *http.Request) {
+		t, err := d.findTeam(teamRef(r))
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		st, err := d.ReplicateNow(r.Context(), t.Team)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
 	mux.HandleFunc("GET /api/joins", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Joins()) })
 	mux.HandleFunc("POST /api/joins", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) { return d.Join(r.Context(), q.Token) }))
 }
@@ -153,4 +197,21 @@ func (c *Client) Join(ctx context.Context, token string) (JoinView, error) {
 func (c *Client) Joins(ctx context.Context) ([]JoinView, error) {
 	var v []JoinView
 	return v, c.do(ctx, http.MethodGet, "/api/joins", nil, &v)
+}
+
+// Publish publishes a document, or an update of it.
+func (c *Client) Publish(ctx context.Context, path, team, note string) (PublishResult, error) {
+	var v PublishResult
+	return v, c.do(ctx, http.MethodPost, "/api/publish", map[string]string{"path": path, "team": team, "note": note}, &v)
+}
+
+// Delete deletes a published document for the team.
+func (c *Client) Delete(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodPost, "/api/delete", map[string]string{"path": path}, nil)
+}
+
+// Replicate runs a replication round now.
+func (c *Client) Replicate(ctx context.Context, team string) (TeamStatus, error) {
+	var v TeamStatus
+	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/replicate", struct{}{}, &v)
 }

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -247,4 +248,75 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 			strings.TrimSuffix(msg, "."), j.Expires.Local().Format("Mon 2 Jan 15:04"), name.Binary)
 	}
 	return exitOK
+}
+
+// cmdPublish implements `kalka publish <file> [--team <t>] [-m <note>]`
+// (spec 20.1): the first publish, or a publish update.
+func cmdPublish(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	team := fs.String("team", "", "the team to publish to (default: your only team)")
+	note := fs.String("m", "", "a note for the release")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(pos) != 1 {
+		fmt.Fprintf(stderr, "usage: %s publish <file> [--team <name>] [-m <note>] [--json]\n", name.Binary)
+		return exitUsage
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	r, err := c.Publish(ctx, absPath(pos[0]), *team, *note)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	if *asJSON {
+		writeJSON(stdout, r)
+		return exitOK
+	}
+	fmt.Fprintf(stdout, "published %s to %s as version %d; it replicates to the team's members\n", r.Path, r.Team, r.Version)
+	if r.LocalOnly > 0 {
+		fmt.Fprintf(stdout, "%d entries stay in your file only: unsigned, or by someone outside the team\n", r.LocalOnly)
+	}
+	return exitOK
+}
+
+// cmdDelete implements `kalka delete <file>` (spec 20.6).
+func cmdDelete(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(pos) != 1 {
+		fmt.Fprintf(stderr, "usage: %s delete <file>\n", name.Binary)
+		return exitUsage
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := c.Delete(ctx, absPath(pos[0])); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	fmt.Fprintf(stdout, "deleted %s for the team; the last copy is in the team folder's .kalka/trash\n", pos[0])
+	return exitOK
+}
+
+func absPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }

@@ -316,3 +316,22 @@ func emptyLike(in *bp.Document) *bp.Document {
 	d, _ := bp.Parse([]byte("---\n" + name.FrontmatterID + ": " + in.KalkaID() + "\nowner: " + in.Owner() + "\nteam: " + in.Team() + "\n---\n"))
 	return d
 }
+
+// Replica is what a member sends of a published document (spec 20.4): the
+// plan as held, and only the entries signed by a key the team bound to
+// their author. Unsigned and outside entries, and unparsed log content,
+// stay in the local file.
+func Replica(d *bp.Document, team Team) (*bp.Document, error) {
+	id := d.KalkaID()
+	verified := func(e *bp.Entry) bool { return VerifiedBy(team, id, e) }
+	keep := func(e *bp.Entry, _ bool) bool { return verified(e) }
+	src, err := d.Reparse() // items are edited below
+	if err != nil {
+		return nil, err
+	}
+	_, items, _ := assembleWith(src, emptyLike(src), emptyLike(src), keep, verified)
+	for _, it := range items {
+		it.Trailing = nil
+	}
+	return bp.Compose(src, src.EOL(), nil, items)
+}

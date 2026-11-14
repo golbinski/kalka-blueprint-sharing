@@ -105,6 +105,51 @@ type TeamLog struct {
 	Ops  []json.RawMessage `json:"ops"`
 }
 
+// IntentReplicate marks a sync_offer inside a team session (spec 20.3):
+// no prompt, no reply; an empty content means "not available", the same
+// answer for a private document as for one that does not exist.
+const IntentReplicate = "replicate"
+
+// TeamSync opens a replication session: the log heads and one digest over
+// the inventory (spec 20.3).
+type TeamSync struct {
+	Type   string   `json:"type"`
+	Team   string   `json:"team"`
+	Heads  []string `json:"heads"`
+	Digest string   `json:"digest"`
+}
+
+// InvItem is one inventory line: a published document's head release and
+// the set of its replicated entries.
+type InvItem struct {
+	ID      string `json:"id"`
+	Version int64  `json:"v"`
+	Plan    string `json:"plan"`
+	Entries string `json:"entries"`
+	Deleted bool   `json:"deleted,omitempty"`
+}
+
+// TeamInv carries the sender's inventory.
+type TeamInv struct {
+	Type  string    `json:"type"`
+	Team  string    `json:"team"`
+	Items []InvItem `json:"items"`
+}
+
+// TeamWant names the documents the sender wants; each follows as a
+// sync_offer with intent replicate.
+type TeamWant struct {
+	Type string   `json:"type"`
+	Team string   `json:"team"`
+	IDs  []string `json:"ids"`
+}
+
+// Replication session outcomes, as bye reasons.
+const (
+	ByeDone      = "done"
+	ByeNotMember = "not-member"
+)
+
 // Join outcomes, as the owner's bye reason (spec 19.7 step 6).
 const (
 	ByeInviteUnknown = "invite-unknown"
@@ -633,4 +678,23 @@ func (s *Session) respondOne(off Offer) (res Result, done bool, err error) {
 		_ = s.Ch.Send(Bye{Type: "bye"})
 		return res, true, nil
 	}
+}
+
+// Prepend returns ch with env put back in front, for a responder that
+// read the first message to choose the session type (spec 9.5).
+func Prepend(ch Channel, env transport.Envelope) Channel {
+	return &prepended{Channel: ch, first: &env}
+}
+
+type prepended struct {
+	Channel
+	first *transport.Envelope
+}
+
+func (p *prepended) Receive(timeout time.Duration) (transport.Envelope, error) {
+	if e := p.first; e != nil {
+		p.first = nil
+		return *e, nil
+	}
+	return p.Channel.Receive(timeout)
 }

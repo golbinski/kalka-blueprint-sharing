@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, ApiError, type Doc, type Entry, type Peer, type Prompt, type SyncEvent, type SyncResult } from './api'
+import { api, ApiError, type Doc, type Entry, type Peer, type Prompt, type PublishResult, type SyncEvent, type SyncResult, type Team } from './api'
 import { docHref } from './util'
 
 const labels: Record<string, [string, string]> = {
@@ -287,6 +287,106 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
             <div className="row">
               <button type="submit" className="primary" disabled={busy || !title.trim()}>
                 Create seed
+              </button>
+              <button type="button" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// PublishDialog publishes a document to a team (spec 20.1): the team, when
+// the user is in several, and a note for the release.
+export function PublishDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void; onDone: () => void }) {
+  const [teams, setTeams] = useState<Team[] | null>(null)
+  const [team, setTeam] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState<PublishResult | null>(null)
+  useEffect(() => {
+    api
+      .teams()
+      .then((l) => {
+        const mine = l.filter((t) => t.me !== 'none')
+        setTeams(mine)
+        if (mine.length > 0) setTeam(mine[0].team)
+      })
+      .catch((e) => setErr((e as Error).message))
+  }, [])
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault()
+    setBusy(true)
+    setErr('')
+    try {
+      setDone(await api.publish(doc.rel, note, team))
+      onDone()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="modal-back" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" role="dialog" aria-label="Publish to team">
+        <h2>Publish to team</h2>
+        {done ? (
+          <>
+            <p>
+              “{doc.title}” is published to {done.team} as version {done.version}. It replicates to the team's members.
+            </p>
+            {done.local_only > 0 && (
+              <p className="muted">
+                {done.local_only} {done.local_only === 1 ? 'entry stays' : 'entries stay'} in your file only: unsigned, or by
+                someone outside the team.
+              </p>
+            )}
+            <div className="row">
+              <button type="button" className="primary" onClick={onClose}>
+                Done
+              </button>
+            </div>
+          </>
+        ) : teams && teams.length === 0 ? (
+          <>
+            <p>You are not a member of a team yet. Create one or join one on the <a href="#/team" onClick={onClose}>Team</a> page.</p>
+            <div className="row">
+              <button type="button" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={submit} className="seed-form">
+            <p className="muted">
+              Every member of the team gets the document and the review entries signed by members. You stay its owner and
+              release each new version; a document belongs to one team.
+            </p>
+            {teams && teams.length > 1 && (
+              <label>
+                Team
+                <select value={team} onChange={(e) => setTeam(e.target.value)}>
+                  {teams.map((t) => (
+                    <option key={t.team} value={t.team}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {teams && teams.length === 1 && <p>Team: {teams[0].name}</p>}
+            <label>
+              Note <span className="muted">(optional)</span>
+              <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
+            </label>
+            {err && <p className="error-text">{err}</p>}
+            <div className="row">
+              <button type="submit" className="primary" disabled={busy || !teams || !team}>
+                Publish
               </button>
               <button type="button" onClick={onClose}>
                 Cancel

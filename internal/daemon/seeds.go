@@ -75,6 +75,14 @@ func (d *Daemon) Bud(req BudRequest) (BudResult, error) {
 	res.SeedID = seed.KalkaID()
 	res.Seed = d.rel(seedPath)
 	d.logf("budded seed %s from %s", seedPath, f.Path)
+	// A seed of a published parent is published to the same team (6.11).
+	if t := f.Doc.Team(); t != "" && bp.SameEmail(seed.Owner(), d.self.Email) {
+		if _, err := d.heldByName(t); err == nil {
+			if _, err := d.Publish(seedPath, t, "split off "+f.Doc.Title()); err != nil {
+				d.logf("publishing seed %s: %v", seedPath, err)
+			}
+		}
+	}
 	// The second write: the parent with its budded entry. If the file
 	// changed meanwhile, the entry is added again to the fresh copy.
 	e, err := d.backlink(f.Path, seed)
@@ -164,6 +172,7 @@ func (d *Daemon) Promote(path, status string) error {
 		}
 		if err == nil {
 			d.logf("promoted %s to %s", f.Path, status)
+			d.releaseOwn(f.Path, "promoted to "+status)
 		}
 		return err
 	}

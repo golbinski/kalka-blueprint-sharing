@@ -472,6 +472,20 @@ Order from here: R1 reference and hints, R2 team log library, R3 signed entries 
 
 Product owner, 2026-11-14: everything up to the first release is one version, so no milestone keeps earlier builds working. Removed: the `hello.caps` capability list and `keyid/1` (peers are dialled by key id whenever their key is pinned, with the email-id fallback kept for an unreachable key id), capabilities in `peers.yaml`, the daemon's v0.3 `legacy` test mode and the old-hello fixture, the v1 handoff signature (`SigV1`, `kalka-handoff-v1`; `Verify` takes no `allowV1`, and the states are unsigned, invalid, valid), and the joiner's branch for an owner too old to accept invites. The spec's compatibility paragraphs (9.5, 20.7) are gone and decision 4 in 18.2 now records this. Compatibility with external servers (stock `peerjs-server`, the PeerJS cloud) stays a requirement. In the plan above, "behind `team/1`" no longer applies to R7.
 
+## 6r. R7 status: team replication
+
+Done (spec 20.1–20.6):
+
+- `kalka publish <file> [--team] [-m note]` and `kalka delete <file>`; in the UI, *Publish to team…* in the document header, and a team strip on published documents with *Publish update* (with a note), a two-step *Delete for the team*, and notes for unreleased edits, disputed ownership, a pending reassignment, an owner who left the team, and entries that stay local.
+- Entry badges: *local only* (signed by someone outside the log) and *removed member*.
+- `internal/daemon/replicate.go`: inventory and digest over the release chains and tombstones, the session (`team_sync`, `team_log`, `team_inv`, `team_want`, offers with `intent: replicate`), rounds at start, every ten minutes with jitter, when a member comes online, and a push after local changes and log changes. `merge.Replica` strips entries not signed by team keys before a document leaves.
+- `internal/daemon/publish.go`: releases, the release made by a new owner after a reassignment, tombstones with the last copy in `.kalka/trash`.
+- Team view: the last round (reached, not online, received), refusals with reasons, *Replicate now*, and the documents deleted for the team. `POST /api/teams/{team}/replicate`.
+- Scenario tests in `replicate_test.go`: private documents never leave, a tombstone beats a stale peer, mutual removal, reassignment over four nodes, relaying of entries through a member who is neither author nor owner, and the push.
+- Checked by hand with two daemons and `kalka rendezvous`: publish, push to the member's team folder, publish update from the UI, the member's view.
+
+Not done: one-to-one syncs of published documents still merge with 7.2; replication corrects them at the next round.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

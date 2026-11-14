@@ -243,7 +243,6 @@ func (p *Peers) Forget(email string) (bool, error) {
 	return true, p.save()
 }
 
-
 // ErrPinClash means peers.yaml pins another key for an email than the one
 // an invite or a team log vouches for (spec 8.2). Nothing is changed: the
 // pinned key stays for one-to-one syncs and the UI shows the mismatch.

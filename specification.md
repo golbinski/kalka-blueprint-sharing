@@ -948,6 +948,12 @@ Members trust each other through the team log: the keys it binds are verified fo
 
 - **When.** At daemon start, when a member comes online, after a local change to a team document, and every ten minutes with jitter. Each round picks at most three online members; a local change is pushed to at most five. Team members are probed only while a round needs them.
 - **A session**, over a key-ID connection with another member: exchange log heads and one digest over the inventory (`team_sync`). If both match, the session ends after one round trip. Otherwise: missing log operations first (`team_log`), then inventory lines (`team_inv`), then the wanted documents (`team_want`, each followed by a `sync_offer` with `intent: replicate`).
+  - The responder tells a session apart from a one-to-one sync by its first message: `team_sync` starts replication, anything else a sync (10).
+  - The responder merges the initiator's log operations before it checks membership, so a member just added by an operation the initiator brings is admitted in the same session. A peer that is not a member after the merge gets `bye` with reason `not-member`.
+  - An inventory line is `kalka_id`, the head version, the head's plan hash, whether it is a tombstone, and a digest over the document's entries that verify against team keys. A line is wanted when the document is not held, when it is a tombstone, when its version is higher, when the entry digests differ, or when the versions are equal and the plan hashes differ (a dispute to learn about). Nothing is wanted for a document held as a tombstone.
+  - The initiator sends the documents the responder wants first, then receives the ones it wants. A document that is not published, or not held, is answered with an offer with empty content: unavailable, not an error.
+  - Each received document is merged with the rules of 20.4 and written only if the merge changes the local file. A refusal (no valid release, a chain that does not lead to the incoming plan) is recorded with its reason for the Team view, and the session goes on.
+- **One-to-one syncs** of a published document between members still use the merge of 7.2. Replication corrects any difference at the next round: the release chain decides the plan.
 - **Relaying.** Any member can pass on any published document it holds. No author or owner needs to be online.
 - Peers that are not members never see a `team_*` message.
 
