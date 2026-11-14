@@ -31,6 +31,7 @@ import (
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/daemon"
+	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/lockfile"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
@@ -388,25 +389,34 @@ func openBrowser(url string) error {
 	return cmd.Start()
 }
 
-// cmdOpen opens the running daemon's UI.
+// readEndpoint reads daemon.json.
+func readEndpoint(dir string) (daemon.Endpoint, error) {
+	var e daemon.Endpoint
+	raw, err := os.ReadFile(filepath.Join(dir, daemon.DaemonFile))
+	if err != nil {
+		return e, daemon.ErrNotRunning
+	}
+	return e, json.Unmarshal(raw, &e)
+}
+
+// cmdOpen opens the daemon's UI, starting the daemon if needed.
 func cmdOpen(args []string, stdout, stderr io.Writer) int {
+	print := len(args) > 0 && args[0] == "--print"
+	if c, code := daemonFor(false, stdout, stderr); c == nil {
+		return code
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, daemon.DaemonFile))
+	e, err := readEndpoint(dir)
 	if err != nil {
-		fmt.Fprintln(stderr, daemon.ErrNotRunning)
-		return exitProblems
-	}
-	var e daemon.Endpoint
-	if err := json.Unmarshal(raw, &e); err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
 	url := "http://" + e.Addr + "/?token=" + e.Token
-	if len(args) > 0 && args[0] == "--print" {
+	if print {
 		fmt.Fprintln(stdout, url)
 		return exitOK
 	}
@@ -508,20 +518,13 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		return exitProblems
 	}
 	dir, _ := config.Dir()
+	// The identity key too, so views work before the daemon first runs.
+	if _, err := identity.LoadOrCreateKey(dir); err != nil {
+		fmt.Fprintln(stderr, "setup:", err)
+		return exitProblems
+	}
 	fmt.Fprintf(stdout, "saved %s\nstart %s with `%s`\n", filepath.Join(dir, config.FileName), name.Product, name.Binary)
 	return exitOK
-}
-
-func client(stderr io.Writer) *daemon.Client {
-	dir, err := config.Dir()
-	if err == nil {
-		var c *daemon.Client
-		if c, err = daemon.Connect(dir); err == nil {
-			return c
-		}
-	}
-	fmt.Fprintln(stderr, err)
-	return nil
 }
 
 // cmdSync implements `kalka send` and `kalka handoff`.
@@ -545,15 +548,15 @@ func cmdSync(cmd string, args []string, stdin io.Reader, stdout, stderr io.Write
 	if cmd == "handoff" {
 		intent = core.IntentHandoff
 	}
-	c := client(stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx := context.Background()
 	lines := readLines(stdin)
 	var mu sync.Mutex
 	closed := map[string]chan struct{}{}
-	code := exitProblems
+	code = exitProblems
 	err = c.Sync(ctx, core.SyncRequest{Path: file, To: to, Intent: intent}, func(ev daemon.Event) {
 		if *asJSON {
 			writeJSON(stdout, ev)
@@ -622,13 +625,32 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return exitUsage
 	}
-	c := client(stderr)
-	if c == nil {
-		return exitProblems
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if len(pos) == 2 && pos[0] == "forget" {
+	change := len(pos) == 2 && (pos[0] == "forget" || pos[0] == "add")
+	if !change && len(pos) != 0 {
+		fmt.Fprintf(stderr, "usage: %[1]s peers [--json] | %[1]s peers add <email> | %[1]s peers forget <email>\n", name.Binary)
+		return exitUsage
+	}
+	if change && pos[0] == "add" && !bp.ValidEmail(pos[1]) {
+		fmt.Fprintf(stderr, "%q is not an email address\n", pos[1])
+		return exitUsage
+	}
+	var vs *views
+	if change {
+		c, code := daemonFor(*asJSON, stdout, stderr)
+		if c == nil {
+			return code
+		}
+		vs = &views{c: c}
+	} else {
+		var code int
+		if vs, code = openViews(*asJSON, stdout, stderr); vs == nil {
+			return code
+		}
+	}
+	c := vs.c
+	if change && pos[0] == "forget" {
 		if err := c.Forget(ctx, pos[1]); err != nil {
 			fmt.Fprintln(stderr, err)
 			return exitProblems
@@ -636,26 +658,18 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "removed the pinned key for %s; the next contact pins their key again and asks for the code\n", pos[1])
 		return exitOK
 	}
-	if len(pos) == 2 && pos[0] == "add" {
-		if !bp.ValidEmail(pos[1]) {
-			fmt.Fprintf(stderr, "%q is not an email address\n", pos[1])
-			return exitUsage
-		}
+	if change && pos[0] == "add" {
 		if _, err := c.AddPeer(ctx, pos[1]); err != nil {
 			fmt.Fprintln(stderr, err)
 			return exitProblems
 		}
-	} else if len(pos) != 0 {
-		fmt.Fprintf(stderr, "usage: %[1]s peers [--json] | %[1]s peers add <email> | %[1]s peers forget <email>\n", name.Binary)
-		return exitUsage
 	}
-	peers, err := c.Peers(ctx)
+	peers, err := vs.peers(ctx)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return report(*asJSON, stdout, stderr, "daemon", err.Error())
 	}
 	if *asJSON {
-		writeJSON(stdout, peers)
+		writeJSON(stdout, map[string]any{"daemon": vs.live(), "peers": peers})
 		return exitOK
 	}
 	if len(peers) == 0 {
@@ -677,6 +691,9 @@ func cmdPeers(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code, p.Fingerprint)
 	}
 	tw.Flush()
+	if !vs.live() {
+		notRunningNote(stdout)
+	}
 	return exitOK
 }
 
@@ -693,9 +710,9 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "usage: %s verify <email> [--confirm] [--json]\n", name.Binary)
 		return exitUsage
 	}
-	c := client(stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

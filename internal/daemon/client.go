@@ -162,3 +162,9 @@ func (c *Client) Shutdown(ctx context.Context) (int, error) {
 	}
 	return r.PID, c.do(ctx, http.MethodPost, "/api/shutdown", struct{}{}, &r)
 }
+
+// Prompts lists the open prompts.
+func (c *Client) Prompts(ctx context.Context) ([]*core.Pending, error) {
+	var ps []*core.Pending
+	return ps, c.do(ctx, http.MethodGet, "/api/prompts", nil, &ps)
+}

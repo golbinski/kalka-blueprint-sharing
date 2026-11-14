@@ -32,6 +32,22 @@ const (
 
 const keyHeader = name.Product + "-identity-v1"
 
+// ErrNoKey means identity.key does not exist yet: kalka has not run here.
+var ErrNoKey = errors.New("no identity key yet: " + name.Product + " has not run on this machine")
+
+// LoadKey reads identity.key from dir; it never creates one.
+func LoadKey(dir string) (ed25519.PrivateKey, error) {
+	path := filepath.Join(dir, KeyFile)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNoKey
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseKey(path, raw)
+}
+
 // LoadOrCreateKey reads identity.key from dir, generating it on first run.
 func LoadOrCreateKey(dir string) (ed25519.PrivateKey, error) {
 	path := filepath.Join(dir, KeyFile)
@@ -50,6 +66,10 @@ func LoadOrCreateKey(dir string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseKey(path, raw)
+}
+
+func parseKey(path string, raw []byte) (ed25519.PrivateKey, error) {
 	lines := strings.Fields(string(raw))
 	if len(lines) != 2 || lines[0] != keyHeader {
 		return nil, fmt.Errorf("%s is not a %s identity key", path, name.Product)

@@ -49,13 +49,42 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%q is not an email address\n", pos[1])
 		return exitUsage
 	}
-	c := client(stderr)
-	if c == nil {
-		return exitProblems
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	fail := func(err error) int { fmt.Fprintln(stderr, err); return exitProblems }
+	fail := func(err error) int { return report(*asJSON, stdout, stderr, "team", err.Error()) }
+	if pos[0] == "members" || pos[0] == "log" || pos[0] == "invites" {
+		vs, code := openViews(*asJSON, stdout, stderr)
+		if vs == nil {
+			return code
+		}
+		v, err := vs.team(ctx, *team)
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			writeJSON(stdout, struct {
+				Daemon bool `json:"daemon"`
+				core.TeamView
+			}{vs.live(), v})
+			return exitOK
+		}
+		switch pos[0] {
+		case "log":
+			printLog(stdout, v)
+		case "invites":
+			printInvites(stdout, v)
+		default:
+			printMembers(stdout, v)
+		}
+		if !vs.live() {
+			notRunningNote(stdout)
+		}
+		return exitOK
+	}
+	c, code := daemonFor(*asJSON, stdout, stderr)
+	if c == nil {
+		return code
+	}
 
 	var v core.TeamView
 	switch pos[0] {
@@ -111,8 +140,6 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		v, err = c.AssignDomain(ctx, *team, pos[1], pos[2])
-	default:
-		v, err = c.Team(ctx, *team)
 	}
 	if err != nil {
 		return fail(err)
@@ -121,14 +148,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 		writeJSON(stdout, v)
 		return exitOK
 	}
-	switch pos[0] {
-	case "log":
-		printLog(stdout, v)
-	case "invites":
-		printInvites(stdout, v)
-	default:
-		printMembers(stdout, v)
-	}
+	printMembers(stdout, v)
 	return exitOK
 }
 
@@ -196,9 +216,9 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "usage: %s join <token> [--wait 20s] [--json]\n", name.Binary)
 		return exitUsage
 	}
-	c := client(stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *wait+10*time.Second)
 	defer cancel()
@@ -266,9 +286,9 @@ func cmdPublish(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "usage: %s publish <file> [--team <name>] [-m <note>] [--json]\n", name.Binary)
 		return exitUsage
 	}
-	c := client(stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -300,9 +320,9 @@ func cmdDelete(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "usage: %s delete <file>\n", name.Binary)
 		return exitUsage
 	}
-	c := client(stderr)
+	c, code := daemonFor(false, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -343,9 +363,9 @@ func cmdRelease(args []string, stdout, stderr io.Writer) int {
 			ids = append(ids, x)
 		}
 	}
-	c := client(stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
-		return exitProblems
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -370,19 +390,18 @@ func cmdDomains(args []string, stdout, stderr io.Writer) int {
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return exitUsage
 	}
-	c := client(stderr)
-	if c == nil {
-		return exitProblems
+	vs, code := openViews(*asJSON, stdout, stderr)
+	if vs == nil {
+		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	rows, err := c.Domains(ctx)
+	rows, err := vs.domains(ctx)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return report(*asJSON, stdout, stderr, "daemon", err.Error())
 	}
 	if *asJSON {
-		writeJSON(stdout, rows)
+		writeJSON(stdout, map[string]any{"daemon": vs.live(), "domains": rows})
 		return exitOK
 	}
 	if len(rows) == 0 {
@@ -408,5 +427,8 @@ func cmdDomains(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(tw, "%s/%s\t%s\t%s\t%d\t%s\n", r.Team, r.Domain, ver, owner, r.Open, r.Rel)
 	}
 	tw.Flush()
+	if !vs.live() {
+		notRunningNote(stdout)
+	}
 	return exitOK
 }

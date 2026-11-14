@@ -46,6 +46,17 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {
+	// --no-start applies to every daemon command, wherever it is given.
+	noStart = false
+	kept := args[:0:0]
+	for _, a := range args {
+		if a == "--no-start" || a == "-no-start" {
+			noStart = true
+			continue
+		}
+		kept = append(kept, a)
+	}
+	args = kept
 	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && args[0] != "-h" && args[0] != "--help") {
 		return cmdStart(args, stdout, stderr)
 	}
@@ -55,6 +66,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdDaemon(rest, stdin, stdout, stderr)
 	case "stop":
 		return cmdStop(rest, stdout, stderr)
+	case "status":
+		return cmdStatus(rest, stdout, stderr)
 	case "check":
 		return cmdCheck(rest, stdout, stderr)
 	case "comment":
@@ -107,6 +120,7 @@ func usage(w io.Writer) {
   %[1]s                     make sure the daemon runs, then open its UI
   %[1]s daemon [--background] [--no-ui] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
   %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
+  %[1]s status [--json]       online state, peers reachable, prompts waiting
   %[1]s autostart on|off|status [--json]   start kalka at logon
   %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
@@ -128,7 +142,14 @@ func usage(w io.Writer) {
   %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
-`, name.Binary)
+
+Commands that act through kalka (send, handoff, peers add|forget, verify, team changes,
+join, publish, release, delete, open) start it in the background when it is not running;
+--no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
+peers, team members|log|invites, domains) never start it: with none running they read the
+local files and their JSON says "daemon": false. check, comment, seed, seeds and reference
+never need it.
+`, name.Binary, NoStartEnv)
 }
 
 // parseInterspersed parses flags that may come before or after positional

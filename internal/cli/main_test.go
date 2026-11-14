@@ -105,10 +105,16 @@ func TestSetupWritesConfig(t *testing.T) {
 	if err != nil || cfg.Email != "bob@corp.com" || cfg.Folder != folder || cfg.UIPort != 7800 {
 		t.Fatalf("%+v %v", cfg, err)
 	}
-	// Network commands without a daemon say how to start it.
+	// A view without a daemon reads the local files (setup made the key).
 	errb.Reset()
-	if code := run([]string{"peers"}, nil, &out, &errb, time.Now); code != exitProblems || !strings.Contains(errb.String(), "not running") {
-		t.Fatalf("peers without daemon: %d %q", code, errb.String())
+	out.Reset()
+	if code := run([]string{"peers"}, nil, &out, &errb, time.Now); code != exitOK || !strings.Contains(out.String(), "no peers yet") {
+		t.Fatalf("peers without daemon: %d %q %q", code, out.String(), errb.String())
+	}
+	// A daemon command with --no-start fails with not-running.
+	out.Reset()
+	if code := run([]string{"verify", "alice@corp.com", "--json", "--no-start"}, nil, &out, &errb, time.Now); code != exitProblems || !strings.Contains(out.String(), `"kind": "not-running"`) {
+		t.Fatalf("verify --no-start: %d %q", code, out.String())
 	}
 }
 

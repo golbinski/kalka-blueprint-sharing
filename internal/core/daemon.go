@@ -132,14 +132,33 @@ type candidate struct {
 
 // New prepares a daemon: identity key, peer store and folder index.
 func New(opts Options) (*Node, error) {
-	cfg := opts.Config
-	if err := Validate(cfg); err != nil {
+	if err := Validate(opts.Config); err != nil {
 		return nil, err
 	}
 	key, err := identity.LoadOrCreateKey(opts.ConfigDir)
 	if err != nil {
 		return nil, fmt.Errorf("identity key: %w", err)
 	}
+	return newNode(opts, key)
+}
+
+// Open is the read-only node for views with no daemon running (spec 12):
+// it reads the key, peers, folder and team logs, creates nothing, and is
+// never Run, so it makes no connection. Presence is unknown and the node
+// reports itself offline. Only its view methods may be used.
+func Open(opts Options) (*Node, error) {
+	if err := Validate(opts.Config); err != nil {
+		return nil, err
+	}
+	key, err := identity.LoadKey(opts.ConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	return newNode(opts, key)
+}
+
+func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
+	cfg := opts.Config
 	now := opts.Now
 	if now == nil {
 		now = time.Now

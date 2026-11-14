@@ -530,6 +530,14 @@ D3 done (local API hardening; no socket, per decision 7):
 - `POST /api/open-external` (`Options.OpenExternal`, the CLI passes the system browser): only absolute `http`/`https` URLs with a host and no user info. The page does not call it yet; the desktop shell needs it (D6).
 - Tests: `TestAPIGuards` is a 23-row table (Host, port, token forms, cookie, Origin, Sec-Fetch-Site, the token link, static files); `TestNoUI`; `TestOpenExternal` (file:, javascript:, custom schemes, scheme-relative, user info refused). Checked by hand in Chrome: the page loads, reads, writes, streams events, and the Mermaid frame draws.
 
+D4 done (the CLI with and without a daemon):
+
+- `internal/cli/access.go`: `daemonFor` for daemon commands (send, handoff, peers add|forget, verify, team changes, join, publish, release, delete, open): the running daemon, else `kalka daemon --background` started detached and waited for (`ensureDaemon`). `--no-start` (stripped from the arguments wherever it appears) or `KALKA_NO_START=1` fails with `not-running`; no config fails with `not-set-up`, starting nothing. Errors are `{"error", "kind"}` with `--json`.
+- Views (`status`, `peers`, `team members|log|invites`, `domains`) use the daemon when it answers, else `core.Open`: a read-only node (`identity.LoadKey`, never creates a key) that is never run, so presence is unknown and nothing connects. View JSON carries `"daemon"`; text output ends with a "not running" note.
+- New `kalka status [--json]`: running and pid, online state, identity, folder, rendezvous, peers online of known, prompts waiting. Paused and last sync come with D5.
+- `kalka setup` also creates the identity key, so views work before the daemon first runs.
+- Tests: `TestCLIClasses` (subprocesses: file commands start nothing; views from files with `"daemon": false`; `--no-start` and the variable; two daemon commands at once give exactly one daemon; live views; the daemon's index sees a CLI comment; no config starts nothing); `daemon` twice and `stop` twice are in `TestSingleDaemon`.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |
