@@ -347,7 +347,7 @@ What remains, and goes into the threat model: a removed owner who is *senior* to
 - Token (one line, base32): team name, team hash, inviting owner's key, invitee email, 32-byte secret, expiry (default 72 h, `--expires`), rendezvous address.
 - `kalka team invite <email>` stores the open invite in `invites.yaml` in the config directory.
 - `kalka join <token>` pins the owner's key as verified, stores the pending join, and probes the owner's key ID once a minute until the expiry.
-- The joiner's `hello` carries `invite: {id, proof}`, where the proof is an HMAC of both public keys and the team hash under the secret. The owner checks it after `auth`. A good proof counts as verification, so no code prompt appears on either side. A bad, expired or used invite ends with a `bye` that says which.
+- The joiner's `hello` carries `invite: {id, team, proof}`, where the proof is an HMAC of both public keys and the team hash under the secret. The owner checks it after `auth`. A good proof counts as verification, so no code prompt appears on either side. A bad, expired or used invite ends with a `bye` that says which.
 - The owner appends `add-member {email, pubkey, invite: <id>}`, marks the invite used, and sends the log on the same connection. The joiner checks that the log starts at the team hash from the token and contains its own `add-member`.
 - Backstop in the log: a second `add-member` with the same invite id is discarded at replay.
 - The email in `add-member` is the one the owner wrote, not the one the joiner claims. A mismatch is refused.

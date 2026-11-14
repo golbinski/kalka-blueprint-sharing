@@ -270,3 +270,35 @@ func (p *Peers) SetCaps(email string, key ed25519.PublicKey, caps []string) erro
 
 // Has reports whether the peer announced capability c.
 func (p Peer) Has(c string) bool { return slices.Contains(p.Caps, c) }
+
+// ErrPinClash means peers.yaml pins another key for an email than the one
+// an invite or a team log vouches for (spec 8.2). Nothing is changed: the
+// pinned key stays for one-to-one syncs and the UI shows the mismatch.
+type ErrPinClash struct{ Email string }
+
+func (e *ErrPinClash) Error() string {
+	return fmt.Sprintf("the key pinned for %s differs from the one the team vouches for; "+
+		"compare fingerprints with them, then remove the old pin (`%s peers forget %[1]s`) if the team's key is right", e.Email, name.Binary)
+}
+
+// PinVerified pins key for email as verified, for a key vouched for by an
+// invite (spec 19.7): new pins are stored verified, a matching pin becomes
+// verified, and a different pin is left alone with *ErrPinClash.
+func (p *Peers) PinVerified(email string, key ed25519.PublicKey) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	enc := base64.StdEncoding.EncodeToString(key)
+	i := p.find(email)
+	if i < 0 {
+		p.peers = append(p.peers, Peer{Email: strings.ToLower(email), PubKey: enc, Verified: true, FirstSeen: p.now().UTC().Format("2006-01-02")})
+		return p.save()
+	}
+	if p.peers[i].PubKey != enc || p.peers[i].KeyChanged != nil {
+		return &ErrPinClash{Email: email}
+	}
+	if p.peers[i].Verified {
+		return nil
+	}
+	p.peers[i].Verified = true
+	return p.save()
+}

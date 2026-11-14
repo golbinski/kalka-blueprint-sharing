@@ -66,6 +66,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/seeds", d.apiBud)
 	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
+	d.mountTeams(mux)
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.bus, w, r) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))

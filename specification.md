@@ -520,7 +520,7 @@ One reliable, ordered data channel labelled `kalka/1` per operation. Messages ar
 | `sync_ack` | `kalka_id`, `rev` | Initiator confirms it holds the merged file. |
 | `bye` | optional `reason` | Either side. |
 | `team_sync` | `team`, `heads`, `digest` | Opens a replication session (20.3): the log heads and one digest over the inventory. |
-| `team_log` | `team`, `ops` | Log operations the other side is missing. |
+| `team_log` | `team`, `ops` | Log operations the other side is missing. Also sent once by an owner who admits a joiner (19.7 step 5), whatever the caps. |
 | `team_inv` | `team`, `items` | Inventory lines: `kalka_id`, latest release version and plan hash, entry-set digest. |
 | `team_want` | `team`, `ids` | The documents the sender wants; each follows as a `sync_offer` with `intent: replicate`. |
 
@@ -641,8 +641,8 @@ Blueprints from peers are untrusted input rendered in a page that can trigger fi
 | `kalka seeds` | no | List the pre-backlog. |
 | `kalka team create <name>` | yes | Create a team; you are its first owner. |
 | `kalka team invite <email> [--expires <dur>]` | yes | Print an invite token (19.7). Team owners only. |
-| `kalka join <token>` | yes | Redeem an invite. |
-| `kalka team members\|log` | yes | Show the roster or the log. |
+| `kalka join <token> [--wait <dur>]` | yes | Redeem an invite; waits briefly for the owner, then leaves the retry to the daemon. |
+| `kalka team members\|log\|invites` | yes | Show the roster, the log, or the invites made on this installation. |
 | `kalka team remove\|add-owner\|remove-owner <email>` | yes | Roster changes (19.3). |
 | `kalka team assign-domain <domain> <email>` | yes | Appoint a domain owner. |
 | `kalka publish <file> --team <team>` | yes | Publish a document to a team (20.1); again later to publish an update. |
@@ -923,7 +923,7 @@ Replay reports the discarded operations with their reasons, and the Team view sh
 1. A team owner runs `kalka team invite <email>`. The token is one line of base32 holding: the team name and hash, the inviting owner's public key, the invitee's email, a 32-byte one-time secret, the expiry (default 72 hours, `--expires`), and the rendezvous address. The open invite is stored in `invites.yaml`. `kalka` does not send the token; the owner passes it on through any channel.
 2. The invitee runs `kalka join <token>`. The owner's key becomes their trust anchor for the team and is pinned as verified. The pending join is stored in `joins.yaml`. If the token names another rendezvous than the configured one, `kalka` says so.
 3. The joiner's daemon probes the owner's key ID once a minute until it meets the owner or the invite expires; this survives restarts. Only the joiner can dial: the owner does not know the joiner's key. The owner's part is to be online. Nothing is queued on the rendezvous server.
-4. On meeting, the joiner's `hello` carries `invite: {id, proof}`, where `proof` is an HMAC-SHA-256 under the secret over both public keys and the team hash. The owner checks it after `auth`, before any code prompt. A valid proof counts as verification, so neither side compares a code.
+4. On meeting, the joiner's `hello` carries `invite: {id, team, proof}`, where `team` is the team hash from the token and `proof` is an HMAC-SHA-256 under the secret over both public keys and the team hash. The owner checks it after `auth`, before any code prompt. A valid proof counts as verification, so neither side compares a code.
 5. The owner's `kalka` approves automatically (the invite is the approval), appends `add-member {email, pubkey, invite}` with the email *from the invite*, marks the invite used, and sends the log on the same connection. The joiner checks that the log starts at the team hash in its token and contains its own `add-member`.
 6. A bad proof, an expired invite, a used invite, or an email other than the one invited ends the connection with a `bye` naming the reason, and the joiner's UI shows it.
 

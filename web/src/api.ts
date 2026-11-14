@@ -284,7 +284,87 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 const enc = encodeURIComponent
 
+// Teams (spec 19).
+export interface TeamMember {
+  email: string
+  owner?: boolean
+  fingerprint: string
+  since?: string
+  you?: boolean
+  pin: 'match' | 'none' | 'clash'
+}
+export interface TeamInvite {
+  id: string
+  email: string
+  expires: string
+  state: 'open' | 'used' | 'expired' | 'canceled'
+  used_at?: string
+}
+export interface TeamHistory {
+  hash: string
+  at: string
+  signer: string
+  op: string
+  text: string
+  effective: boolean
+  reason?: string
+}
+export interface Team {
+  team: string
+  name: string
+  dir: string
+  log: string
+  me: 'owner' | 'member' | 'none'
+  error?: string
+  members: TeamMember[]
+  owners: string[]
+  domains: { domain: string; owner: string; after: number }[]
+  invites: TeamInvite[]
+  history: TeamHistory[]
+  bad_lines?: { line: number; error: string }[]
+  rejected?: number
+  pending?: number
+}
+export interface InviteResult {
+  token: string
+  id: string
+  team: string
+  name: string
+  email: string
+  expires: string
+}
+export interface Join {
+  id: string
+  team: string
+  name: string
+  owner?: string
+  created: string
+  expires: string
+  state: 'pending' | 'joined' | 'failed'
+  detail?: string
+  tries: number
+  last_try?: string
+  warning?: string
+}
+export interface Reassigned {
+  kalka_id: string
+  title: string
+  path: string
+  after: number
+}
+
 export const api = {
+  teams: () => call<Team[] | null>('GET', '/api/teams').then((l) => l ?? []),
+  createTeam: (name: string) => call<Team>('POST', '/api/teams', { name }),
+  invite: (team: string, email: string, expires: string) => call<InviteResult>('POST', `/api/teams/${enc(team)}/invites`, { email, expires }),
+  cancelInvite: (id: string) => call<object>('DELETE', '/api/invites/' + enc(id)),
+  removalPreview: (team: string, email: string) =>
+    call<Reassigned[] | null>('GET', `/api/teams/${enc(team)}/removal?email=${enc(email)}`).then((l) => l ?? []),
+  removeMember: (team: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/remove`, { email }),
+  setOwner: (team: string, email: string, owner: boolean) => call<Team>('POST', `/api/teams/${enc(team)}/owners`, { email, owner }),
+  assignDomain: (team: string, domain: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/domains`, { domain, email }),
+  joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
+  join: (token: string) => call<Join>('POST', '/api/joins', { token }),
   seeds: () => call<SeedRow[] | null>('GET', '/api/seeds').then((l) => l ?? []),
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
@@ -344,13 +424,13 @@ export const api = {
   },
 }
 
-export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs'
+export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs' | 'teams'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs']
+  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs', 'teams']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

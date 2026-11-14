@@ -6,6 +6,7 @@ import { CanvasPage } from './Canvas'
 import { Review } from './Review'
 import { Blueprints, Peers, PreBacklog, Setup } from './Views'
 import { TracePage } from './Trace'
+import { TeamPage } from './Team'
 import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
 
 type Toast = { id: number; text: string }
@@ -23,6 +24,7 @@ export function App() {
   const [seedFor, setSeedFor] = useState<{ from?: Entry } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [live, setLive] = useState(true)
+  const [teamTick, setTeamTick] = useState(0)
   const [notifyPerm, setNotifyPerm] = useState(permission)
   const [notifyAsked, setNotifyAsked] = useState(() => {
     try {
@@ -89,6 +91,10 @@ export function App() {
             break
           case 'peers':
             loadPeers()
+            setTeamTick((n) => n + 1)
+            break
+          case 'teams':
+            setTeamTick((n) => n + 1)
             break
           case 'refs': {
             // Background resolution finished for a blueprint.
@@ -189,6 +195,9 @@ export function App() {
             </a>
             <a href="#/seeds" className={route.view === 'seeds' ? 'active' : ''}>
               Pre-backlog
+            </a>
+            <a href="#/team" className={route.view === 'team' ? 'active' : ''}>
+              Team
             </a>
             <a href="#/peers" className={route.view === 'peers' ? 'active' : ''}>
               Peers
@@ -313,6 +322,7 @@ export function App() {
         {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} />}
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && <PreBacklog self={status.email} />}
+        {route.view === 'team' && <TeamPage self={status.email} reloadKey={teamTick} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 

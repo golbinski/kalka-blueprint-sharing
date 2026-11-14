@@ -1,0 +1,156 @@
+package daemon
+
+import (
+	"context"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// TeamRequest is the body of the roster endpoints. Team is a name or a
+// hash; "-" or empty means the only team held.
+type TeamRequest struct {
+	Name    string `json:"name,omitempty"`
+	Email   string `json:"email,omitempty"`
+	Domain  string `json:"domain,omitempty"`
+	Owner   *bool  `json:"owner,omitempty"`
+	Expires string `json:"expires,omitempty"` // a Go duration, e.g. 72h
+	Token   string `json:"token,omitempty"`
+}
+
+func teamRef(r *http.Request) string {
+	if t := r.PathValue("team"); t != "-" {
+		return t
+	}
+	return ""
+}
+
+func (d *Daemon) mountTeams(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/teams", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Teams()) })
+	mux.HandleFunc("POST /api/teams", d.teamCall(func(_ *http.Request, q TeamRequest) (any, error) { return d.CreateTeam(q.Name) }))
+	mux.HandleFunc("GET /api/teams/{team}", func(w http.ResponseWriter, r *http.Request) {
+		t, err := d.findTeam(teamRef(r))
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, d.teamView(t))
+	})
+	mux.HandleFunc("POST /api/teams/{team}/invites", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
+		var ttl time.Duration
+		if q.Expires != "" {
+			var err error
+			if ttl, err = time.ParseDuration(q.Expires); err != nil {
+				return nil, err
+			}
+		}
+		return d.Invite(teamRef(r), q.Email, ttl)
+	}))
+	mux.HandleFunc("DELETE /api/invites/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.CancelInvite(r.PathValue("id")); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct{}{})
+	})
+	mux.HandleFunc("GET /api/teams/{team}/removal", func(w http.ResponseWriter, r *http.Request) {
+		docs, err := d.RemovalPreview(teamRef(r), r.URL.Query().Get("email"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, docs)
+	})
+	mux.HandleFunc("POST /api/teams/{team}/remove", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) { return d.Remove(teamRef(r), q.Email) }))
+	mux.HandleFunc("POST /api/teams/{team}/owners", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
+		return d.SetOwner(teamRef(r), q.Email, q.Owner == nil || *q.Owner)
+	}))
+	mux.HandleFunc("POST /api/teams/{team}/domains", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
+		return d.AssignDomain(teamRef(r), q.Domain, q.Email)
+	}))
+	mux.HandleFunc("GET /api/joins", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Joins()) })
+	mux.HandleFunc("POST /api/joins", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) { return d.Join(r.Context(), q.Token) }))
+}
+
+func (d *Daemon) teamCall(f func(*http.Request, TeamRequest) (any, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var q TeamRequest
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		v, err := f(r, q)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	}
+}
+
+func teamPath(team string) string {
+	if team == "" {
+		team = "-"
+	}
+	return "/api/teams/" + url.PathEscape(team)
+}
+
+// Teams lists the teams held.
+func (c *Client) Teams(ctx context.Context) ([]TeamView, error) {
+	var v []TeamView
+	return v, c.do(ctx, http.MethodGet, "/api/teams", nil, &v)
+}
+
+// Team shows one team; empty means the only one.
+func (c *Client) Team(ctx context.Context, team string) (TeamView, error) {
+	var v TeamView
+	return v, c.do(ctx, http.MethodGet, teamPath(team), nil, &v)
+}
+
+// CreateTeam creates a team.
+func (c *Client) CreateTeam(ctx context.Context, name string) (TeamView, error) {
+	var v TeamView
+	return v, c.do(ctx, http.MethodPost, "/api/teams", TeamRequest{Name: name}, &v)
+}
+
+// Invite makes an invite token.
+func (c *Client) Invite(ctx context.Context, team, email, expires string) (InviteResult, error) {
+	var v InviteResult
+	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/invites", TeamRequest{Email: email, Expires: expires}, &v)
+}
+
+// RemovalPreview lists the documents a removal reassigns.
+func (c *Client) RemovalPreview(ctx context.Context, team, email string) ([]Reassigned, error) {
+	var v []Reassigned
+	return v, c.do(ctx, http.MethodGet, teamPath(team)+"/removal?email="+url.QueryEscape(email), nil, &v)
+}
+
+// Remove removes a member.
+func (c *Client) Remove(ctx context.Context, team, email string) (TeamView, error) {
+	var v TeamView
+	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/remove", TeamRequest{Email: email}, &v)
+}
+
+// SetOwner adds or removes an owner.
+func (c *Client) SetOwner(ctx context.Context, team, email string, owner bool) (TeamView, error) {
+	var v TeamView
+	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/owners", TeamRequest{Email: email, Owner: &owner}, &v)
+}
+
+// AssignDomain appoints a domain owner.
+func (c *Client) AssignDomain(ctx context.Context, team, domain, email string) (TeamView, error) {
+	var v TeamView
+	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/domains", TeamRequest{Domain: domain, Email: email}, &v)
+}
+
+// Join redeems a token.
+func (c *Client) Join(ctx context.Context, token string) (JoinView, error) {
+	var v JoinView
+	return v, c.do(ctx, http.MethodPost, "/api/joins", TeamRequest{Token: token}, &v)
+}
+
+// Joins lists joins.
+func (c *Client) Joins(ctx context.Context) ([]JoinView, error) {
+	var v []JoinView
+	return v, c.do(ctx, http.MethodGet, "/api/joins", nil, &v)
+}

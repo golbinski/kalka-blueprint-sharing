@@ -1,0 +1,250 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/daemon"
+	"github.com/golbinski/kalka/internal/name"
+)
+
+const teamUsage = `usage:
+  %[1]s team create <name>
+  %[1]s team invite <email> [--expires 72h]
+  %[1]s team members | log | invites
+  %[1]s team remove <email> [--yes]
+  %[1]s team add-owner <email> | remove-owner <email>
+  %[1]s team assign-domain <domain> <email>
+  every subcommand takes --team <name> when you are in several teams, and --json
+`
+
+// cmdTeam implements `kalka team` (spec 12, 19).
+func cmdTeam(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("team", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	team := fs.String("team", "", "the team, by name or hash, when you are in several")
+	expires := fs.Duration("expires", 0, "how long an invite is valid (default 72h)")
+	yes := fs.Bool("yes", false, "remove without listing the documents first")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	bad := func() int { fmt.Fprintf(stderr, teamUsage, name.Binary); return exitUsage }
+	if len(pos) == 0 {
+		return bad()
+	}
+	need := map[string]int{"create": 2, "invite": 2, "members": 1, "log": 1, "invites": 1, "remove": 2, "add-owner": 2, "remove-owner": 2, "assign-domain": 3}
+	if n, ok := need[pos[0]]; !ok || len(pos) != n {
+		return bad()
+	}
+	if (pos[0] == "invite" || pos[0] == "remove" || pos[0] == "add-owner" || pos[0] == "remove-owner") && !bp.ValidEmail(pos[1]) {
+		fmt.Fprintf(stderr, "%q is not an email address\n", pos[1])
+		return exitUsage
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fail := func(err error) int { fmt.Fprintln(stderr, err); return exitProblems }
+
+	var v daemon.TeamView
+	switch pos[0] {
+	case "create":
+		if v, err = c.CreateTeam(ctx, pos[1]); err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			writeJSON(stdout, v)
+			return exitOK
+		}
+		fmt.Fprintf(stdout, "created team %s; you are its owner\nlog: %s\ninvite people with `%s team invite <email>`\n", v.Name, v.Log, name.Binary)
+		return exitOK
+	case "invite":
+		exp := ""
+		if *expires != 0 {
+			exp = expires.String()
+		}
+		r, err := c.Invite(ctx, *team, pos[1], exp)
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			writeJSON(stdout, r)
+			return exitOK
+		}
+		fmt.Fprintf(stderr, "invite for %s to %s, valid until %s. Send them this line through any channel; "+
+			"it works once, only for %[1]s, and only while your kalka is online:\n", r.Email, r.Name, r.Expires.Local().Format("Mon 2 Jan 15:04"))
+		fmt.Fprintln(stdout, r.Token)
+		fmt.Fprintf(stderr, "they run: %s join <token>\n", name.Binary)
+		return exitOK
+	case "remove":
+		docs, err := c.RemovalPreview(ctx, *team, pos[1])
+		if err != nil {
+			return fail(err)
+		}
+		if len(docs) > 0 && !*yes && !*asJSON {
+			fmt.Fprintf(stdout, "removing %s reassigns these published documents to you:\n", pos[1])
+			for _, d := range docs {
+				fmt.Fprintf(stdout, "  %s  (%s, released up to v%d)\n", d.Title, d.Path, d.After)
+			}
+			fmt.Fprintln(stdout, "run again with --yes to remove")
+			return exitOK
+		}
+		v, err = c.Remove(ctx, *team, pos[1])
+	case "add-owner":
+		v, err = c.SetOwner(ctx, *team, pos[1], true)
+	case "remove-owner":
+		v, err = c.SetOwner(ctx, *team, pos[1], false)
+	case "assign-domain":
+		if !bp.ValidEmail(pos[2]) {
+			fmt.Fprintf(stderr, "%q is not an email address\n", pos[2])
+			return exitUsage
+		}
+		v, err = c.AssignDomain(ctx, *team, pos[1], pos[2])
+	default:
+		v, err = c.Team(ctx, *team)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if *asJSON {
+		writeJSON(stdout, v)
+		return exitOK
+	}
+	switch pos[0] {
+	case "log":
+		printLog(stdout, v)
+	case "invites":
+		printInvites(stdout, v)
+	default:
+		printMembers(stdout, v)
+	}
+	return exitOK
+}
+
+func printMembers(w io.Writer, v daemon.TeamView) {
+	fmt.Fprintf(w, "team %s (%s), you are %s\n", v.Name, v.Team[:12], strings.Replace(v.Me, "none", "not a member", 1))
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "EMAIL\tROLE\tFINGERPRINT\tPIN")
+	for _, m := range v.Members {
+		role := "member"
+		if m.Owner {
+			role = "owner"
+		}
+		pin := map[string]string{"match": "matches", "none": "not pinned", "clash": "OTHER KEY PINNED: compare fingerprints"}[m.Pin]
+		if m.You {
+			pin = "you"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Email, role, m.Fingerprint, pin)
+	}
+	tw.Flush()
+	for _, d := range v.Domains {
+		fmt.Fprintf(w, "domain %s: %s (from version %d)\n", d.Domain, d.Owner, d.After+1)
+	}
+	if n := len(v.BadLines) + v.Rejected; n > 0 {
+		fmt.Fprintf(w, "%d log line(s) do not count: damaged or badly signed; see `%s team log`\n", n, name.Binary)
+	}
+}
+
+func printLog(w io.Writer, v daemon.TeamView) {
+	for _, h := range v.History {
+		mark := ""
+		if !h.Effective {
+			mark = "  [does not count: " + h.Reason + "]"
+		}
+		fmt.Fprintf(w, "%s  %s  %s %s%s\n", h.Hash, h.At, h.Signer, h.Text, mark)
+	}
+	for _, b := range v.BadLines {
+		fmt.Fprintf(w, "line %d: %s\n", b.Line, b.Err)
+	}
+}
+
+func printInvites(w io.Writer, v daemon.TeamView) {
+	if len(v.Invites) == 0 {
+		fmt.Fprintln(w, "no invites made on this installation")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "EMAIL\tSTATE\tEXPIRES")
+	for _, iv := range v.Invites {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", iv.Email, iv.State, iv.Expires.Local().Format("2006-01-02 15:04"))
+	}
+	tw.Flush()
+}
+
+// cmdJoin implements `kalka join <token>` (spec 19.7).
+func cmdJoin(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("join", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	wait := fs.Duration("wait", 20*time.Second, "how long to wait for the owner before leaving it to the daemon")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(pos) == 0 {
+		fmt.Fprintf(stderr, "usage: %s join <token> [--wait 20s] [--json]\n", name.Binary)
+		return exitUsage
+	}
+	c := client(stderr)
+	if c == nil {
+		return exitProblems
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *wait+10*time.Second)
+	defer cancel()
+	j, err := c.Join(ctx, strings.Join(pos, ""))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitProblems
+	}
+	if j.Warning != "" {
+		fmt.Fprintln(stderr, "warning:", j.Warning)
+	}
+	deadline := time.Now().Add(*wait)
+	for j.State == daemon.JoinPending && time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		js, err := c.Joins(ctx)
+		if err != nil {
+			break
+		}
+		for _, x := range js {
+			if x.ID == j.ID {
+				x.Warning = j.Warning
+				j = x
+			}
+		}
+	}
+	if *asJSON {
+		writeJSON(stdout, j)
+	}
+	switch j.State {
+	case daemon.JoinDone:
+		if !*asJSON {
+			fmt.Fprintf(stdout, "joined team %s; see `%s team members`\n", j.Name, name.Binary)
+		}
+		return exitOK
+	case daemon.JoinFailed:
+		if !*asJSON {
+			fmt.Fprintf(stderr, "joining %s failed: %s\n", j.Name, j.Detail)
+		}
+		return exitProblems
+	}
+	if !*asJSON {
+		msg := "the team owner was not reached yet"
+		if j.Detail != "" {
+			msg = j.Detail
+		}
+		fmt.Fprintf(stdout, "%s.\nkalka keeps trying in the background until %s; `%s team members` shows the team once you are in\n",
+			strings.TrimSuffix(msg, "."), j.Expires.Local().Format("Mon 2 Jan 15:04"), name.Binary)
+	}
+	return exitOK
+}

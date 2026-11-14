@@ -6,6 +6,7 @@ package syncproto
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,6 +95,28 @@ type Verify struct {
 	Type   string `json:"type"`
 	Status string `json:"status"`
 }
+
+// TeamLog carries team log operations, one canonical encoding each (spec
+// 9.5). In R6 it is sent only on a join, by the owner who redeemed the
+// invite (19.7 step 5); from R7 also in replication sessions.
+type TeamLog struct {
+	Type string            `json:"type"`
+	Team string            `json:"team"`
+	Ops  []json.RawMessage `json:"ops"`
+}
+
+// Join outcomes, as the owner's bye reason (spec 19.7 step 6).
+const (
+	ByeInviteUnknown = "invite-unknown"
+	ByeInviteUsed    = "invite-used"
+	ByeInviteExpired = "invite-expired"
+	ByeInviteProof   = "invite-proof"
+	ByeInviteTeam    = "invite-team"
+	ByeInviteEmail   = "invite-email"
+	ByeInviteNoOwner = "invite-not-owner"
+	ByeInviteKey     = "invite-key-clash"
+	ByeJoined        = "joined"
+)
 
 type keepalive struct {
 	Type string `json:"type"`

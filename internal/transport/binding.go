@@ -43,6 +43,16 @@ type Peer struct {
 	Caps []string
 	// ViaKey is set when the connection runs between key ids.
 	ViaKey bool
+	// Invite is the join proof the peer sent in hello, if any (spec 19.7).
+	Invite *InviteClaim
+}
+
+// InviteClaim is the optional invite field of hello: a joiner redeeming
+// an invite (spec 19.7 step 4). The owner checks it after auth.
+type InviteClaim struct {
+	ID    string `json:"id"`
+	Team  string `json:"team"`
+	Proof string `json:"proof"`
 }
 
 // Has reports whether the peer announced capability c.
@@ -61,6 +71,8 @@ type helloMsg struct {
 	// Caps lists capabilities (spec 9.5); older peers send none and
 	// ignore it.
 	Caps []string `json:"caps,omitempty"`
+	// Invite is sent only by a joiner (spec 19.7).
+	Invite *InviteClaim `json:"invite,omitempty"`
 }
 
 type authMsg struct {
@@ -86,13 +98,18 @@ func authMessage(own, peer [sha256.Size]byte, peerNonce []byte) []byte {
 // not cover the DTLS fingerprints this side actually sees, the peer id does
 // not belong to the claimed email, or verify refuses the key.
 func Handshake(c *Conn, self Identity, team string, verify Verifier) (Peer, error) {
+	return HandshakeInvite(c, self, team, verify, nil)
+}
+
+// HandshakeInvite is Handshake for a joiner: hello also carries inv.
+func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *InviteClaim) (Peer, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return Peer{}, err
 	}
 	pub := self.Key.Public().(ed25519.PublicKey)
 	if err := c.Send(helloMsg{Type: "hello", Proto: Proto, Email: self.Email,
-		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce), Caps: self.Caps}); err != nil {
+		PubKey: base64.StdEncoding.EncodeToString(pub), Nonce: base64.StdEncoding.EncodeToString(nonce), Caps: self.Caps, Invite: inv}); err != nil {
 		return Peer{}, err
 	}
 
@@ -153,7 +170,11 @@ func Handshake(c *Conn, self Identity, team string, verify Verifier) (Peer, erro
 			return Peer{}, err
 		}
 	}
-	return Peer{Email: h.Email, Key: peerKey, Caps: caps, ViaKey: viaKey}, nil
+	var claim *InviteClaim
+	if iv := h.Invite; iv != nil && len(iv.ID) <= 64 && len(iv.Team) <= 64 && len(iv.Proof) <= 128 {
+		claim = iv
+	}
+	return Peer{Email: h.Email, Key: peerKey, Caps: caps, ViaKey: viaKey, Invite: claim}, nil
 }
 
 func expect(c *Conn, typ string, v any) error {

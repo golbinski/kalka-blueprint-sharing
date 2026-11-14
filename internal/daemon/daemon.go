@@ -97,6 +97,7 @@ type Daemon struct {
 	Prompts *Hub
 	bus     *Bus
 	refs    *refCache
+	teams   *teams
 
 	token string
 
@@ -177,6 +178,7 @@ func New(opts Options) (*Daemon, error) {
 		keyID:  transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
 		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
 		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(), refs: newRefCache(opts.Plugins, now),
+		teams:     newTeams(opts.ConfigDir),
 		token:     token,
 		presence:  map[string]presence{},
 		addresses: map[string]bool{},
@@ -247,6 +249,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if !d.opts.legacy {
 		wg.Add(1)
 		go func() { defer wg.Done(); d.signalLoop(ctx, true) }()
+		wg.Add(1)
+		go func() { defer wg.Done(); d.joinLoop(ctx) }()
 	}
 	go func() { defer wg.Done(); d.probeLoop(ctx) }()
 	<-ctx.Done()
@@ -475,13 +479,22 @@ func (d *Daemon) confirm(s *syncproto.Session, peer transport.Peer) error {
 // serve handles an incoming connection.
 func (d *Daemon) serve(c *transport.Conn) {
 	defer c.Close()
-	peer, err := transport.Handshake(c, d.self, d.cfg.Team, d.Peers.Pin)
+	// Pinning waits until it is known whether this is a join: a joiner's
+	// key is vouched for by the invite, not pinned on first sight.
+	peer, err := transport.Handshake(c, d.self, d.cfg.Team, nil)
+	if err == nil && (peer.Invite == nil || d.opts.legacy) {
+		err = d.Peers.Pin(peer.Email, peer.Key)
+	}
 	if err != nil {
 		d.refuse(c, err)
 		d.logf("refused a connection: %v", err)
 		return
 	}
 	d.markPresence(peer.Email, transport.Online)
+	if peer.Invite != nil && !d.opts.legacy {
+		d.redeem(c, peer)
+		return
+	}
 	d.learn(peer)
 	s := d.session(c, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
 	if d.wrapStore != nil {

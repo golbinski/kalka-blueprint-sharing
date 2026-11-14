@@ -86,3 +86,32 @@ func TestPinning(t *testing.T) {
 		t.Fatalf("re-pin state %+v", e)
 	}
 }
+
+func TestPinVerified(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := OpenPeers(dir, nil)
+	a, _, _ := ed25519.GenerateKey(nil)
+	b, _, _ := ed25519.GenerateKey(nil)
+	if err := p.PinVerified("courier@parcels.example", a); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := p.Get("courier@parcels.example"); !e.Verified {
+		t.Fatal("not verified")
+	}
+	var clash *ErrPinClash
+	if err := p.PinVerified("courier@parcels.example", b); !errors.As(err, &clash) {
+		t.Fatalf("other key: %v", err)
+	}
+	if k, _ := p.Key("courier@parcels.example"); !k.Equal(a) {
+		t.Fatal("pin replaced")
+	}
+	// An unverified pin of the same key becomes verified.
+	_ = p.Pin("depot@parcels.example", b)
+	if err := p.PinVerified("depot@parcels.example", b); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := OpenPeers(dir, nil)
+	if e, _ := q.Get("depot@parcels.example"); !e.Verified {
+		t.Fatal("not saved")
+	}
+}

@@ -1371,3 +1371,82 @@ a.cv-card:focus-visible {
     outline: 3px solid var(--accent);
   }
 }
+
+/* Team view (spec 11.1) */
+.team-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px 16px;
+  margin: 16px 0;
+}
+.team-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.team-head h2 {
+  margin: 0;
+}
+.team-card h3 {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}
+.team-start {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.team-box {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.team-box h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.token-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  word-break: break-all;
+  resize: vertical;
+}
+.token-box {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.team-log {
+  padding-left: 20px;
+  margin: 0;
+}
+.team-log li {
+  margin: 3px 0;
+}
+.team-log li.void {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
+}
+.team-log li.void .cv-flag {
+  text-decoration: none;
+  display: inline-block;
+}
+ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0;
+}
+.table td.actions {
+  white-space: nowrap;
+}
