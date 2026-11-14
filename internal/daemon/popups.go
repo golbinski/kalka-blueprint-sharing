@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/core"
 	"time"
 
 	"github.com/golbinski/kalka/internal/syncproto"
@@ -36,8 +37,8 @@ func newPopups(d *Daemon) *popups {
 	return &popups{d: d, results: make(chan popupResult, 1), later: map[string]bool{}}
 }
 
-func (p *popups) opened(ctx context.Context, pr *Pending) {
-	if pr.Scope != "" || p.active != "" || p.d.bus.Clients() > 0 {
+func (p *popups) opened(ctx context.Context, pr *core.Pending) {
+	if pr.Scope != "" || p.active != "" || p.d.Bus().Clients() > 0 {
 		return
 	}
 	if p.d.opts.Popup == nil {
@@ -53,7 +54,7 @@ func (p *popups) opened(ctx context.Context, pr *Pending) {
 	}()
 }
 
-func (p *popups) closed(pr *Pending) {
+func (p *popups) closed(pr *core.Pending) {
 	delete(p.later, pr.ID)
 	if pr.ID == p.active {
 		p.cancel()
@@ -68,7 +69,7 @@ func (p *popups) finished(ctx context.Context, r popupResult) {
 		p.openUI()
 		return
 	case r.err != nil && ctx.Err() == nil && !errors.Is(r.err, context.Canceled):
-		fmt.Fprintf(p.d.log, "popup failed (%v); opening the browser\n", r.err)
+		p.d.Logf("popup failed (%v); opening the browser", r.err)
 		p.fallback()
 		return
 	}

@@ -1,4 +1,4 @@
-package main
+package cli
 
 // Network commands: the daemon itself, setup, and the commands that talk
 // to the running daemon through the local API (spec 12, 13).
@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"net"
 	"net/http"
@@ -246,7 +247,7 @@ func cmdOpen(args []string, stdout, stderr io.Writer) int {
 
 // terminalPrompts shows prompts for incoming syncs and reads y/n answers;
 // an answer applies to the oldest open prompt.
-func terminalPrompts(ctx context.Context, hub *daemon.Hub, stdin io.Reader, out io.Writer) {
+func terminalPrompts(ctx context.Context, hub *core.Hub, stdin io.Reader, out io.Writer) {
 	notices, cancel := hub.Subscribe("")
 	defer cancel()
 	lines := readLines(stdin)
@@ -368,9 +369,9 @@ func cmdSync(cmd string, args []string, stdin io.Reader, stdout, stderr io.Write
 	if abs, err := filepath.Abs(file); err == nil {
 		file = abs
 	}
-	intent := daemon.IntentSync
+	intent := core.IntentSync
 	if cmd == "handoff" {
-		intent = daemon.IntentHandoff
+		intent = core.IntentHandoff
 	}
 	c := client(stderr)
 	if c == nil {
@@ -381,7 +382,7 @@ func cmdSync(cmd string, args []string, stdin io.Reader, stdout, stderr io.Write
 	var mu sync.Mutex
 	closed := map[string]chan struct{}{}
 	code := exitProblems
-	err = c.Sync(ctx, daemon.SyncRequest{Path: file, To: to, Intent: intent}, func(ev daemon.Event) {
+	err = c.Sync(ctx, core.SyncRequest{Path: file, To: to, Intent: intent}, func(ev daemon.Event) {
 		if *asJSON {
 			writeJSON(stdout, ev)
 		}
@@ -416,7 +417,7 @@ func cmdSync(cmd string, args []string, stdin io.Reader, stdout, stderr io.Write
 			code = exitOK
 			if !*asJSON {
 				r := ev.Result
-				if intent == daemon.IntentHandoff {
+				if intent == core.IntentHandoff {
 					fmt.Fprintf(stdout, "handed off %q to %s: they are the owner now\n", r.Title, r.Peer)
 				} else {
 					fmt.Fprintf(stdout, "synced %q with %s: %s\n", r.Title, r.Peer, r.Status)

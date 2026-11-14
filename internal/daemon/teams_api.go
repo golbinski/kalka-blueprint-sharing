@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/golbinski/kalka/internal/core"
 	"net/http"
 	"net/url"
 	"time"
@@ -29,12 +30,12 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/teams", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Teams()) })
 	mux.HandleFunc("POST /api/teams", d.teamCall(func(_ *http.Request, q TeamRequest) (any, error) { return d.CreateTeam(q.Name) }))
 	mux.HandleFunc("GET /api/teams/{team}", func(w http.ResponseWriter, r *http.Request) {
-		t, err := d.findTeam(teamRef(r))
+		v, err := d.Team(teamRef(r))
 		if err != nil {
 			fail(w, http.StatusNotFound, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, d.teamView(t))
+		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("POST /api/teams/{team}/invites", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
 		var ttl time.Duration
@@ -118,12 +119,12 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, struct{}{})
 	})
 	mux.HandleFunc("POST /api/teams/{team}/replicate", func(w http.ResponseWriter, r *http.Request) {
-		t, err := d.findTeam(teamRef(r))
+		team, err := d.TeamHash(teamRef(r))
 		if err != nil {
 			fail(w, http.StatusNotFound, err)
 			return
 		}
-		st, err := d.ReplicateNow(r.Context(), t.Team)
+		st, err := d.ReplicateNow(r.Context(), team)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -158,80 +159,80 @@ func teamPath(team string) string {
 }
 
 // Teams lists the teams held.
-func (c *Client) Teams(ctx context.Context) ([]TeamView, error) {
-	var v []TeamView
+func (c *Client) Teams(ctx context.Context) ([]core.TeamView, error) {
+	var v []core.TeamView
 	return v, c.do(ctx, http.MethodGet, "/api/teams", nil, &v)
 }
 
 // Team shows one team; empty means the only one.
-func (c *Client) Team(ctx context.Context, team string) (TeamView, error) {
-	var v TeamView
+func (c *Client) Team(ctx context.Context, team string) (core.TeamView, error) {
+	var v core.TeamView
 	return v, c.do(ctx, http.MethodGet, teamPath(team), nil, &v)
 }
 
 // CreateTeam creates a team.
-func (c *Client) CreateTeam(ctx context.Context, name string) (TeamView, error) {
-	var v TeamView
+func (c *Client) CreateTeam(ctx context.Context, name string) (core.TeamView, error) {
+	var v core.TeamView
 	return v, c.do(ctx, http.MethodPost, "/api/teams", TeamRequest{Name: name}, &v)
 }
 
 // Invite makes an invite token.
-func (c *Client) Invite(ctx context.Context, team, email, expires string) (InviteResult, error) {
-	var v InviteResult
+func (c *Client) Invite(ctx context.Context, team, email, expires string) (core.InviteResult, error) {
+	var v core.InviteResult
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/invites", TeamRequest{Email: email, Expires: expires}, &v)
 }
 
 // RemovalPreview lists the documents a removal reassigns.
-func (c *Client) RemovalPreview(ctx context.Context, team, email string) ([]Reassigned, error) {
-	var v []Reassigned
+func (c *Client) RemovalPreview(ctx context.Context, team, email string) ([]core.Reassigned, error) {
+	var v []core.Reassigned
 	return v, c.do(ctx, http.MethodGet, teamPath(team)+"/removal?email="+url.QueryEscape(email), nil, &v)
 }
 
 // Remove removes a member.
-func (c *Client) Remove(ctx context.Context, team, email string) (TeamView, error) {
-	var v TeamView
+func (c *Client) Remove(ctx context.Context, team, email string) (core.TeamView, error) {
+	var v core.TeamView
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/remove", TeamRequest{Email: email}, &v)
 }
 
 // SetOwner adds or removes an owner.
-func (c *Client) SetOwner(ctx context.Context, team, email string, owner bool) (TeamView, error) {
-	var v TeamView
+func (c *Client) SetOwner(ctx context.Context, team, email string, owner bool) (core.TeamView, error) {
+	var v core.TeamView
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/owners", TeamRequest{Email: email, Owner: &owner}, &v)
 }
 
 // AssignDomain appoints a domain owner.
-func (c *Client) AssignDomain(ctx context.Context, team, domain, email string) (TeamView, error) {
-	var v TeamView
+func (c *Client) AssignDomain(ctx context.Context, team, domain, email string) (core.TeamView, error) {
+	var v core.TeamView
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/domains", TeamRequest{Domain: domain, Email: email}, &v)
 }
 
 // Join redeems a token.
-func (c *Client) Join(ctx context.Context, token string) (JoinView, error) {
-	var v JoinView
+func (c *Client) Join(ctx context.Context, token string) (core.JoinView, error) {
+	var v core.JoinView
 	return v, c.do(ctx, http.MethodPost, "/api/joins", TeamRequest{Token: token}, &v)
 }
 
 // Joins lists joins.
-func (c *Client) Joins(ctx context.Context) ([]JoinView, error) {
-	var v []JoinView
+func (c *Client) Joins(ctx context.Context) ([]core.JoinView, error) {
+	var v []core.JoinView
 	return v, c.do(ctx, http.MethodGet, "/api/joins", nil, &v)
 }
 
 // Publish publishes a document, or an update of it.
-func (c *Client) Publish(ctx context.Context, path, team, note string) (PublishResult, error) {
-	var v PublishResult
+func (c *Client) Publish(ctx context.Context, path, team, note string) (core.PublishResult, error) {
+	var v core.PublishResult
 	return v, c.do(ctx, http.MethodPost, "/api/publish", map[string]string{"path": path, "team": team, "note": note}, &v)
 }
 
 // Release releases the next version of a domain document.
-func (c *Client) Release(ctx context.Context, path, note string, incorporates []string) (PublishResult, error) {
-	var v PublishResult
+func (c *Client) Release(ctx context.Context, path, note string, incorporates []string) (core.PublishResult, error) {
+	var v core.PublishResult
 	return v, c.do(ctx, http.MethodPost, "/api/release", map[string]any{"path": path, "note": note, "incorporates": incorporates}, &v)
 }
 
 // Domains lists the domain documents held by the daemon.
-func (c *Client) Domains(ctx context.Context) ([]DomainRow, error) {
-	var v []DomainRow
+func (c *Client) Domains(ctx context.Context) ([]core.DomainRow, error) {
+	var v []core.DomainRow
 	return v, c.do(ctx, http.MethodGet, "/api/domains", nil, &v)
 }
 
@@ -241,7 +242,7 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 }
 
 // Replicate runs a replication round now.
-func (c *Client) Replicate(ctx context.Context, team string) (TeamStatus, error) {
-	var v TeamStatus
+func (c *Client) Replicate(ctx context.Context, team string) (core.TeamStatus, error) {
+	var v core.TeamStatus
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/replicate", struct{}{}, &v)
 }

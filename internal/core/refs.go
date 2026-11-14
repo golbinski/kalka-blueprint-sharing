@@ -1,4 +1,4 @@
-package daemon
+package core
 
 import (
 	"context"
@@ -166,7 +166,7 @@ type TraceView struct {
 
 // refViews resolves the blueprint's references and builds the trace views.
 // done runs when background resolution has more to show.
-func (d *Daemon) refViews(doc *bp.Document, done func()) ([]TraceView, map[string]RefView) {
+func (d *Node) refViews(doc *bp.Document, done func()) ([]TraceView, map[string]RefView) {
 	refs := d.refs.lookup(doc, doc.References(), done)
 	traces := doc.Traces()
 	out := make([]TraceView, 0, len(traces))

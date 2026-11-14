@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Team replication scenarios (spec 20, R7 acceptance criteria), with three
 // or four daemons over the in-process rendezvous and real WebRTC.

@@ -1,4 +1,4 @@
-package daemon
+package core
 
 import (
 	"context"
@@ -108,7 +108,7 @@ type EntryView struct {
 
 // resolve turns a path from the UI (relative to the folder, or absolute)
 // into a file inside the folder.
-func (d *Daemon) resolve(p string) string {
+func (d *Node) resolve(p string) string {
 	if p == "" || filepath.IsAbs(p) {
 		return p
 	}
@@ -116,7 +116,7 @@ func (d *Daemon) resolve(p string) string {
 }
 
 // Document builds the view of one blueprint.
-func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
+func (d *Node) Document(ctx context.Context, path string) (*DocView, error) {
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (d *Daemon) Document(ctx context.Context, path string) (*DocView, error) {
 
 // docView builds the view of doc, held at path; snapshot is the version
 // shown when doc is a kept domain version, 0 for the live file.
-func (d *Daemon) docView(_ context.Context, path string, doc *bp.Document, snapshot int64) (*DocView, error) {
+func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapshot int64) (*DocView, error) {
 	v := &DocView{
 		Path: path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
 		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: doc.Problems(),
@@ -234,7 +234,7 @@ func (d *Daemon) docView(_ context.Context, path string, doc *bp.Document, snaps
 
 // sigState checks an entry's signature against the key held for its
 // author. Team keys (spec 20.4) take over once the team log is held (R7).
-func (d *Daemon) sigState(kalkaID string, e *bp.Entry) string {
+func (d *Node) sigState(kalkaID string, e *bp.Entry) string {
 	if e.Sig == "" {
 		return "unsigned"
 	}
@@ -260,7 +260,7 @@ func displayBody(e *bp.Entry) string {
 // ownership chain or not (spec 7.2). The first handoff's author is taken as
 // the original owner; each later link must be signed by the owner the
 // chain has reached.
-func (d *Daemon) handoffStates(kalkaID string, doc *bp.Document, views []EntryView) {
+func (d *Node) handoffStates(kalkaID string, doc *bp.Document, views []EntryView) {
 	var hs []*bp.Entry
 	for _, it := range doc.Items() {
 		if it.Entry != nil && it.Entry.Kind == bp.KindHandoff {
@@ -314,7 +314,7 @@ type EntryRequest struct {
 
 // AddEntry appends an entry by the local user, merging again if the file
 // changes while it is written (spec 14).
-func (d *Daemon) AddEntry(req EntryRequest) (*bp.Entry, error) {
+func (d *Node) AddEntry(req EntryRequest) (*bp.Entry, error) {
 	if strings.TrimSpace(req.Body) == "" {
 		return nil, errors.New("the entry is empty")
 	}
@@ -358,7 +358,7 @@ func (d *Daemon) AddEntry(req EntryRequest) (*bp.Entry, error) {
 }
 
 // mustLive is the live file at path, or doc when it cannot be read.
-func mustLive(d *Daemon, path string, doc *bp.Document) *bp.Document {
+func mustLive(d *Node, path string, doc *bp.Document) *bp.Document {
 	if f, err := d.Store.Load(path); err == nil {
 		return f.Doc
 	}

@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // The join handshake of spec 19.7, both sides. The joiner dials the
 // inviting owner's key id with an invite proof in hello; the owner checks
@@ -47,7 +47,7 @@ func joinView(r joinRecord) JoinView {
 }
 
 // Joins lists the joins recorded in joins.yaml, newest first.
-func (d *Daemon) Joins() []JoinView {
+func (d *Node) Joins() []JoinView {
 	out := []JoinView{}
 	l := d.teams.joins.list()
 	for i := len(l) - 1; i >= 0; i-- {
@@ -59,7 +59,7 @@ func (d *Daemon) Joins() []JoinView {
 // Join redeems an invite token (spec 19.7 step 2): it stores the pending
 // join and dials the owner now and then once a minute until the invite
 // expires.
-func (d *Daemon) Join(ctx context.Context, token string) (JoinView, error) {
+func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
 	iv, err := teamlog.ParseToken(token)
 	if err != nil {
 		return JoinView{}, fmt.Errorf("%w: copy the whole line the team owner sent", err)
@@ -110,7 +110,7 @@ func (d *Daemon) Join(ctx context.Context, token string) (JoinView, error) {
 
 // joinLoop retries pending joins until they finish or expire; it runs for
 // the daemon's life, so joins survive restarts.
-func (d *Daemon) joinLoop(ctx context.Context) {
+func (d *Node) joinLoop(ctx context.Context) {
 	t := time.NewTicker(min(5*time.Second, JoinEvery))
 	defer t.Stop()
 	for {
@@ -134,7 +134,7 @@ func (d *Daemon) joinLoop(ctx context.Context) {
 }
 
 // setJoin edits one join record.
-func (d *Daemon) setJoin(id string, f func(*joinRecord)) {
+func (d *Node) setJoin(id string, f func(*joinRecord)) {
 	_ = d.teams.joins.update(func(l []joinRecord) ([]joinRecord, bool) {
 		for i := range l {
 			if l[i].ID == id {
@@ -153,7 +153,7 @@ type joinFailure struct{ msg string }
 func (e *joinFailure) Error() string { return e.msg }
 
 // tryJoin makes one attempt at a pending join.
-func (d *Daemon) tryJoin(ctx context.Context, id string) {
+func (d *Node) tryJoin(ctx context.Context, id string) {
 	d.teams.mu.Lock()
 	if d.teams.trying[id] {
 		d.teams.mu.Unlock()
@@ -228,7 +228,7 @@ var byeText = map[string]string{
 // attemptJoin dials the owner and runs the joiner's side. A *joinFailure
 // ends the join; other errors are retried. It returns the owner's email
 // once the handshake succeeded.
-func (d *Daemon) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, error) {
+func (d *Node) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, error) {
 	ownerKey, _ := teamlog.DecodeKey(iv.Owner)
 	d.mu.Lock()
 	ep := d.kep
@@ -309,7 +309,7 @@ func (d *Daemon) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, er
 // acceptJoinLog checks the log the owner sent (spec 19.7 step 5): it starts
 // at the team in the token and makes this key a member through this
 // invite. Then it is written to the team's folder.
-func (d *Daemon) acceptJoinLog(iv teamlog.Invite, m syncproto.TeamLog) error {
+func (d *Node) acceptJoinLog(iv teamlog.Invite, m syncproto.TeamLog) error {
 	if m.Team != iv.Team {
 		return errors.New("the owner sent the log of another team")
 	}
@@ -372,7 +372,7 @@ func opByHash(ops []teamlog.Op, h string) *teamlog.Op {
 
 // pinFromTeam pins a key an invite or team log vouches for. A different
 // pinned key is left alone and only logged: the views show the clash.
-func (d *Daemon) pinFromTeam(email string, key ed25519.PublicKey) {
+func (d *Node) pinFromTeam(email string, key ed25519.PublicKey) {
 	var clash *identity.ErrPinClash
 	if err := d.Peers.PinVerified(email, key); errors.As(err, &clash) {
 		d.logf("%v", err)
@@ -384,7 +384,7 @@ func (d *Daemon) pinFromTeam(email string, key ed25519.PublicKey) {
 
 // redeem is the owner's side, for an incoming connection whose hello
 // carried an invite (spec 19.7 steps 4-6).
-func (d *Daemon) redeem(c *transport.Conn, peer transport.Peer) {
+func (d *Node) redeem(c *transport.Conn, peer transport.Peer) {
 	ops, reason, detail := d.admit(peer)
 	if reason != "" {
 		_ = c.Send(syncproto.Bye{Type: "bye", Reason: reason, Detail: detail})
@@ -421,7 +421,7 @@ func (d *Daemon) redeem(c *transport.Conn, peer transport.Peer) {
 
 // admit checks an invite claim and, if it holds, adds the member. It
 // returns the log to send, or the bye reason and detail.
-func (d *Daemon) admit(peer transport.Peer) ([]teamlog.Op, string, string) {
+func (d *Node) admit(peer transport.Peer) ([]teamlog.Op, string, string) {
 	claim := peer.Invite
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()

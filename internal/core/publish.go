@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Publishing, releasing and deleting team documents (spec 20.1, 20.4,
 // 20.6), and what the daemon does when a team log changes (19.5).
@@ -50,18 +50,18 @@ type PublishResult struct {
 
 // Publish publishes a document to a team, or releases the next version of
 // one already published (spec 20.1): `team:` and a release, by the owner.
-func (d *Daemon) Publish(path, teamName, note string) (PublishResult, error) {
+func (d *Node) Publish(path, teamName, note string) (PublishResult, error) {
 	return d.release(path, teamName, note, nil)
 }
 
 // Release releases the next version of a domain document (spec 6.12): the
 // assigned domain owner raises `version:` and lists the comments the
 // version incorporates. It is Publish for any other published document.
-func (d *Daemon) Release(path, note string, incorporates []string) (PublishResult, error) {
+func (d *Node) Release(path, note string, incorporates []string) (PublishResult, error) {
 	return d.release(path, "", note, incorporates)
 }
 
-func (d *Daemon) release(path, teamName, note string, incorporates []string) (PublishResult, error) {
+func (d *Node) release(path, teamName, note string, incorporates []string) (PublishResult, error) {
 	var res PublishResult
 	for attempt := 0; ; attempt++ {
 		f, err := d.Store.Load(d.resolve(path))
@@ -175,7 +175,7 @@ func (d *Daemon) release(path, teamName, note string, incorporates []string) (Pu
 // Delete deletes a published document for the team (spec 20.6): a final
 // release whose plan is a stub, kept in the team's tombstones; the last
 // full copy goes to the team's trash.
-func (d *Daemon) Delete(path string) error {
+func (d *Node) Delete(path string) error {
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return err
@@ -246,7 +246,7 @@ func stubOf(doc *bp.Document) (*bp.Document, error) {
 // releaseOwn makes a release after one of kalka's own changes to a
 // published document (spec 20.4: promotion, reassignment), when the local
 // user may release it. It does nothing for unpublished documents.
-func (d *Daemon) releaseOwn(path, note string) {
+func (d *Node) releaseOwn(path, note string) {
 	f, err := d.Store.Load(path)
 	if err != nil || f.Doc.Team() == "" {
 		return
@@ -258,7 +258,7 @@ func (d *Daemon) releaseOwn(path, note string) {
 
 // afterLogChange reacts to new operations in a team log (spec 19.5): a
 // document reassigned to the local user gets its owner line and a release.
-func (d *Daemon) afterLogChange(h *held) {
+func (d *Node) afterLogChange(h *held) {
 	for dom, a := range h.st.Domains {
 		if !bp.SameEmail(a.Owner, d.self.Email) {
 			continue
@@ -302,7 +302,7 @@ func (d *Daemon) afterLogChange(h *held) {
 
 // memberOnline starts a round with each team the peer belongs to (spec
 // 20.3: when a member comes online).
-func (d *Daemon) memberOnline(email string) {
+func (d *Node) memberOnline(email string) {
 	for _, t := range d.teamDirs() {
 		if st, _, _, _, err := d.load(t); err == nil {
 			if _, ok := memberOf(st, email); ok {
@@ -331,7 +331,7 @@ type TeamDocState struct {
 	Domain string `json:"domain,omitempty"`
 }
 
-func (d *Daemon) teamDocState(doc *bp.Document) *TeamDocState {
+func (d *Node) teamDocState(doc *bp.Document) *TeamDocState {
 	name := doc.Team()
 	if name == "" {
 		return nil
@@ -374,7 +374,7 @@ func (d *Daemon) teamDocState(doc *bp.Document) *TeamDocState {
 
 // entryTeamState marks an entry of a published document: signed by a
 // current member, by a removed member, or local only (spec 11.1).
-func (d *Daemon) entryTeamState(h *held, id string, e *bp.Entry) string {
+func (d *Node) entryTeamState(h *held, id string, e *bp.Entry) string {
 	if !merge.VerifiedBy(h.teamFor(), id, e) {
 		return "local-only"
 	}

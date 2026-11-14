@@ -1,9 +1,10 @@
-package main
+package cli
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
-	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
 )
 
@@ -57,7 +57,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	fail := func(err error) int { fmt.Fprintln(stderr, err); return exitProblems }
 
-	var v daemon.TeamView
+	var v core.TeamView
 	switch pos[0] {
 	case "create":
 		if v, err = c.CreateTeam(ctx, pos[1]); err != nil {
@@ -132,7 +132,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func printMembers(w io.Writer, v daemon.TeamView) {
+func printMembers(w io.Writer, v core.TeamView) {
 	fmt.Fprintf(w, "team %s (%s), you are %s\n", v.Name, v.Team[:12], strings.Replace(v.Me, "none", "not a member", 1))
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "EMAIL\tROLE\tFINGERPRINT\tPIN")
@@ -156,7 +156,7 @@ func printMembers(w io.Writer, v daemon.TeamView) {
 	}
 }
 
-func printLog(w io.Writer, v daemon.TeamView) {
+func printLog(w io.Writer, v core.TeamView) {
 	for _, h := range v.History {
 		mark := ""
 		if !h.Effective {
@@ -169,7 +169,7 @@ func printLog(w io.Writer, v daemon.TeamView) {
 	}
 }
 
-func printInvites(w io.Writer, v daemon.TeamView) {
+func printInvites(w io.Writer, v core.TeamView) {
 	if len(v.Invites) == 0 {
 		fmt.Fprintln(w, "no invites made on this installation")
 		return
@@ -211,7 +211,7 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "warning:", j.Warning)
 	}
 	deadline := time.Now().Add(*wait)
-	for j.State == daemon.JoinPending && time.Now().Before(deadline) {
+	for j.State == core.JoinPending && time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)
 		js, err := c.Joins(ctx)
 		if err != nil {
@@ -228,12 +228,12 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 		writeJSON(stdout, j)
 	}
 	switch j.State {
-	case daemon.JoinDone:
+	case core.JoinDone:
 		if !*asJSON {
 			fmt.Fprintf(stdout, "joined team %s; see `%s team members`\n", j.Name, name.Binary)
 		}
 		return exitOK
-	case daemon.JoinFailed:
+	case core.JoinFailed:
 		if !*asJSON {
 			fmt.Fprintf(stderr, "joining %s failed: %s\n", j.Name, j.Detail)
 		}

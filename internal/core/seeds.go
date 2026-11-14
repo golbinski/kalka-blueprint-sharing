@@ -1,4 +1,4 @@
-package daemon
+package core
 
 import (
 	"errors"
@@ -36,7 +36,7 @@ var ErrBacklink = errors.New("the seed was created, but the backlink could not b
 
 // Bud writes a seed beside its parent and appends the signed budded
 // entry to the parent. A parent without a kalka_id gets one first.
-func (d *Daemon) Bud(req BudRequest) (BudResult, error) {
+func (d *Node) Bud(req BudRequest) (BudResult, error) {
 	var res BudResult
 	path := d.resolve(req.Path)
 	f, err := d.Store.Load(path)
@@ -98,7 +98,7 @@ func (d *Daemon) Bud(req BudRequest) (BudResult, error) {
 
 // Backlink adds the budded entry for a seed whose parent missed it. It
 // does nothing if the parent already has one.
-func (d *Daemon) Backlink(seedPath string) (*bp.Entry, error) {
+func (d *Node) Backlink(seedPath string) (*bp.Entry, error) {
 	sf, err := d.Store.Load(d.resolve(seedPath))
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (d *Daemon) Backlink(seedPath string) (*bp.Entry, error) {
 	return d.backlink(pf.Path, sf.Doc)
 }
 
-func (d *Daemon) backlink(parentPath string, seed *bp.Document) (*bp.Entry, error) {
+func (d *Node) backlink(parentPath string, seed *bp.Document) (*bp.Entry, error) {
 	for attempt := 0; ; attempt++ {
 		f, err := d.Store.Load(parentPath)
 		if err != nil {
@@ -147,7 +147,7 @@ func (d *Daemon) backlink(parentPath string, seed *bp.Document) (*bp.Entry, erro
 }
 
 // Promote changes a seed's status; only its owner may (spec 6.11).
-func (d *Daemon) Promote(path, status string) error {
+func (d *Node) Promote(path, status string) error {
 	if status == "" {
 		status = "draft"
 	}
@@ -195,7 +195,7 @@ type SeedView struct {
 }
 
 // Seeds lists every seed in the folder, most recently active first.
-func (d *Daemon) Seeds() []SeedView {
+func (d *Node) Seeds() []SeedView {
 	out := []SeedView{}
 	for _, info := range d.Store.List() {
 		f, err := d.Store.Load(info.Path)
@@ -231,7 +231,7 @@ func (d *Daemon) Seeds() []SeedView {
 	return out
 }
 
-func (d *Daemon) rel(p string) string {
+func (d *Node) rel(p string) string {
 	r, err := filepath.Rel(d.Store.Dir(), p)
 	if err != nil {
 		return p

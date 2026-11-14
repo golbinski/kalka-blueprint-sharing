@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"net/http"
 	"net/url"
@@ -84,20 +85,20 @@ type RemoteError struct{ APIError }
 func (e *RemoteError) Error() string { return e.APIError.Error }
 
 // Status fetches /api/status.
-func (c *Client) Status(ctx context.Context) (Status, error) {
-	var s Status
+func (c *Client) Status(ctx context.Context) (core.Status, error) {
+	var s core.Status
 	return s, c.do(ctx, http.MethodGet, "/api/status", nil, &s)
 }
 
 // Peers lists peers.
-func (c *Client) Peers(ctx context.Context) ([]PeerView, error) {
-	var p []PeerView
+func (c *Client) Peers(ctx context.Context) ([]core.PeerView, error) {
+	var p []core.PeerView
 	return p, c.do(ctx, http.MethodGet, "/api/peers", nil, &p)
 }
 
 // AddPeer adds an address for this session and probes it.
-func (c *Client) AddPeer(ctx context.Context, email string) (PeerView, error) {
-	var p PeerView
+func (c *Client) AddPeer(ctx context.Context, email string) (core.PeerView, error) {
+	var p core.PeerView
 	return p, c.do(ctx, http.MethodPost, "/api/peers", map[string]string{"email": email}, &p)
 }
 
@@ -124,7 +125,7 @@ func (c *Client) Answer(ctx context.Context, id string, accept bool) error {
 }
 
 // Sync starts a sync and calls on for each event until the stream ends.
-func (c *Client) Sync(ctx context.Context, req SyncRequest, on func(Event)) error {
+func (c *Client) Sync(ctx context.Context, req core.SyncRequest, on func(Event)) error {
 	b, _ := json.Marshal(req)
 	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/sync", bytes.NewReader(b))
 	if err != nil {

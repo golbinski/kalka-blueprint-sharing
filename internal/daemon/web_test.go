@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"github.com/golbinski/kalka/internal/core"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -104,20 +105,20 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
 	review(t, alice, bob)
 	bob.comment("plan.md", "plan", "first")
-	bob.mustSync("plan.md", alice, IntentSync)
-	alice.mustSync("plan.md", bob, IntentHandoff)
+	bob.mustSync("plan.md", alice, core.IntentSync)
+	alice.mustSync("plan.md", bob, core.IntentHandoff)
 
 	v, err := bob.d.Document(context.Background(), "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.Role != RoleOwner || v.Rel != "plan.md" || v.Title != "Import pipeline refactor" || len(v.Sections) != 4 {
+	if v.Role != core.RoleOwner || v.Rel != "plan.md" || v.Title != "Import pipeline refactor" || len(v.Sections) != 4 {
 		t.Fatalf("view %+v", v)
 	}
 	if v.Sections[2].Heading.Slug != "plan" || !strings.HasPrefix(v.Sections[2].Markdown, "## Plan") {
 		t.Fatalf("sections %+v", v.Sections)
 	}
-	var handoff *EntryView
+	var handoff *core.EntryView
 	for i := range v.Entries {
 		if v.Entries[i].Kind == bp.KindHandoff {
 			handoff = &v.Entries[i]
@@ -126,7 +127,7 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	if handoff == nil || handoff.Handoff != "verified" || handoff.HandoffTarget != bob.email {
 		t.Fatalf("handoff %+v", handoff)
 	}
-	if v2, _ := alice.d.Document(context.Background(), "plan.md"); v2.Role != RoleReviewer {
+	if v2, _ := alice.d.Document(context.Background(), "plan.md"); v2.Role != core.RoleReviewer {
 		t.Fatalf("alice role %s", v2.Role)
 	}
 
@@ -135,15 +136,15 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	ctx := context.Background()
 	first := v.Entries[0]
 	var out map[string]string
-	err = c.do(ctx, http.MethodPost, "/api/entries", EntryRequest{Path: "plan.md", Kind: "deviation", Anchor: "plan", Re: first.ID, Quote: "Stream rows.", Body: "# Heading\nWe batch instead."}, &out)
+	err = c.do(ctx, http.MethodPost, "/api/entries", core.EntryRequest{Path: "plan.md", Kind: "deviation", Anchor: "plan", Re: first.ID, Quote: "Stream rows.", Body: "# Heading\nWe batch instead."}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc DocView
+	var doc core.DocView
 	if err := c.do(ctx, http.MethodGet, "/api/doc?path="+url.QueryEscape("plan.md"), nil, &doc); err != nil {
 		t.Fatal(err)
 	}
-	var reply *EntryView
+	var reply *core.EntryView
 	for i := range doc.Entries {
 		if doc.Entries[i].ID == out["id"] {
 			reply = &doc.Entries[i]
@@ -153,12 +154,12 @@ func TestDocumentModelAndEntries(t *testing.T) {
 		t.Fatalf("reply %+v", reply)
 	}
 	// The UI names files relative to the folder, for syncs too.
-	if _, err := alice.d.Sync(ctx, SyncRequest{Path: "plan.md", To: bob.email}, "", nil); err != nil {
+	if _, err := alice.d.Sync(ctx, core.SyncRequest{Path: "plan.md", To: bob.email}, "", nil); err != nil {
 		t.Fatalf("sync by relative path: %v", err)
 	}
 	equalFiles(t, "plan.md", alice, bob)
 	// Errors are reported, not written.
-	if err := c.do(ctx, http.MethodPost, "/api/entries", EntryRequest{Path: "plan.md", Anchor: "nope", Body: "x"}, nil); err == nil {
+	if err := c.do(ctx, http.MethodPost, "/api/entries", core.EntryRequest{Path: "plan.md", Anchor: "nope", Body: "x"}, nil); err == nil {
 		t.Fatal("unknown anchor accepted")
 	}
 	if err := c.do(ctx, http.MethodGet, "/api/doc?path="+url.QueryEscape("../../etc/passwd"), nil, &doc); err == nil {
@@ -183,7 +184,7 @@ func TestEventStream(t *testing.T) {
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Scan() // hello
-	for i := 0; i < 50 && a.d.bus.Clients() == 0; i++ {
+	for i := 0; i < 50 && a.d.Bus().Clients() == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
 	a.write("new.md", plan)

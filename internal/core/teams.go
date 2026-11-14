@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Teams (spec 19): the team logs held in the folder, the open invites this
 // installation issued (invites.yaml) and the joins it is waiting on
@@ -147,7 +147,7 @@ type teamDir struct {
 
 // teamDirs finds the team logs in the folder's direct subfolders (spec
 // 19.1), sorted by name.
-func (d *Daemon) teamDirs() []teamDir {
+func (d *Node) teamDirs() []teamDir {
 	root := d.Store.Dir()
 	ents, _ := os.ReadDir(root)
 	var out []teamDir
@@ -180,7 +180,7 @@ func (d *Daemon) teamDirs() []teamDir {
 }
 
 // teamByHash returns the folder holding team, if any.
-func (d *Daemon) teamByHash(team string) (teamDir, bool) {
+func (d *Node) teamByHash(team string) (teamDir, bool) {
 	for _, t := range d.teamDirs() {
 		if t.Team == team {
 			return t, true
@@ -191,7 +191,7 @@ func (d *Daemon) teamByHash(team string) (teamDir, bool) {
 
 // findTeam resolves a team given by name or hash; an empty ref is the only
 // team held.
-func (d *Daemon) findTeam(ref string) (teamDir, error) {
+func (d *Node) findTeam(ref string) (teamDir, error) {
 	ts := d.teamDirs()
 	if ref == "" {
 		switch len(ts) {
@@ -219,7 +219,7 @@ func (d *Daemon) findTeam(ref string) (teamDir, error) {
 
 // newTeamDir picks the folder for a team (spec 19.2): <folder>/<name>, or
 // with a suffix when that folder holds another team's log.
-func (d *Daemon) newTeamDir(teamName, team string) teamDir {
+func (d *Node) newTeamDir(teamName, team string) teamDir {
 	root := d.Store.Dir()
 	for i := 1; ; i++ {
 		dirName := teamName
@@ -243,7 +243,7 @@ func (d *Daemon) newTeamDir(teamName, team string) teamDir {
 }
 
 // load reads and replays a team's log.
-func (d *Daemon) load(t teamDir) (*teamlog.State, []teamlog.Op, []teamlog.BadLine, []teamlog.Rejected, error) {
+func (d *Node) load(t teamDir) (*teamlog.State, []teamlog.Op, []teamlog.BadLine, []teamlog.Rejected, error) {
 	ops, bad, err := teamlog.ReadFile(t.Log)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -263,7 +263,7 @@ func memberOf(st *teamlog.State, email string) (teamlog.Member, bool) {
 
 // ownerOf loads a team and checks that the local user is one of its owners
 // under the local key, which every roster change needs (spec 19.3).
-func (d *Daemon) ownerOf(t teamDir) (*teamlog.State, error) {
+func (d *Node) ownerOf(t teamDir) (*teamlog.State, error) {
 	st, _, _, _, err := d.load(t)
 	if err != nil {
 		return nil, err
@@ -278,13 +278,13 @@ func (d *Daemon) ownerOf(t teamDir) (*teamlog.State, error) {
 	return st, nil
 }
 
-func (d *Daemon) teamSigner(t teamDir) teamlog.Signer {
+func (d *Node) teamSigner(t teamDir) teamlog.Signer {
 	return teamlog.Signer{Key: d.self.Key, Team: t.Team}
 }
 
 // commit appends ops to the team's log and checks that the first of them
 // counts after replay.
-func (d *Daemon) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
+func (d *Node) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
 	all, err := teamlog.AppendFile(t.Log, ops)
 	if err != nil {
 		return nil, err
@@ -307,7 +307,7 @@ func (d *Daemon) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
 }
 
 // CreateTeam starts a team with the local user as its first owner.
-func (d *Daemon) CreateTeam(teamName string) (TeamView, error) {
+func (d *Node) CreateTeam(teamName string) (TeamView, error) {
 	teamName = strings.TrimSpace(teamName)
 	if !teamlog.ValidTeamName(teamName) {
 		return TeamView{}, fmt.Errorf("%q cannot name a team: use lower-case letters, digits and dashes, starting with a letter or digit", teamName)
@@ -339,7 +339,7 @@ type InviteResult struct {
 }
 
 // Invite makes a one-time invite for email. kalka does not send it.
-func (d *Daemon) Invite(ref, email string, ttl time.Duration) (InviteResult, error) {
+func (d *Node) Invite(ref, email string, ttl time.Duration) (InviteResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !bp.ValidEmail(email) {
 		return InviteResult{}, fmt.Errorf("%q is not an email address", email)
@@ -378,7 +378,7 @@ func (d *Daemon) Invite(ref, email string, ttl time.Duration) (InviteResult, err
 }
 
 // CancelInvite withdraws an open invite this installation issued.
-func (d *Daemon) CancelInvite(id string) error {
+func (d *Node) CancelInvite(id string) error {
 	found := false
 	err := d.teams.invites.update(func(l []inviteRecord) ([]inviteRecord, bool) {
 		for i := range l {
@@ -405,7 +405,7 @@ type Reassigned struct {
 
 // RemovalPreview lists the published documents of the team, held here,
 // whose owner is email: removing email reassigns them to the local user.
-func (d *Daemon) RemovalPreview(ref, email string) ([]Reassigned, error) {
+func (d *Node) RemovalPreview(ref, email string) ([]Reassigned, error) {
 	t, err := d.findTeam(ref)
 	if err != nil {
 		return nil, err
@@ -413,7 +413,7 @@ func (d *Daemon) RemovalPreview(ref, email string) ([]Reassigned, error) {
 	return d.ownedBy(t, email), nil
 }
 
-func (d *Daemon) ownedBy(t teamDir, email string) []Reassigned {
+func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 	out := []Reassigned{}
 	for _, in := range d.Store.List() {
 		if in.KalkaID == "" || !bp.SameEmail(in.Owner, email) {
@@ -444,7 +444,7 @@ func lastRelease(doc *bp.Document) int64 {
 
 // Remove removes a member; their published documents held here go to the
 // local user (spec 19.5).
-func (d *Daemon) Remove(ref, email string) (TeamView, error) {
+func (d *Node) Remove(ref, email string) (TeamView, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
@@ -482,7 +482,7 @@ func (d *Daemon) Remove(ref, email string) (TeamView, error) {
 }
 
 // SetOwner adds or removes a team owner.
-func (d *Daemon) SetOwner(ref, email string, owner bool) (TeamView, error) {
+func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
@@ -521,7 +521,7 @@ func (d *Daemon) SetOwner(ref, email string, owner bool) (TeamView, error) {
 
 // AssignDomain appoints a domain owner (spec 19.6). The cut-off is the
 // last release of that domain's document held here.
-func (d *Daemon) AssignDomain(ref, domain, email string) (TeamView, error) {
+func (d *Node) AssignDomain(ref, domain, email string) (TeamView, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !teamlog.ValidDomainName(domain) {
 		return TeamView{}, fmt.Errorf("%q cannot name a domain: use lower-case letters, digits and dashes", domain)
@@ -621,7 +621,7 @@ type HistoryLine struct {
 }
 
 // Teams lists the teams held in the folder.
-func (d *Daemon) Teams() []TeamView {
+func (d *Node) Teams() []TeamView {
 	out := []TeamView{}
 	for _, t := range d.teamDirs() {
 		out = append(out, d.teamView(t))
@@ -629,7 +629,7 @@ func (d *Daemon) Teams() []TeamView {
 	return out
 }
 
-func (d *Daemon) teamView(t teamDir) TeamView {
+func (d *Node) teamView(t teamDir) TeamView {
 	v := TeamView{Team: t.Team, Name: t.Name, Dir: t.Dir, Log: t.Log, Me: "none",
 		Members: []MemberView{}, Owners: []string{}, Domains: []DomainView{}, Invites: []InviteView{}, History: []HistoryLine{}}
 	st, ops, bad, rej, err := d.load(t)
@@ -822,7 +822,7 @@ func fingerprintOf(key string) string {
 // teamKeyFor reports whether a team the local user belongs to binds key
 // to email as a current member: such a key counts as verified for that
 // team's traffic (spec 8.2, 20.2).
-func (d *Daemon) teamKeyFor(team, email string, key []byte) bool {
+func (d *Node) teamKeyFor(team, email string, key []byte) bool {
 	t, ok := d.teamByHash(team)
 	if !ok {
 		return false
@@ -841,7 +841,7 @@ func (d *Daemon) teamKeyFor(team, email string, key []byte) bool {
 
 // domainAfter is the cut-off of a new domain assignment: the highest
 // release of the domain's documents held here.
-func (d *Daemon) domainAfter(t teamDir, domain string) int64 {
+func (d *Node) domainAfter(t teamDir, domain string) int64 {
 	var after int64
 	for _, in := range d.Store.FindDomain(t.Name, domain) {
 		if f, err := d.Store.Load(in.Path); err == nil {
@@ -849,4 +849,19 @@ func (d *Daemon) domainAfter(t teamDir, domain string) int64 {
 		}
 	}
 	return after
+}
+
+// Team is the view of one team, by name or hash.
+func (d *Node) Team(ref string) (TeamView, error) {
+	t, err := d.findTeam(ref)
+	if err != nil {
+		return TeamView{}, err
+	}
+	return d.teamView(t), nil
+}
+
+// TeamHash resolves a team's name or hash to its hash.
+func (d *Node) TeamHash(ref string) (string, error) {
+	t, err := d.findTeam(ref)
+	return t.Team, err
 }

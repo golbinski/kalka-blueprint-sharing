@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // End-to-end scenarios of spec 16.1: several daemons in one process, each
 // with its own config directory and folder, over the in-process PeerJS
@@ -51,13 +51,13 @@ func (w *world) now() time.Time {
 }
 
 type node struct {
-	w       *world
-	email   string
-	cfgDir  string
-	folder  string
-	d       *Daemon
-	stop    func()
-	noKeyID bool // do not register the key id (keyid_test.go)
+	w        *world
+	email    string
+	cfgDir   string
+	folder   string
+	d        *Node
+	stop     func()
+	noKeyID  bool // do not register the key id (keyid_test.go)
 	autoRepl bool // run the replication loop (otherwise rounds run only when a test asks)
 
 	mu      sync.Mutex
@@ -79,7 +79,7 @@ func (n *node) start() {
 	t.Helper()
 	d, err := New(Options{
 		Config:    &config.Config{Email: n.email, Rendezvous: n.w.url, Folder: n.folder, UIPort: 1},
-		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true, APIAddr: "127.0.0.1:0",
+		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true,
 		Prompter: n.prompt, noKeyID: n.noKeyID, manualReplication: !n.autoRepl, Log: testLog(n.email),
 	})
 	if err != nil {

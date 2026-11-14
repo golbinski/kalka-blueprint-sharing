@@ -24,7 +24,10 @@ These fill in what the spec leaves to the implementer. Each one can be overturne
 ## 2. Repository layout
 
 ```
-cmd/kalka/                 main: daemon, CLI subcommands, rendezvous mode
+cmd/kalka/                 thin main around internal/cli
+internal/cli/              CLI subcommands, daemon start, rendezvous mode (§12)
+internal/core/             the node: sync, prompts, teams, replication, event bus; no HTTP (§4)
+internal/daemon/           the process around the core: local API, web UI, popups (§13)
 cmd/kalka-plugin-gh/       reference plugin (§10.4)
 internal/name/             the one "kalka" constant set (binary, prefixes, protocol strings)
 internal/blueprint/        normalize, spans, frontmatter, slugs, entries, ids, revs, limits
@@ -38,8 +41,6 @@ internal/transport/        pion WebRTC, framing, chunking, channel binding (§8.
 internal/syncproto/        initiator/responder state machines over a Conn interface
 internal/store/            folder index, watcher, atomic write, own-write suppression (§14)
 internal/plugins/          discovery, process runner, batching, cache (§10.2–10.3)
-internal/daemon/           wiring, per-blueprint locks, presence prober, prompts
-internal/httpapi/          localhost API, token, Host/Origin checks, SSE (§13)
 internal/rendezvous/       PeerJS-compatible server, pion/turn, /kalka/ice (§9.6)
 web/                       frontend source; build output embedded via embed.FS
 testdata/golden/           golden blueprints and expected outputs
@@ -500,6 +501,17 @@ Done (spec 6.12, 19.6):
 - Tests: `TestDomainReleases` (merge), `TestDomainReleaseByNonAssignedOwner` (the required scenario: no peer applies it and each says why), `TestDomainRelayAndReassignment`, `TestDomainIncorporatedAndReferences`. Checked by hand with two daemons: assign, CLI release, reader comment, release from the dialog, the indicator and a kept version.
 
 Not done: the removal preview does not list the domains that move with a member.
+
+## 6t. D-series status: background desktop app
+
+Plan: `docs/plan-desktop-app.md`; spec v0.5 (§4, §12, §13, §22, §23).
+
+D1 done (core, daemon and CLI split):
+
+- `internal/core` (was `internal/daemon`): `core.Node` holds all sync, prompts, teams, replication and the event bus (`bus.go`). It serves no HTTP; `Run` runs the node only. `Bus()`, `ConfigDir()`, `Logf()`, `Team()` and `TeamHash()` are what front ends use.
+- `internal/daemon`: `Daemon{*core.Node}` adds the local API listener, `daemon.json`, the web UI and popups (`present` subscribes to prompts). API, client and popup tests moved with it on their own harness (`harness_test.go`).
+- `internal/cli`: the whole CLI, `cli.Run(args, stdin, stdout, stderr)`. `cmd/kalka` is a thin main, so the desktop shell can link the same CLI. Release builds set `internal/cli.version`.
+- `TestCoreImports`: the core imports no `net/http` itself, and nothing it reaches in this module imports the UI, popups, daemon, CLI, desktop shell, autostart or Wails.
 
 ## 7. Sequencing and rough size
 

@@ -96,7 +96,7 @@ func run(version, out string, targets []string) error {
 		for _, b := range builds {
 			dst := filepath.Join(tmp, base, b.bin)
 			cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false",
-				"-ldflags", "-s -w -buildid= -X main.version="+version+b.ldflags, "-o", dst, b.pkg)
+				"-ldflags", "-s -w -buildid= -X github.com/golbinski/kalka/internal/cli.version="+version+b.ldflags, "-o", dst, b.pkg)
 			cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0", "GOFLAGS=")
 			cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 			fmt.Fprintf(os.Stderr, "build %s/%s %s\n", goos, goarch, b.bin)

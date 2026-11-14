@@ -133,7 +133,7 @@ func TestPopups(t *testing.T) {
 	_ = d.Prompts.Answer(c, false)
 
 	// No popup while a UI page is connected.
-	_, unsub := d.bus.Subscribe()
+	_, unsub := d.Bus().Subscribe()
 	e := ask(syncproto.PromptNew, "Z")
 	none(popped)
 	_ = d.Prompts.Answer(e, false)

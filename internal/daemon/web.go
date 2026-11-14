@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"github.com/golbinski/kalka/internal/core"
 	"io/fs"
 	"net"
 	"net/http"
@@ -11,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/golbinski/kalka/internal/config"
@@ -151,53 +152,8 @@ func staticHandler() http.Handler {
 	})
 }
 
-// Bus fans daemon events out to the UI's event streams.
-type Bus struct {
-	mu   sync.Mutex
-	subs map[chan BusEvent]struct{}
-	n    atomic.Int32
-}
-
-// BusEvent is one server-sent event.
-type BusEvent struct {
-	Type string `json:"type"` // folder | prompt | prompt-closed | sync | status | peers
-	Data any    `json:"data,omitempty"`
-}
-
-func newBus() *Bus { return &Bus{subs: map[chan BusEvent]struct{}{}} }
-
-// Publish delivers e to every subscriber that keeps up.
-func (b *Bus) Publish(e BusEvent) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for ch := range b.subs {
-		select {
-		case ch <- e:
-		default:
-		}
-	}
-}
-
-// Subscribe adds a stream.
-func (b *Bus) Subscribe() (<-chan BusEvent, func()) {
-	ch := make(chan BusEvent, 64)
-	b.mu.Lock()
-	b.subs[ch] = struct{}{}
-	b.mu.Unlock()
-	b.n.Add(1)
-	return ch, func() {
-		b.mu.Lock()
-		delete(b.subs, ch)
-		b.mu.Unlock()
-		b.n.Add(-1)
-	}
-}
-
-// Clients is the number of connected UI streams.
-func (b *Bus) Clients() int { return int(b.n.Load()) }
-
 // serveEvents streams bus events as server-sent events.
-func serveEvents(b *Bus, w http.ResponseWriter, r *http.Request) {
+func serveEvents(b *core.Bus, w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -217,7 +173,7 @@ func serveEvents(b *Bus, w http.ResponseWriter, r *http.Request) {
 		case <-t.C:
 			_, _ = w.Write([]byte(": ping\n\n"))
 		case e := <-ch:
-			data, err := jsonMarshal(e.Data)
+			data, err := json.Marshal(e.Data)
 			if err != nil {
 				continue
 			}
@@ -273,7 +229,7 @@ func SaveSetup(cfg *config.Config) error {
 	if cfg.Folder != "" && !filepath.IsAbs(cfg.Folder) {
 		return errors.New("folder must be an absolute path")
 	}
-	if err := Validate(cfg); err != nil {
+	if err := core.Validate(cfg); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(cfg.Folder, 0o755); err != nil {

@@ -1,4 +1,4 @@
-package main
+package cli
 
 // `kalka rendezvous`: the server mode for corporate hosting (spec 9.6).
 

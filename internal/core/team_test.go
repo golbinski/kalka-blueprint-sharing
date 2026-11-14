@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // The invite flow of spec 19.7 end to end, over the in-process rendezvous
 // and real WebRTC on loopback (R6 acceptance criterion).

@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Team domain documents (spec 6.12, R8 acceptance criteria), with three
 // daemons over the in-process rendezvous.

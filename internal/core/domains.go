@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Team domain documents (spec 6.12): their list, the version a blueprint
 // references, comments a release incorporated, and local snapshots.
@@ -56,7 +56,7 @@ type DomainRow struct {
 }
 
 // Domains lists the domain documents held here.
-func (d *Daemon) Domains() []DomainRow {
+func (d *Node) Domains() []DomainRow {
 	out := []DomainRow{}
 	for _, in := range d.Store.List() {
 		if in.Domain == "" || in.Duplicate {
@@ -114,7 +114,7 @@ func incorporated(ch merge.ReleaseChain) map[string]int64 {
 
 // domainInfo describes a domain document for the view; viewing is the
 // snapshot shown, 0 for the live file.
-func (d *Daemon) domainInfo(live string, doc *bp.Document, viewing int64) (*DomainInfo, map[string]int64) {
+func (d *Node) domainInfo(live string, doc *bp.Document, viewing int64) (*DomainInfo, map[string]int64) {
 	if !doc.IsDomain() {
 		return nil, nil
 	}
@@ -139,7 +139,7 @@ func (d *Daemon) domainInfo(live string, doc *bp.Document, viewing int64) (*Doma
 
 // domainRef resolves a blueprint's `domain:` reference against the domain
 // documents held here.
-func (d *Daemon) domainRef(doc *bp.Document) *DomainRefView {
+func (d *Node) domainRef(doc *bp.Document) *DomainRefView {
 	ref, ok := doc.DomainRef()
 	if !ok {
 		return nil
@@ -179,7 +179,7 @@ func (d *Daemon) domainRef(doc *bp.Document) *DomainRefView {
 }
 
 // DocumentAt is Document for a kept version of a domain document.
-func (d *Daemon) DocumentAt(ctx context.Context, path string, version int64) (*DocView, error) {
+func (d *Node) DocumentAt(ctx context.Context, path string, version int64) (*DocView, error) {
 	if version <= 0 {
 		return d.Document(ctx, path)
 	}

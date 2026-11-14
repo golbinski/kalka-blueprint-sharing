@@ -1,4 +1,4 @@
-package daemon
+package core
 
 // Team replication (spec 20): every member keeps a replica of the team's
 // published documents. Sessions run between members over key ids, with no
@@ -122,7 +122,7 @@ func (h *held) isMember(email string, key ed25519.PublicKey) bool {
 	return ok && k.Equal(key)
 }
 
-func (d *Daemon) heldTeam(team string) (*held, error) {
+func (d *Node) heldTeam(team string) (*held, error) {
 	t, ok := d.teamByHash(team)
 	if !ok {
 		return nil, fmt.Errorf("team %s is not held here", short(team))
@@ -136,7 +136,7 @@ func (d *Daemon) heldTeam(team string) (*held, error) {
 
 // heldByName finds a team the local user belongs to by the name a
 // document's `team:` key carries.
-func (d *Daemon) heldByName(name string) (*held, error) {
+func (d *Node) heldByName(name string) (*held, error) {
 	var found []*held
 	for _, t := range d.teamDirs() {
 		if t.Name != name {
@@ -210,7 +210,7 @@ func trashDir(h *held) string { return filepath.Join(h.dir.Dir, ".kalka", "trash
 // replicaSet lists the team's published documents held here: files with
 // `team: <name>` and a valid release, and the tombstones (spec 20.1, 20.6).
 // Nothing else ever enters an inventory.
-func (d *Daemon) replicaSet(h *held) map[string]teamDoc {
+func (d *Node) replicaSet(h *held) map[string]teamDoc {
 	set := map[string]teamDoc{}
 	for _, in := range d.Store.List() {
 		if in.KalkaID == "" || in.Duplicate {
@@ -313,7 +313,7 @@ func missingOps(h *held, theirHeads []string) []json.RawMessage {
 
 // mergeOps adds the valid operations of one team from a peer to its log,
 // and returns how many were new. Badly signed operations are not written.
-func (d *Daemon) mergeOps(h *held, raws []json.RawMessage) (int, error) {
+func (d *Node) mergeOps(h *held, raws []json.RawMessage) (int, error) {
 	var ops []teamlog.Op
 	for _, r := range raws {
 		o, err := teamlog.Decode(r)
@@ -366,7 +366,7 @@ type SessionResult struct {
 
 // exchange runs a session for one team on an authenticated channel.
 // first is the peer's team_sync when this side responds.
-func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string, first *transport.Envelope) (SessionResult, error) {
+func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, first *transport.Envelope) (SessionResult, error) {
 	res := SessionResult{Peer: peer.Email, Received: []string{}, Sent: []string{}}
 	if d.wrapChan != nil {
 		ch = d.wrapChan(ch)
@@ -595,7 +595,7 @@ func (d *Daemon) exchange(ch syncproto.Channel, peer transport.Peer, team string
 // the entries are taken but the incoming plan is not, because its release
 // does not count, it writes and also reports why (spec 20.4: each peer
 // says why it did not apply a release).
-func (d *Daemon) applyReplica(h *held, from string, off syncproto.Offer) (bool, *Refusal) {
+func (d *Node) applyReplica(h *held, from string, off syncproto.Offer) (bool, *Refusal) {
 	refuse := func(title, reason string) (bool, *Refusal) {
 		return false, &Refusal{KalkaID: off.KalkaID, Title: title, From: from, Reason: reason, At: d.now().UTC()}
 	}
@@ -698,7 +698,7 @@ func voidPlan(local, in, merged *bp.Document, team merge.Team) string {
 
 // snapshotHead keeps the released version of a domain document beside it
 // (spec 6.12) when the file holds the head's plan.
-func (d *Daemon) snapshotHead(h *held, path string, doc *bp.Document) {
+func (d *Node) snapshotHead(h *held, path string, doc *bp.Document) {
 	if !doc.IsDomain() {
 		return
 	}
@@ -712,7 +712,7 @@ func (d *Daemon) snapshotHead(h *held, path string, doc *bp.Document) {
 
 // writeTombstone stores a deletion stub and moves the last full copy to
 // the team's trash (spec 20.6).
-func (d *Daemon) writeTombstone(h *held, stub *bp.Document, live *store.File) error {
+func (d *Node) writeTombstone(h *held, stub *bp.Document, live *store.File) error {
 	if err := os.MkdirAll(tombDir(h), 0o755); err != nil {
 		return err
 	}
@@ -764,14 +764,14 @@ func newReplication() *replication {
 		kick: make(chan string, 64), pushed: map[string]time.Time{}, running: map[string]bool{}}
 }
 
-func (d *Daemon) notePushed(id string) {
+func (d *Node) notePushed(id string) {
 	d.repl.mu.Lock()
 	d.repl.pushed[id] = time.Now()
 	d.repl.mu.Unlock()
 }
 
 // kickTeam asks for a round of team (or "" for all), soon.
-func (d *Daemon) kickTeam(team string) {
+func (d *Node) kickTeam(team string) {
 	select {
 	case d.repl.kick <- team:
 	default:
@@ -779,7 +779,7 @@ func (d *Daemon) kickTeam(team string) {
 }
 
 // pushTeam asks for a push of a local change.
-func (d *Daemon) pushTeam(team string) {
+func (d *Node) pushTeam(team string) {
 	d.repl.mu.Lock()
 	d.repl.push[team] = true
 	d.repl.mu.Unlock()
@@ -788,7 +788,7 @@ func (d *Daemon) pushTeam(team string) {
 
 // replicateLoop runs rounds at start, on kicks, and every ReplicateEvery
 // with jitter.
-func (d *Daemon) replicateLoop(ctx context.Context) {
+func (d *Node) replicateLoop(ctx context.Context) {
 	folder, stop := d.Store.Subscribe()
 	defer stop()
 	next := func() <-chan time.Time {
@@ -820,7 +820,7 @@ func (d *Daemon) replicateLoop(ctx context.Context) {
 
 // localChange pushes a change to a published document, unless replication
 // itself just wrote it.
-func (d *Daemon) localChange(path string) {
+func (d *Node) localChange(path string) {
 	f, err := d.Store.Load(path)
 	if err != nil || f.Doc.Team() == "" {
 		return
@@ -836,7 +836,7 @@ func (d *Daemon) localChange(path string) {
 	}
 }
 
-func (d *Daemon) replicateAll(ctx context.Context, force bool) {
+func (d *Node) replicateAll(ctx context.Context, force bool) {
 	for _, t := range d.teamDirs() {
 		d.round(ctx, t.Team, force)
 	}
@@ -844,7 +844,7 @@ func (d *Daemon) replicateAll(ctx context.Context, force bool) {
 
 // ReplicateNow runs one round of team now, for tests and the UI's
 // "Replicate now".
-func (d *Daemon) ReplicateNow(ctx context.Context, team string) (TeamStatus, error) {
+func (d *Node) ReplicateNow(ctx context.Context, team string) (TeamStatus, error) {
 	if team == "" {
 		return TeamStatus{}, errors.New("no team given")
 	}
@@ -859,7 +859,7 @@ func (d *Daemon) ReplicateNow(ctx context.Context, team string) (TeamStatus, err
 }
 
 // round reaches up to RoundPeers online members (PushPeers for a push).
-func (d *Daemon) round(ctx context.Context, team string, force bool) {
+func (d *Node) round(ctx context.Context, team string, force bool) {
 	r := d.repl
 	r.mu.Lock()
 	push := r.push[team]
@@ -932,7 +932,7 @@ func (d *Daemon) round(ctx context.Context, team string, force bool) {
 
 // replicateWith runs one session with a member, dialing the key the log
 // binds to them (spec 8.2: the log's key, not the pin, for team traffic).
-func (d *Daemon) replicateWith(ctx context.Context, h *held, email string, key ed25519.PublicKey) (SessionResult, error) {
+func (d *Node) replicateWith(ctx context.Context, h *held, email string, key ed25519.PublicKey) (SessionResult, error) {
 	ep, err := d.endpoint()
 	if err != nil {
 		return SessionResult{}, err
@@ -977,7 +977,7 @@ func (d *Daemon) replicateWith(ctx context.Context, h *held, email string, key e
 }
 
 // replicaRespond answers an incoming team_sync.
-func (d *Daemon) replicaRespond(c *transport.Conn, peer transport.Peer, first transport.Envelope) {
+func (d *Node) replicaRespond(c *transport.Conn, peer transport.Peer, first transport.Envelope) {
 	var ts syncproto.TeamSync
 	_ = first.Decode(&ts)
 	res, err := d.exchange(c, peer, ts.Team, &first)
@@ -1001,7 +1001,7 @@ func (d *Daemon) replicaRespond(c *transport.Conn, peer transport.Peer, first tr
 }
 
 // replStatus returns the status line of team.
-func (d *Daemon) replStatus(team string) *TeamStatus {
+func (d *Node) replStatus(team string) *TeamStatus {
 	d.repl.mu.Lock()
 	defer d.repl.mu.Unlock()
 	if st := d.repl.status[team]; st != nil {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/core"
 	"net"
 	"net/http"
 	"os"
@@ -67,7 +68,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
 	d.mountTeams(mux)
-	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.bus, w, r) })
+	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.Bus(), w, r) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
@@ -100,7 +101,7 @@ func fail(w http.ResponseWriter, code int, err error) {
 // errKind classifies an error for agents.
 func errKind(err error) string {
 	var (
-		off *ErrOffline
+		off *core.ErrOffline
 		kc  *identity.KeyChangedError
 		rej *syncproto.Rejected
 		dv  *syncproto.Diverged
@@ -176,7 +177,7 @@ func (d *Daemon) apiForget(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, fmt.Errorf("no key is pinned for %s", email))
 		return
 	}
-	d.logf("removed the pinned key for %s", email)
+	d.Logf("removed the pinned key for %s", email)
 	writeJSON(w, http.StatusOK, map[string]bool{"forgotten": true})
 }
 
@@ -193,7 +194,7 @@ func (d *Daemon) codeView(email string) (CodeView, error) {
 	if !ok || p.Key() == nil {
 		return CodeView{}, fmt.Errorf("no key is pinned for %s yet: it is pinned on first contact, so sync with them first", email)
 	}
-	return CodeView{Email: p.Email, Code: identity.Code(d.pub, p.Key()), Verified: p.Verified, KeyChanged: p.KeyChanged != nil}, nil
+	return CodeView{Email: p.Email, Code: identity.Code(d.PublicKey(), p.Key()), Verified: p.Verified, KeyChanged: p.KeyChanged != nil}, nil
 }
 
 func (d *Daemon) apiCode(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +226,7 @@ func (d *Daemon) apiConfirm(w http.ResponseWriter, r *http.Request) {
 type Event struct {
 	Type    string            `json:"type"` // progress | prompt | prompt-closed | result | error
 	Message string            `json:"message,omitempty"`
-	Prompt  *Pending          `json:"prompt,omitempty"`
+	Prompt  *core.Pending     `json:"prompt,omitempty"`
 	Result  *syncproto.Result `json:"result,omitempty"`
 	Error   string            `json:"error,omitempty"`
 	Kind    string            `json:"kind,omitempty"`
@@ -234,7 +235,7 @@ type Event struct {
 // apiSync runs a sync and streams its progress and prompts as NDJSON; the
 // client answers prompts with POST /api/prompts/{id}.
 func (d *Daemon) apiSync(w http.ResponseWriter, r *http.Request) {
-	var req SyncRequest
+	var req core.SyncRequest
 	if err := readBody(r, &req); err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
@@ -326,7 +327,7 @@ func (d *Daemon) apiDoc(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) apiEntry(w http.ResponseWriter, r *http.Request) {
-	var req EntryRequest
+	var req core.EntryRequest
 	if err := readBody(r, &req); err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
@@ -340,7 +341,7 @@ func (d *Daemon) apiEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) apiBud(w http.ResponseWriter, r *http.Request) {
-	var req BudRequest
+	var req core.BudRequest
 	if err := readBody(r, &req); err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return

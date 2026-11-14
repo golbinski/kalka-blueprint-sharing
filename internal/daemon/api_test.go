@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/golbinski/kalka/internal/core"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,8 +92,8 @@ func TestAPIGuards(t *testing.T) {
 // own front end through /api/prompts.
 func TestCLISyncThroughAPI(t *testing.T) {
 	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
-	alice.d.opts.Prompter, bob.d.opts.Prompter = nil, nil
+	hub := func(o *Options) { o.Prompter = nil } // prompts go to the hub and the API
+	alice, bob := w.node("alice@corp.com", hub), w.node("bob@corp.com", hub)
 	alice.write("plan.md", plan)
 	ca, err := Connect(alice.cfgDir)
 	if err != nil {
@@ -106,7 +107,7 @@ func TestCLISyncThroughAPI(t *testing.T) {
 	bobCode := make(chan string, 1)
 	go func() {
 		for ctx.Err() == nil {
-			var ps []*Pending
+			var ps []*core.Pending
 			_ = cb.do(ctx, http.MethodGet, "/api/prompts", nil, &ps)
 			for _, p := range ps {
 				if p.Kind == syncproto.PromptVerify {
@@ -124,7 +125,7 @@ func TestCLISyncThroughAPI(t *testing.T) {
 	var kinds []string
 	var result *syncproto.Result
 	var aliceCode string
-	err = ca.Sync(ctx, SyncRequest{Path: alice.path("plan.md"), To: bob.email}, func(ev Event) {
+	err = ca.Sync(ctx, core.SyncRequest{Path: alice.path("plan.md"), To: bob.email}, func(ev Event) {
 		kinds = append(kinds, ev.Type)
 		switch ev.Type {
 		case "prompt":
@@ -156,7 +157,7 @@ func TestCLISyncThroughAPI(t *testing.T) {
 	}
 	// An error reaches the stream with its kind.
 	var kind string
-	_ = ca.Sync(ctx, SyncRequest{Path: alice.path("plan.md"), To: "dave@corp.com"}, func(ev Event) {
+	_ = ca.Sync(ctx, core.SyncRequest{Path: alice.path("plan.md"), To: "dave@corp.com"}, func(ev Event) {
 		if ev.Type == "error" {
 			kind = ev.Kind
 		}
