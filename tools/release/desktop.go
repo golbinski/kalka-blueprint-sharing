@@ -12,6 +12,7 @@ import (
 
 	"github.com/golbinski/kalka/internal/desktop"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/urlscheme"
 )
 
 // installer builds the per-user Windows installer (spec 23.1) from the
@@ -191,7 +192,7 @@ func infoPlist(version, icon string) []byte {
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-</dict>
+` + urlscheme.PlistURLTypes + `</dict>
 </plist>
 `)
 }
@@ -233,16 +234,9 @@ func (r *release) linuxDesktop(stage, goarch string) error {
 	return r.archive(base+".tar.gz", files)
 }
 
-const desktopEntry = `[Desktop Entry]
-Type=Application
-Name=kalka
-Comment=Peer-to-peer blueprint review
-Exec=kalka-desktop
-Icon=kalka
-Terminal=false
-Categories=Development;Office;
-StartupWMClass=kalka
-`
+// desktopEntry is the archive's kalka.desktop. The shell writes its own,
+// with its full path, at start (spec 23.1a).
+var desktopEntry = urlscheme.DesktopEntry("kalka-desktop")
 
 const linuxPackages = `kalka-desktop needs GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04, Debian 13,
 Fedora 39 or newer). The tray uses StatusNotifierItem: stock GNOME shows
@@ -350,7 +344,9 @@ Install
   2. Copy kalka.desktop to ~/.local/share/applications and kalka.png to
      ~/.local/share/icons/hicolor/256x256/apps.
   3. Start "kalka" from the applications menu (or kalka-desktop). The
-     window shows the setup form; kalka then starts at each login.
+     window shows the setup form; kalka then starts at each login. At
+     each start kalka-desktop rewrites kalka.desktop with its own path
+     and makes it the handler of kalka:// join links (xdg-mime).
 
 Uninstall: Quit kalka from its tray menu, kalka autostart off, then delete
 the files above and ~/.config/kalka.

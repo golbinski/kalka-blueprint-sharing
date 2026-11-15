@@ -72,14 +72,23 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
 	mux.HandleFunc("POST /api/ui/show", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
-			Path string `json:"path"`
+			Path  string `json:"path"`
+			Route string `json:"route"`
 		}
 		_ = readBody(r, &q)
+		if q.Route != "" && !ValidRoute(q.Route) {
+			fail(w, http.StatusBadRequest, errors.New("a route is #/ and a path of the page"))
+			return
+		}
 		if d.Bus().Shells() == 0 {
 			writeJSON(w, http.StatusConflict, APIError{Error: "no desktop window is attached", Kind: "no-shell"})
 			return
 		}
-		d.Bus().Publish(core.BusEvent{Type: "ui-show", Data: map[string]string{"path": q.Path}})
+		ev := map[string]string{"path": q.Path}
+		if q.Route != "" {
+			ev = map[string]string{"route": q.Route}
+		}
+		d.Bus().Publish(core.BusEvent{Type: "ui-show", Data: ev})
 		writeJSON(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 	mux.HandleFunc("GET /api/summary", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Summary()) })

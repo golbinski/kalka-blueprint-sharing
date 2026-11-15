@@ -16,6 +16,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/syncproto"
 	"github.com/golbinski/kalka/internal/teamlog"
 	"github.com/golbinski/kalka/internal/transport"
@@ -36,12 +37,15 @@ type JoinView struct {
 	Detail  string    `json:"detail,omitempty"`
 	Tries   int       `json:"tries"`
 	LastTry time.Time `json:"last_try,omitzero"`
-	// Warning is set when the token names another rendezvous server.
-	Warning string `json:"warning,omitempty"`
+	Inviter string    `json:"inviter,omitempty"`
 }
 
 func joinView(r joinRecord) JoinView {
-	return JoinView{ID: r.ID, Team: r.Team, Name: r.Name, Owner: r.Owner, Created: r.Created, Expires: r.Expires,
+	inviter := ""
+	if iv, err := teamlog.ParseToken(r.Token); err == nil {
+		inviter = iv.Inviter
+	}
+	return JoinView{Inviter: inviter, ID: r.ID, Team: r.Team, Name: r.Name, Owner: r.Owner, Created: r.Created, Expires: r.Expires,
 		State: r.State, Detail: r.Detail, Tries: r.Tries, LastTry: r.LastTry}
 }
 
@@ -55,34 +59,107 @@ func (d *Node) Joins() []JoinView {
 	return out
 }
 
-// Join redeems an invite token (spec 19.7 step 2): it stores the pending
-// join and dials the owner now and then once a minute until the invite
-// expires.
-func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
-	if d.Paused() {
-		return JoinView{}, ErrPaused
-	}
-	iv, err := teamlog.ParseToken(token)
+// JoinPreview is what the join screen shows (spec 11.1, 19.7): the
+// invite's claims, and in place of the Join button the reason it cannot
+// be used here. It never joins.
+type JoinPreview struct {
+	Token      string    `json:"token"` // normalized
+	Team       string    `json:"team"`
+	Name       string    `json:"name"`
+	Inviter    string    `json:"inviter"`
+	Email      string    `json:"email"`
+	Expires    time.Time `json:"expires"`
+	Rendezvous string    `json:"rendezvous"`
+	// Problem is the kind of what stops the join: invite-email,
+	// invite-expired, already-member, own-invite or rendezvous-mismatch;
+	// "" when Join can go ahead. Message says it in words.
+	Problem string `json:"problem,omitempty"`
+	Message string `json:"message,omitempty"`
+	// Joining is set when this invite is already being redeemed here.
+	Joining *JoinView `json:"joining,omitempty"`
+}
+
+// Preview problems that are not error kinds: nothing went wrong.
+const (
+	ProblemMember    = "already-member"
+	ProblemOwnInvite = "own-invite"
+)
+
+// PreviewInvite is the part of the preview that needs no daemon: the
+// parse, as the setup form uses it to fill in the email and rendezvous.
+func PreviewInvite(s string) (JoinPreview, error) {
+	tok, err := teamlog.NormalizeJoin(s)
 	if err != nil {
-		return JoinView{}, fmt.Errorf("%w: copy the whole line the team owner sent", err)
+		return JoinPreview{}, &Error{Kind: KindInviteToken, Msg: "this is not a valid invite link or token: copy the whole line the team owner sent"}
+	}
+	iv, err := teamlog.ParseToken(tok)
+	if err != nil {
+		return JoinPreview{}, &Error{Kind: KindInviteToken, Msg: "this is not a valid invite link or token: copy the whole line the team owner sent"}
+	}
+	return JoinPreview{Token: tok, Team: iv.Team, Name: iv.TeamName, Inviter: iv.Inviter, Email: iv.Email,
+		Expires: iv.Expires, Rendezvous: iv.Rendezvous}, nil
+}
+
+// JoinPreview parses a link or token and says whether it can be used here.
+func (d *Node) JoinPreview(s string) (JoinPreview, error) {
+	p, err := PreviewInvite(s)
+	if err != nil {
+		return p, err
+	}
+	iv, _ := teamlog.ParseToken(p.Token)
+	if e := d.joinProblem(iv); e != nil {
+		p.Problem, p.Message = e.Kind, e.Msg
+	}
+	for _, r := range d.teams.joins.list() {
+		if r.ID == iv.ID() {
+			v := joinView(r)
+			p.Joining = &v
+		}
+	}
+	return p, nil
+}
+
+// joinProblem is what stops iv from being redeemed here, or nil. The
+// preview shows it; Join refuses with it.
+func (d *Node) joinProblem(iv teamlog.Invite) *Error {
+	if iv.Owner == teamlog.EncodeKey(d.pub) {
+		return &Error{Kind: ProblemOwnInvite, Msg: "this is an invite you made: pass it on to the person it is for"}
 	}
 	if !bp.SameEmail(iv.Email, d.self.Email) {
-		return JoinView{}, fmt.Errorf("this invite is for %s, but this kalka is set up as %s", iv.Email, d.self.Email)
-	}
-	if iv.Owner == teamlog.EncodeKey(d.pub) {
-		return JoinView{}, errors.New("this is an invite you made: pass it on to the person it is for")
-	}
-	now := d.now()
-	if !now.Before(iv.Expires) {
-		return JoinView{}, fmt.Errorf("%w (on %s): ask the team owner for a new one", teamlog.ErrInviteExpired, iv.Expires.Local().Format("2 Jan 15:04"))
+		return &Error{Kind: KindInviteEmail, Msg: fmt.Sprintf("this invite is for %s, you are %s", iv.Email, d.self.Email)}
 	}
 	if t, ok := d.teamByHash(iv.Team); ok {
 		if st, _, _, _, err := d.load(t); err == nil {
 			if m, ok := memberOf(st, d.self.Email); ok && m.PubKey == teamlog.EncodeKey(d.pub) {
-				return JoinView{}, fmt.Errorf("you are already a member of %s", iv.TeamName)
+				return &Error{Kind: ProblemMember, Msg: fmt.Sprintf("you are already a member of %s", iv.TeamName)}
 			}
 		}
 	}
+	if !d.now().Before(iv.Expires) {
+		return &Error{Kind: KindInviteExpired, Msg: fmt.Sprintf("the invite expired on %s: ask %s for a new one", iv.Expires.Local().Format("2 Jan 15:04"), iv.Inviter)}
+	}
+	if !peerjs.SameServer(iv.Rendezvous, d.cfg.Rendezvous) {
+		return &Error{Kind: KindRendezvousMismatch, Msg: fmt.Sprintf("this invite uses another rendezvous server (%s; this kalka uses %s), so the team owner cannot be reached", iv.Rendezvous, d.cfg.Rendezvous)}
+	}
+	return nil
+}
+
+// Join redeems an invite link or token (spec 19.7 step 2): it stores the
+// pending join and dials the owner now and then once a minute until the
+// invite expires.
+func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
+	if d.Paused() {
+		return JoinView{}, ErrPaused
+	}
+	p, err := PreviewInvite(token)
+	if err != nil {
+		return JoinView{}, err
+	}
+	iv, _ := teamlog.ParseToken(p.Token)
+	if e := d.joinProblem(iv); e != nil {
+		return JoinView{}, e
+	}
+	now := d.now()
 	id := iv.ID()
 	var rec joinRecord
 	err = d.teams.joins.update(func(l []joinRecord) ([]joinRecord, bool) {
@@ -95,19 +172,15 @@ func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
 				return l, true
 			}
 		}
-		rec = joinRecord{ID: id, Team: iv.Team, Name: iv.TeamName, Token: iv.Token(), Created: now.UTC(), Expires: iv.Expires, State: JoinPending}
+		rec = joinRecord{ID: id, Team: iv.Team, Name: iv.TeamName, Token: p.Token, Created: now.UTC(), Expires: iv.Expires, State: JoinPending}
 		return append(l, rec), true
 	})
 	if err != nil {
 		return JoinView{}, err
 	}
-	v := joinView(rec)
-	if iv.Rendezvous != d.cfg.Rendezvous {
-		v.Warning = fmt.Sprintf("the invite was made on the rendezvous server %s, and this kalka uses %s: the owner can only be reached if you both use the same one", iv.Rendezvous, d.cfg.Rendezvous)
-	}
 	d.bus.Publish(BusEvent{Type: "teams"})
 	go d.tryJoin(context.WithoutCancel(ctx), id)
-	return v, nil
+	return joinView(rec), nil
 }
 
 // joinLoop retries pending joins until they finish or expire; it runs for

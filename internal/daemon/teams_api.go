@@ -225,6 +225,7 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, st)
 	})
 	mux.HandleFunc("GET /api/joins", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Joins()) })
+	mux.HandleFunc("POST /api/joins/preview", d.teamCall(func(_ *http.Request, q TeamRequest) (any, error) { return d.JoinPreview(q.Token) }))
 	mux.HandleFunc("POST /api/joins", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) { return d.Join(r.Context(), q.Token) }))
 }
 
@@ -336,6 +337,13 @@ func (c *Client) DecideTransfer(ctx context.Context, id, action, owner string) (
 func (c *Client) Join(ctx context.Context, token string) (core.JoinView, error) {
 	var v core.JoinView
 	return v, c.do(ctx, http.MethodPost, "/api/joins", TeamRequest{Token: token}, &v)
+}
+
+// JoinPreview is what the join screen shows for a link or token; it
+// never joins.
+func (c *Client) JoinPreview(ctx context.Context, token string) (core.JoinPreview, error) {
+	var v core.JoinPreview
+	return v, c.do(ctx, http.MethodPost, "/api/joins/preview", TeamRequest{Token: token}, &v)
 }
 
 // Joins lists joins.

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/teamlog"
 )
 
 // ErrNotRunning means no daemon answers.
@@ -139,6 +140,43 @@ func (c *Client) ShowUI(ctx context.Context, path string) error {
 		return ErrNoShell
 	}
 	return err
+}
+
+// ShowRoute is ShowUI on a route of the page, such as the join screen.
+func (c *Client) ShowRoute(ctx context.Context, route string) error {
+	err := c.do(ctx, http.MethodPost, "/api/ui/show", map[string]string{"route": route}, nil)
+	var re *RemoteError
+	if errors.As(err, &re) && re.Kind == "no-shell" {
+		return ErrNoShell
+	}
+	return err
+}
+
+// ValidRoute: a route the shell may navigate to is "#/" and a path of
+// URL-safe characters, so nothing else reaches the page's location.
+func ValidRoute(r string) bool {
+	if !strings.HasPrefix(r, "#/") || len(r) > 8<<10 {
+		return false
+	}
+	for _, c := range r[2:] {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/-_.~%?=&", c)) {
+			return false
+		}
+	}
+	return true
+}
+
+// JoinRoute is the page's join screen for a link or token as given; an
+// input that does not parse opens the join screen empty, which says so.
+func JoinRoute(link string) string {
+	t, err := teamlog.NormalizeJoin(link)
+	if err != nil {
+		return "#/join/"
+	}
+	if _, err := teamlog.ParseToken(t); err != nil {
+		return "#/join/"
+	}
+	return "#/join/" + t
 }
 
 // ShellEvents subscribes as a desktop shell (spec 22): while the stream

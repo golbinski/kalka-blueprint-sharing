@@ -258,6 +258,21 @@ func SetupHandler(token string, port func() string, done chan<- *config.Config) 
 		writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 		once.Do(func() { done <- cfg })
 	})
+	// The setup form opened from a join link fills in the email and the
+	// rendezvous from the token (spec 11.1).
+	mux.HandleFunc("POST /api/joins/preview", func(w http.ResponseWriter, r *http.Request) {
+		var q TeamRequest
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		p, err := core.PreviewInvite(q.Token)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusServiceUnavailable, errors.New("kalka is not set up yet"))
 	})

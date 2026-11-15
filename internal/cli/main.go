@@ -133,7 +133,7 @@ func usage(w io.Writer) {
   %[1]s autostart on [--headless]|off|status [--json]
                                    start kalka at logon (the desktop app
                                    if installed; --headless: no window)
-  %[1]s open [--print]        open the running daemon's UI
+  %[1]s open [--print] [<link>]  open the running daemon's UI; with a kalka:// link, its join screen
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir>
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
@@ -141,7 +141,8 @@ func usage(w io.Writer) {
   %[1]s seeds [--json]        list the pre-backlog
   %[1]s team create <name> | invite <email> [--expires 72h] | members | log | invites   teams (spec 19)
   %[1]s team remove|add-owner|remove-owner <email>  [--team <name>]
-  %[1]s join <token> [--wait 20s]   redeem an invite
+  %[1]s join <link or token> [--wait 20s]   redeem an invite
+  %[1]s join --show <link or token>         what the invite is, without joining
   %[1]s publish <file> [--team <name>] [-m <note>]   move a Personal document into a team
   %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release the next version
   %[1]s handoff <file> <email> [--json]   make another member the owner

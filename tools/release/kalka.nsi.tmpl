@@ -58,6 +58,13 @@ Section "kalka"
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 
+  ; The kalka:// scheme for join links, per user (spec 23.1a). The shell
+  ; re-checks it at start.
+  WriteRegStr HKCU "Software\Classes\kalka" "" "URL:kalka join link"
+  WriteRegStr HKCU "Software\Classes\kalka" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\kalka\DefaultIcon" "" '"$INSTDIR\kalka-desktop.exe",0'
+  WriteRegStr HKCU "Software\Classes\kalka\shell\open\command" "" '"$INSTDIR\kalka-desktop.exe" "%1"'
+
   Call AddToPath
   Call CheckWebView2
 SectionEnd
@@ -136,6 +143,7 @@ Section "Uninstall"
   RMDir "$INSTDIR"
   Call un.RemoveFromPath
   DeleteRegKey HKCU "${UNINST_KEY}"
+  DeleteRegKey HKCU "Software\Classes\kalka"
   ; Your settings, keys and team logs stay in %APPDATA%\kalka; your
   ; blueprints stay in their folder.
   DetailPrint "Kept your settings and keys in $APPDATA\kalka"

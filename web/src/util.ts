@@ -17,6 +17,7 @@ export type Route =
   | { view: 'team' }
   | { view: 'domains' }
   | { view: 'settings' }
+  | { view: 'join'; token: string }
 
 export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
@@ -36,6 +37,15 @@ export function parseRoute(hash: string): Route {
   if (h === 'team') return { view: 'team' }
   if (h === 'domains') return { view: 'domains' }
   if (h === 'settings') return { view: 'settings' }
+  if (h === 'join' || h.startsWith('join/')) {
+    let token = h.slice(5)
+    try {
+      token = decodeURIComponent(token)
+    } catch {
+      token = ''
+    }
+    return { view: 'join', token }
+  }
   return { view: 'list' }
 }
 
@@ -77,4 +87,18 @@ export function roleText(role: string, owner?: string): string {
 
 export function plural(n: number, one: string, many = one + 's'): string {
   return `${n} ${n === 1 ? one : many}`
+}
+
+// joinHref is the join screen for what a user pasted, a link or a token;
+// the daemon parses it (spec 19.7).
+export function joinHref(input: string): string {
+  return '#/join/' + encodeURIComponent(input.trim())
+}
+
+// setupFromInvite is what the setup form takes from an invite opened
+// before setup (spec 11.1): the email, and the rendezvous as the form's
+// two choices.
+export function setupFromInvite(p: { email: string; rendezvous: string }): { email: string; mode: 'cloud' | 'server'; server: string } {
+  if (p.rendezvous === 'peerjs-cloud') return { email: p.email, mode: 'cloud', server: '' }
+  return { email: p.email, mode: 'server', server: p.rendezvous }
 }

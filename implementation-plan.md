@@ -703,6 +703,81 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - Waiting items for pending transfers (D10) are T6.
   - The acceptance check of a domain document (`domain-exists`) is made by the accepting owner only; a concurrent clash is flagged as for any two domain documents.
 
+**T5, join links.** Done 2026-11-16.
+
+- **Token and parsing** (`teamlog/invite.go`):
+  - The token gains `inviter`, the inviting owner's email. A token without it is refused.
+  - `Invite.Link()` is `kalka://join/<token>`.
+  - `NormalizeJoin` and `ParseJoin` are the one parser for what a user gives. They accept:
+    - a link or a bare token, in any letter case;
+    - surrounding whitespace, and angle brackets;
+    - line breaks inside;
+    - one trailing slash.
+
+    They refuse, with `invite-token`: another scheme or path, extra parts, a query, a fragment, more than 4 KiB, and a bad checksum.
+- **Core** (`join.go`):
+  - `PreviewInvite` reads the token alone, for the setup form.
+  - `Node.JoinPreview` adds the checks in `joinProblem`: `own-invite`, `invite-email`, `already-member`, `invite-expired`, `rendezvous-mismatch`. It also reports whether the invite is already being redeemed here.
+  - `Join` refuses with the same kinds. It used to warn about another rendezvous and go ahead; now `peerjs.SameServer` compares the two settings, so `peerjs-cloud` and its URL match.
+  - `InviteResult.Link` is new, and `JoinView` gains `Inviter` in place of `Warning`.
+  - New error kinds: `invite-token`, `invite-expired`, `invite-email`, `rendezvous-mismatch`.
+- **API:**
+  - `POST /api/joins/preview` works in setup mode as well, from the token alone.
+  - `POST /api/ui/show` takes `{"route"}`. `daemon.ValidRoute` allows only `#/` followed by URL-safe characters.
+  - `daemon.JoinRoute(link)` gives `#/join/<token>`, or `#/join/` when the link does not parse.
+  - The client gains `JoinPreview` and `ShowRoute`.
+- **CLI:**
+  - `kalka join --show <link or token>` asks the daemon when one runs; with no daemon it reads the token alone and says the checks were not made.
+  - `kalka join` takes a link and reports kinds with `--json`.
+  - `kalka team invite` prints the link, then the token.
+  - `kalka open [--print] <link>` opens the join screen.
+- **`internal/urlscheme`:**
+  - `Register`, `Unregister` and `Status`, over a `Target` that holds the OS, the executable, a `Registry`, the data directory and a `Runner`.
+  - Windows: HKCU `Software\Classes\kalka`, written by `hkcu` (`registry_windows.go`).
+  - Linux: `kalka.desktop` in `$XDG_DATA_HOME/applications`, then `xdg-mime default`.
+  - macOS: nothing at run time; `PlistURLTypes` puts the scheme in the bundle.
+  - `DesktopEntry` quotes the `Exec` path as the desktop-entry format requires.
+- **Desktop shell:**
+  - `StartArgs`: a single `kalka:` argument starts the shell on a route. A link start is never hidden or detached.
+  - `Prepare(ctx, dir, hidden, route)`:
+    - with a shell running, it hands the link over with `ShowRoute` and the start exits;
+    - otherwise the plan carries the route into `openUI` (the setup form) and `connected`.
+  - `Shell.Link` handles macOS's `ApplicationLaunchedWithUrl` event. Before the page has loaded, the route is queued.
+  - `registerScheme` re-checks the registration at each start. `KALKA_NO_URL_SCHEME=1` skips it; the smoke test sets it.
+- **Release:**
+  - `Info.plist` carries `CFBundleURLTypes`.
+  - The archive's `kalka.desktop` comes from `urlscheme.DesktopEntry` (with `%u` and `MimeType`). The Linux README says the shell rewrites the file at start.
+  - The NSIS script writes the four registry values and the uninstaller deletes the key.
+- **Web:**
+  - New `Join.tsx`: the join screen (`#/join/<token>`) with the facts, then *Join*, a problem line, or "joining…" / "you joined".
+  - `PasteBox` ("Join with link or token") opens the join screen and replaces the old direct-join form.
+  - Setup fills in the email and the rendezvous from the invite (`setupFromInvite`), and focuses the folder.
+  - The invite box shows the link, with *Copy link* and *Copy token*.
+- **Spec and docs:**
+  - Spec 19.7 parsing now names line breaks, the trailing slash and the fragment.
+  - Spec 13 describes the preview's fields, the setup-mode preview, and `ui/show {"route"}`.
+  - `docs/desktop-testing.md` has a join-link checklist, to run only on installed builds.
+- **Tests:**
+  - `TestParseJoin` and `TestInviteNeedsInviter`.
+  - Core: `TestJoinPreview` (each problem, and that a preview never joins), `TestPreviewInvite`, and the updated `TestInviteRefusals`.
+  - Daemon: `TestJoinPreviewAPI` and `TestSetupPreview`.
+  - CLI: in `TestCLIClasses`, the invite's two lines, `open --print <link>` (also with a bad link), `join --show` as JSON and text, junk, and joining one's own invite. Also `TestJoinShowOffline`.
+  - Desktop: `TestStartArgs`, `TestLinkHandOver` (a start with a link, hand-over to a running shell, a link sent to the shell, a bad link, routes refused) and `TestLinkAttach`.
+  - `urlscheme`: Windows against a fake registry (including the re-check that writes nothing, and a moved install), Linux with a temp data directory and a recording runner, macOS, and the quoting.
+  - Release: the NSIS lines, `plutil` reading the URL scheme (it reads the file and never opens a bundle), the plist text, and the `.desktop` text.
+  - Web: the join route and the setup prefill.
+  - No test registers a real handler.
+- **Checked by hand:** two throwaway daemons on a local rendezvous; no shell was started.
+  - The join screen for a usable invite showed the facts and *Join*.
+  - *Join* went through to "You joined parcel-room".
+  - Reopening the link showed "You joined".
+  - A link with a query showed the refusal and the paste box.
+  - The invite box showed the link.
+- **Left open:**
+  - The Windows and Linux registration is untested on real systems; that is the product owner's pass, and the checklist is in `docs/desktop-testing.md`.
+  - On macOS the scheme is registered only once `Kalka.app` has been opened, which no test does.
+  - `kalka join --show` is a view, but it is not yet in a parity table; that is T6.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

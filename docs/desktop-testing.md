@@ -32,6 +32,32 @@ rendezvous are needed for the notification items.
       banner; the Settings view shows "Keep running when the window is
       closed". In a browser tab that setting is absent.
 
+## Join links (spec 19.7, 23.1a)
+
+Registering the scheme is what these items check, so run them only on an
+installed build (the Windows installer, `Kalka.app` in Applications, the
+Linux archive), never on a development build: a development bundle opened
+once stays registered on macOS.
+
+- [ ] Windows: after install, `HKCU\Software\Classes\kalka\shell\open\command`
+      names `kalka-desktop.exe "%1"`; after uninstall the key is gone.
+- [ ] Linux: after the first start, `~/.local/share/applications/kalka.desktop`
+      has `MimeType=x-scheme-handler/kalka;` and `xdg-mime query default
+      x-scheme-handler/kalka` prints `kalka.desktop`.
+- [ ] With kalka running, click a `kalka://join/…` link in a browser and in
+      a chat tool: the window comes forward on the join screen, showing the
+      team, the inviter, the invited email and the expiry. Nothing is joined
+      until *Join*.
+- [ ] With kalka not running, click the link: kalka starts with the window
+      on the join screen.
+- [ ] With no configuration, click the link: the setup form shows the
+      email and the rendezvous from the invite; after the folder, it goes
+      on to the join screen.
+- [ ] A link for another email, an expired one, and one for another
+      rendezvous each show their line instead of *Join*.
+- [ ] *Copy link* and *Copy token* in the invite box; both work in *Join
+      with link or token*.
+
 ## Tray
 
 - [ ] The status line reads "Online · N of M peers reachable · last sync

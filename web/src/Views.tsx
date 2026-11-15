@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type BlueprintInfo, type SeedRow, type Status } from './api'
-import { docHref, plural } from './util'
+import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status } from './api'
+import { docHref, plural, setupFromInvite, useRoute } from './util'
 
 // Setup asks for the three required settings (spec 5).
 export function Setup({ status }: { status: Status }) {
@@ -10,6 +10,31 @@ export function Setup({ status }: { status: Status }) {
   const [folder, setFolder] = useState(status.defaults?.folder ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [invite, setInvite] = useState<JoinPreview | null>(null)
+  const route = useRoute()
+  const token = route.view === 'join' ? route.token : ''
+
+  // Opened from a join link: the email and the rendezvous come from the
+  // token, so a new teammate types only the folder; after saving, the
+  // page reloads on the join screen (spec 11.1).
+  useEffect(() => {
+    if (!token) return
+    let live = true
+    api.joinPreview(token).then(
+      (p) => {
+        if (!live) return
+        const f = setupFromInvite(p)
+        setInvite(p)
+        setEmail(f.email)
+        setMode(f.mode)
+        setServer(f.server)
+      },
+      () => {},
+    )
+    return () => {
+      live = false
+    }
+  }, [token])
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,10 +66,16 @@ export function Setup({ status }: { status: Status }) {
     <div className="page narrow">
       <h1>Set up kalka</h1>
       <p className="muted">Three settings. They are saved in kalka's config file and can be changed there later.</p>
+      {invite && (
+        <div className="banner notice">
+          You are joining <b>{invite.name}</b>, invited by {invite.inviter}. Your email and the rendezvous server come from the invite;
+          choose the folder, then join.
+        </div>
+      )}
       <form className="form" onSubmit={save}>
         <label>
           Your email
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@corp.com" autoFocus />
+          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@library.example" autoFocus={!invite} />
           <span className="muted small">Teammates reach you by this address. It is how they find you, not an account.</span>
         </label>
         <fieldset>
@@ -64,12 +95,12 @@ export function Setup({ status }: { status: Status }) {
         </fieldset>
         <label>
           Blueprint folder
-          <input type="text" required value={folder} onChange={(e) => setFolder(e.target.value)} />
+          <input type="text" required value={folder} onChange={(e) => setFolder(e.target.value)} autoFocus={!!invite} />
           <span className="muted small">Created if it does not exist. Received blueprints are saved here.</span>
         </label>
         {err && <div className="error-box">{err}</div>}
         <button type="submit" className="primary" disabled={busy}>
-          {busy ? 'Starting…' : 'Save and start'}
+          {busy ? 'Starting…' : invite ? 'Save and continue' : 'Save and start'}
         </button>
       </form>
     </div>

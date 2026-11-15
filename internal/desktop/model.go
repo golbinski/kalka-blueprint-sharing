@@ -13,11 +13,14 @@ package desktop
 import (
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/golbinski/kalka/internal/autostart"
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/urlscheme"
 )
 
 // TrayState picks the tray icon.
@@ -118,6 +121,29 @@ func CloseNotice(action CloseAction) (title, body string) {
 		return title, fmt.Sprintf("The window is minimised; %s keeps syncing with your team. Start %s again to bring the window back.", name.Product, name.Product)
 	}
 	return title, fmt.Sprintf("%s keeps syncing with your team in the background. Open it again from its icon in the menu bar or the notification area, or start %s again.", name.Product, name.Product)
+}
+
+// Start is how kalka-desktop was started (spec 23.1a): with no arguments
+// or only --hidden it is the shell; with a single kalka:// argument, as
+// Windows and Linux hand over a link, the shell on the join screen; with
+// anything else the CLI.
+type Start struct {
+	CLI    bool
+	Hidden bool
+	Link   string
+}
+
+// StartArgs reads kalka-desktop's arguments.
+func StartArgs(args []string) Start {
+	switch {
+	case len(args) == 0:
+		return Start{}
+	case len(args) == 1 && args[0] == autostart.HiddenArg:
+		return Start{Hidden: true}
+	case len(args) == 1 && len(args[0]) > len(urlscheme.Scheme) && strings.EqualFold(args[0][:len(urlscheme.Scheme)+1], urlscheme.Scheme+":"):
+		return Start{Link: args[0]}
+	}
+	return Start{CLI: true}
 }
 
 // StartAction is what a start of the shell does (plan decision 3).

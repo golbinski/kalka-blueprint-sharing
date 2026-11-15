@@ -5,7 +5,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,9 +93,6 @@ func TestInviteFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if jv.Warning != "" {
-		t.Fatalf("same rendezvous, but warned: %s", jv.Warning)
-	}
 	done := waitJoin(t, reader, jv.ID, JoinDone)
 	if done.Owner != desk.email {
 		t.Fatalf("owner learned as %q", done.Owner)
@@ -171,7 +167,7 @@ func TestInviteRefusals(t *testing.T) {
 
 	// Wrong email: refused locally, and by the owner when sent anyway.
 	forStacks, _ := desk.d.Invite("lending", "stacks@library.example", 0)
-	if _, err := carol.d.Join(context.Background(), forStacks.Token); err == nil || !strings.Contains(err.Error(), "for stacks@library.example") {
+	if _, err := carol.d.Join(context.Background(), forStacks.Token); KindOf(err) != KindInviteEmail || !strings.Contains(err.Error(), "for stacks@library.example") {
 		t.Fatalf("wrong email: %v", err)
 	}
 	if err := attempt(t, carol, forStacks.Token); err == nil || !strings.Contains(err.Error(), "another email") {
@@ -193,21 +189,25 @@ func TestInviteRefusals(t *testing.T) {
 		// such invite.
 		t.Fatalf("damaged secret: %v", err)
 	}
-	// Rendezvous mismatch hint.
+	// Another rendezvous: refused before anything is dialed.
 	iv, _ = teamlog.ParseToken(inv.Token)
 	iv.Rendezvous = "wss://elsewhere.example/peerjs"
-	jv, err := carol.d.Join(context.Background(), iv.Token())
-	if err != nil || !strings.Contains(jv.Warning, "wss://elsewhere.example/peerjs") {
-		t.Fatalf("rendezvous hint: %q %v", jv.Warning, err)
+	if _, err := carol.d.Join(context.Background(), iv.Link()); KindOf(err) != KindRendezvousMismatch || !strings.Contains(err.Error(), "wss://elsewhere.example/peerjs") {
+		t.Fatalf("rendezvous: %v", err)
 	}
-	waitJoin(t, carol, jv.ID, JoinDone) // the owner is reachable all the same
+	// The link itself, as a chat tool pastes it.
+	jv, err := carol.d.Join(context.Background(), " <"+strings.ToLower(inv.Link)+"> ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitJoin(t, carol, jv.ID, JoinDone)
 
 	// Expired token: refused locally, and by the owner.
 	late, _ := desk.d.Invite("lending", "stacks@library.example", 2*time.Minute)
 	stacks := w.node("stacks@library.example")
 	waitKeyOnline(t, stacks)
 	w.skip(time.Hour)
-	if _, err := stacks.d.Join(context.Background(), late.Token); !errors.Is(err, teamlog.ErrInviteExpired) {
+	if _, err := stacks.d.Join(context.Background(), late.Token); KindOf(err) != KindInviteExpired {
 		t.Fatalf("expired, locally: %v", err)
 	}
 	if err := attempt(t, stacks, late.Token); err == nil || !strings.Contains(err.Error(), "expired") {

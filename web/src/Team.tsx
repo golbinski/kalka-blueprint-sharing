@@ -2,6 +2,7 @@
 // readable history; Join, Invite, Remove (with a preview of the documents
 // to be reassigned), Add owner.
 import { useCallback, useEffect, useState } from 'react'
+import { PasteBox } from './Join'
 import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Join, type Reassigned, type Team, type TeamMember } from './api'
 import { docHref, localTime, plural } from './util'
 
@@ -28,7 +29,7 @@ export function TeamPage({ self, reloadKey }: { self: string; reloadKey: number 
       {open.length > 0 && <Joins joins={open} />}
       {teams?.map((t) => <TeamCard key={t.team} t={t} self={self} reload={load} />)}
       <div className="team-start">
-        <JoinForm onDone={load} />
+        <PasteBox heading />
         {teams && (teams.length === 0 || teams.every((t) => t.me !== 'none')) && <CreateForm onDone={load} first={teams.length === 0} />}
       </div>
     </div>
@@ -60,53 +61,6 @@ function Joins({ joins }: { joins: Join[] }) {
         </div>
       ))}
     </section>
-  )
-}
-
-function JoinForm({ onDone }: { onDone: () => void }) {
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [warn, setWarn] = useState('')
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setErr('')
-    setWarn('')
-    try {
-      const j = await api.join(token)
-      setToken('')
-      setWarn(j.warning ?? '')
-      onDone()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-    setBusy(false)
-  }
-  return (
-    <form className="team-box" onSubmit={submit}>
-      <h2>Join a team</h2>
-      <p className="muted small">
-        Paste the invite a team owner sent you. kalka reaches their installation directly and keeps trying while they are
-        offline, until the invite expires.
-      </p>
-      <textarea
-        className="token-input mono"
-        rows={3}
-        value={token}
-        onChange={(e) => setToken(e.target.value)}
-        placeholder="Invite token"
-        aria-label="Invite token"
-        spellCheck={false}
-      />
-      <div>
-        <button type="submit" className="primary" disabled={busy || !token.trim()}>
-          {busy ? 'Joining…' : 'Join'}
-        </button>
-      </div>
-      {warn && <div className="banner warn">{warn}</div>}
-      {err && <div className="error-box">{err}</div>}
-    </form>
   )
 }
 
@@ -337,13 +291,13 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
   const [email, setEmail] = useState('')
   const [expires, setExpires] = useState('72h')
   const [made, setMade] = useState<InviteResult | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'' | 'link' | 'token'>('')
   const [err, setErr] = useState('')
   const open = t.invites.filter((i) => i.state === 'open')
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr('')
-    setCopied(false)
+    setCopied('')
     try {
       setMade(await api.invite(t.team, email.trim(), expires))
       setEmail('')
@@ -372,22 +326,26 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
       {made && (
         <div className="token-box">
           <p className="small">
-            Send this to <b>{made.email}</b> through any channel. It works once, only for them, until {localTime(made.expires)}, and only
-            while your kalka is online. They paste it under “Join a team”.
+            Send the link to <b>{made.email}</b> through any channel; if their chat tool does not make it clickable, send the token. It
+            works once, only for them, until {localTime(made.expires)}, and only while your kalka is online. They open the link, or paste
+            either under “Join with link or token”.
           </p>
-          <textarea className="token-input mono" readOnly rows={3} value={made.token} aria-label="Invite token" onFocus={(e) => e.target.select()} />
+          <textarea className="token-input mono" readOnly rows={3} value={made.link} aria-label="Invite link" onFocus={(e) => e.target.select()} />
           <div className="row">
-            <button
-              type="button"
-              onClick={() =>
-                navigator.clipboard?.writeText(made.token).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </button>
+            {(['link', 'token'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() =>
+                  navigator.clipboard?.writeText(k === 'link' ? made.link : made.token).then(
+                    () => setCopied(k),
+                    () => setCopied(''),
+                  )
+                }
+              >
+                {copied === k ? 'Copied' : k === 'link' ? 'Copy link' : 'Copy token'}
+              </button>
+            ))}
             <button type="button" className="link" onClick={() => setMade(null)}>
               Done
             </button>

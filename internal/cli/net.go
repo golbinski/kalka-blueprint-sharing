@@ -446,9 +446,21 @@ func readEndpoint(dir string) (daemon.Endpoint, error) {
 	return e, json.Unmarshal(raw, &e)
 }
 
-// cmdOpen opens the daemon's UI, starting the daemon if needed.
+// cmdOpen opens the daemon's UI, starting the daemon if needed; with a
+// kalka:// link, on the join screen (spec 19.7).
 func cmdOpen(args []string, stdout, stderr io.Writer) int {
-	print := len(args) > 0 && args[0] == "--print"
+	print, route := false, ""
+	for _, a := range args {
+		switch {
+		case a == "--print":
+			print = true
+		case route == "" && !strings.HasPrefix(a, "-"):
+			route = daemon.JoinRoute(a)
+		default:
+			fmt.Fprintf(stderr, "usage: %s open [--print] [<link>]\n", name.Binary)
+			return exitUsage
+		}
+	}
 	if c, code := daemonFor(false, stdout, stderr); c == nil {
 		return code
 	}
@@ -462,7 +474,7 @@ func cmdOpen(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitProblems
 	}
-	url := "http://" + e.Addr + "/?token=" + e.Token
+	url := "http://" + e.Addr + "/?token=" + e.Token + route
 	if print {
 		fmt.Fprintln(stdout, url)
 		return exitOK

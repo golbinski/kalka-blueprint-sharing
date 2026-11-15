@@ -25,21 +25,28 @@ import (
 	"github.com/golbinski/kalka/internal/autostart"
 	"github.com/golbinski/kalka/internal/cli"
 	"github.com/golbinski/kalka/internal/config"
+	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
+	"github.com/golbinski/kalka/internal/urlscheme"
 )
 
 // Main is kalka-desktop: with arguments the CLI, without them (or with
-// only --hidden) the shell.
+// only --hidden) the shell, and with a single kalka:// link the shell on
+// that link's join screen (StartArgs).
 func Main(args []string) int {
 	autostart.DesktopBuild = true
-	hidden := len(args) == 1 && args[0] == autostart.HiddenArg
-	if len(args) > 0 && !hidden {
+	st := StartArgs(args)
+	if st.CLI {
 		return cli.Run(args, os.Stdin, os.Stdout, os.Stderr)
+	}
+	hidden, route := st.Hidden, ""
+	if st.Link != "" {
+		route = daemon.JoinRoute(st.Link)
 	}
 	// Started bare in a terminal (macOS, where `kalka` on the PATH is this
 	// binary): run the shell detached, so it outlives the terminal.
-	if !hidden && os.Getenv(detachedEnv) == "" && isTerminal(os.Stdin) {
+	if !hidden && route == "" && os.Getenv(detachedEnv) == "" && isTerminal(os.Stdin) {
 		return detach()
 	}
 	dir, err := config.Dir()
@@ -56,7 +63,7 @@ func Main(args []string) int {
 	if _, ok := HasWebView2(); !ok {
 		return noWebView(dir, logw)
 	}
-	plan, err := Prepare(context.Background(), dir, hidden)
+	plan, err := Prepare(context.Background(), dir, hidden, route)
 	if err != nil {
 		fmt.Fprintf(logw, "shell: %v\n", err)
 		_, _ = notify.Ask(context.Background(), name.Product, err.Error())
@@ -65,7 +72,25 @@ func Main(args []string) int {
 	if plan.Action == StartShowOther || plan.Action == StartExit {
 		return 0
 	}
+	registerScheme(logw)
 	return run(plan, dir, hidden, logw)
+}
+
+// registerScheme re-checks the kalka:// registration at start (spec
+// 23.1a): Windows rewrites it if it is missing or names another path,
+// Linux writes its desktop entry; macOS has it in the bundle. A start
+// with KALKA_NO_URL_SCHEME=1 (the smoke test) leaves it alone.
+func registerScheme(logw io.Writer) {
+	if os.Getenv(urlscheme.SkipEnv) == "1" {
+		return
+	}
+	exe, err := autostart.Executable()
+	if err == nil {
+		err = urlscheme.Register(urlscheme.System(exe))
+	}
+	if err != nil {
+		fmt.Fprintf(logw, "shell: kalka:// links: %v\n", err)
+	}
 }
 
 // noWebView: the window cannot be shown (spec 23.2). Offer the browser,
@@ -172,6 +197,14 @@ func run(plan Plan, dir string, hidden bool, logw io.Writer) int {
 		ui.tray.OnClick(func() { go s.Open() })
 	}
 
+	// A kalka:// link: macOS sends it as an event, to a running app or a
+	// starting one; Windows and Linux also pass it as the argument, which
+	// Main has read. Either way it only opens the join screen.
+	ui.app.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(e *application.ApplicationEvent) {
+		if u := e.Context().URL(); u != "" {
+			go s.Link(u)
+		}
+	})
 	ui.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		if ui.notes != nil {
 			go func() {

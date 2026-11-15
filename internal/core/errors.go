@@ -15,6 +15,11 @@ const (
 	KindTransferPending = "transfer-pending"
 	KindTransferDecided = "transfer-decided"
 	KindUnknownTransfer = "unknown-transfer"
+
+	KindInviteToken        = "invite-token"
+	KindInviteExpired      = "invite-expired"
+	KindInviteEmail        = "invite-email"
+	KindRendezvousMismatch = "rendezvous-mismatch"
 )
 
 // Error is a failure with a stable kind.

@@ -1515,3 +1515,18 @@ button.link.danger {
   flex-direction: column;
   gap: 2px;
 }
+
+/* The join screen (spec 11.1): the invite's facts, then Join. */
+.join-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.25rem;
+  margin: 0 0 1rem;
+}
+.join-facts dt {
+  color: var(--muted, #6b7280);
+}
+.join-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

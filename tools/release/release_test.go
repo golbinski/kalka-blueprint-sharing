@@ -113,7 +113,11 @@ func TestNSISScript(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{`!define VERSION "0.3.0"`, `OutFile "/o/setup.exe"`, `File "/s/kalka-desktop.exe"`,
-		"RequestExecutionLevel user", `Uninstall\com.example.kalka"`, `ExecShell "open" "https://wv2.example"`} {
+		"RequestExecutionLevel user", `Uninstall\com.example.kalka"`, `ExecShell "open" "https://wv2.example"`,
+		// The kalka:// scheme, per user, and its removal (spec 23.1a).
+		`WriteRegStr HKCU "Software\Classes\kalka" "URL Protocol" ""`,
+		`WriteRegStr HKCU "Software\Classes\kalka\shell\open\command" "" '"$INSTDIR\kalka-desktop.exe" "%1"'`,
+		`DeleteRegKey HKCU "Software\Classes\kalka"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -161,5 +165,26 @@ func TestInfoPlist(t *testing.T) {
 	out, _ := exec.Command("plutil", "-extract", "CFBundleExecutable", "raw", p).Output()
 	if strings.TrimSpace(string(out)) != "kalka" {
 		t.Fatalf("executable %q", out)
+	}
+	// The kalka:// scheme (spec 23.1a). This only reads the file: opening
+	// a bundle is what registers its scheme, and no test does that.
+	out, _ = exec.Command("plutil", "-extract", "CFBundleURLTypes.0.CFBundleURLSchemes.0", "raw", p).Output()
+	if strings.TrimSpace(string(out)) != "kalka" {
+		t.Fatalf("URL scheme %q", out)
+	}
+}
+
+func TestInfoPlistText(t *testing.T) {
+	s := string(infoPlist("0.3.0", ""))
+	if !strings.Contains(s, "<key>CFBundleURLSchemes</key>") || !strings.Contains(s, "<string>kalka</string>\n\t\t\t</array>") {
+		t.Fatal(s)
+	}
+}
+
+func TestDesktopEntry(t *testing.T) {
+	for _, want := range []string{"Exec=kalka-desktop %u\n", "MimeType=x-scheme-handler/kalka;\n", "Name=kalka\n"} {
+		if !strings.Contains(desktopEntry, want) {
+			t.Errorf("kalka.desktop lacks %q:\n%s", want, desktopEntry)
+		}
 	}
 }

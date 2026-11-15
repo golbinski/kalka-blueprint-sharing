@@ -6,6 +6,7 @@ import { SettingsPage } from './Settings'
 import { CanvasPage } from './Canvas'
 import { Review } from './Review'
 import { Blueprints, PreBacklog, Setup } from './Views'
+import { JoinScreen } from './Join'
 import { TracePage } from './Trace'
 import { DomainsPage, TeamPage } from './Team'
 import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
@@ -305,6 +306,7 @@ export function App() {
         {route.view === 'seeds' && <PreBacklog self={status.email} />}
         {route.view === 'team' && <TeamPage self={status.email} reloadKey={teamTick} />}
         {route.view === 'settings' && <SettingsPage tick={teamTick} />}
+        {route.view === 'join' && <JoinScreen token={route.token} />}
         {route.view === 'domains' && <DomainsPage reloadKey={teamTick} list={list} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>

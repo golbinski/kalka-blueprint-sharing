@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,8 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/config"
+	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/name"
 )
 
@@ -110,10 +111,11 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 			writeJSON(stdout, r)
 			return exitOK
 		}
-		fmt.Fprintf(stderr, "invite for %s to %s, valid until %s. Send them this line through any channel; "+
+		fmt.Fprintf(stderr, "invite for %s to %s, valid until %s. Send them the link, or the token if the link does not open, through any channel; "+
 			"it works once, only for %[1]s, and only while your kalka is online:\n", r.Email, r.Name, r.Expires.Local().Format("Mon 2 Jan 15:04"))
+		fmt.Fprintln(stdout, r.Link)
 		fmt.Fprintln(stdout, r.Token)
-		fmt.Fprintf(stderr, "they run: %s join <token>\n", name.Binary)
+		fmt.Fprintf(stderr, "they open the link, paste either line under Join with link or token, or run: %s join <link or token>\n", name.Binary)
 		return exitOK
 	case "remove":
 		docs, err := c.RemovalPreview(ctx, *team, pos[1])
@@ -195,19 +197,25 @@ func printInvites(w io.Writer, v core.TeamView) {
 	tw.Flush()
 }
 
-// cmdJoin implements `kalka join <token>` (spec 19.7).
+// cmdJoin implements `kalka join <link or token>` and `kalka join --show`
+// (spec 19.7).
 func cmdJoin(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("join", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print JSON")
+	show := fs.Bool("show", false, "show what the invite is, without joining")
 	wait := fs.Duration("wait", 20*time.Second, "how long to wait for the owner before leaving it to the daemon")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
 	}
 	if len(pos) == 0 {
-		fmt.Fprintf(stderr, "usage: %s join <token> [--wait 20s] [--json]\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s join [--show] <link or token> [--wait 20s] [--json]\n", name.Binary)
 		return exitUsage
+	}
+	token := strings.Join(pos, "")
+	if *show {
+		return joinShow(token, *asJSON, stdout, stderr)
 	}
 	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
@@ -215,13 +223,9 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *wait+10*time.Second)
 	defer cancel()
-	j, err := c.Join(ctx, strings.Join(pos, ""))
+	j, err := c.Join(ctx, token)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
-	}
-	if j.Warning != "" {
-		fmt.Fprintln(stderr, "warning:", j.Warning)
+		return report(*asJSON, stdout, stderr, remoteKind(err), err.Error())
 	}
 	deadline := time.Now().Add(*wait)
 	for j.State == core.JoinPending && time.Now().Before(deadline) {
@@ -232,7 +236,6 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 		}
 		for _, x := range js {
 			if x.ID == j.ID {
-				x.Warning = j.Warning
 				j = x
 			}
 		}
@@ -423,6 +426,55 @@ func cmdDomains(args []string, stdout, stderr io.Writer) int {
 	tw.Flush()
 	if !vs.live() {
 		notRunningNote(stdout)
+	}
+	return exitOK
+}
+
+// joinShow is `kalka join --show`: what the join screen shows. It asks
+// the daemon when one runs, for the membership and email checks, and
+// otherwise reads the token alone.
+func joinShow(token string, asJSON bool, stdout, stderr io.Writer) int {
+	var p core.JoinPreview
+	var err error
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dir, _ := config.Dir()
+	if c := answering(ctx, dir); c != nil {
+		p, err = c.JoinPreview(ctx, token)
+	} else {
+		p, err = core.PreviewInvite(token)
+		if err == nil {
+			p.Message = fmt.Sprintf("%s is not running, so whether you can join here was not checked", name.Product)
+		}
+	}
+	if err != nil {
+		kind := remoteKind(err)
+		if k := core.KindOf(err); k != "" {
+			kind = k
+		}
+		return report(asJSON, stdout, stderr, kind, err.Error())
+	}
+	if asJSON {
+		writeJSON(stdout, p)
+		return exitOK
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(tw, "team\t%s (%s)\n", p.Name, p.Team[:12])
+	fmt.Fprintf(tw, "invited by\t%s\n", p.Inviter)
+	fmt.Fprintf(tw, "for\t%s\n", p.Email)
+	fmt.Fprintf(tw, "valid until\t%s\n", p.Expires.Local().Format("Mon 2 Jan 15:04"))
+	fmt.Fprintf(tw, "rendezvous\t%s\n", p.Rendezvous)
+	tw.Flush()
+	if p.Joining != nil {
+		fmt.Fprintf(stdout, "this kalka is already joining: %s\n", p.Joining.State)
+	}
+	switch {
+	case p.Problem != "":
+		fmt.Fprintf(stdout, "cannot join: %s\n", p.Message)
+	case p.Message != "":
+		fmt.Fprintln(stdout, p.Message)
+	default:
+		fmt.Fprintf(stdout, "join with: %s join %s\n", name.Binary, p.Token)
 	}
 	return exitOK
 }

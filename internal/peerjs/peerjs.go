@@ -101,3 +101,14 @@ var idRe = regexp.MustCompile(`^[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*$`)
 
 // ValidID reports whether id is acceptable to PeerJS servers and clients.
 func ValidID(id string) bool { return idRe.MatchString(id) }
+
+// SameServer reports whether two rendezvous settings name one server, so
+// "peerjs-cloud" and its URL, or a trailing slash, are not a mismatch.
+func SameServer(a, b string) bool {
+	if a == b {
+		return true
+	}
+	sa, ea := ParseRendezvous(a)
+	sb, eb := ParseRendezvous(b)
+	return ea == nil && eb == nil && sa == sb
+}

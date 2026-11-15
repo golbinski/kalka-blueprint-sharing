@@ -21,7 +21,8 @@ import (
 type Invite struct {
 	TeamName   string    `json:"name"`
 	Team       string    `json:"team"`
-	Owner      string    `json:"owner"` // the inviting owner's public key
+	Owner      string    `json:"owner"`   // the inviting owner's public key
+	Inviter    string    `json:"inviter"` // the inviting owner's email: a claim until the join completes
 	Email      string    `json:"email"`
 	Secret     []byte    `json:"secret"`
 	Expires    time.Time `json:"expires"`
@@ -75,13 +76,67 @@ func ParseToken(s string) (Invite, error) {
 	if err := dec.Decode(&iv); err != nil {
 		return iv, ErrInviteToken
 	}
-	if len(iv.Secret) != 32 || !ValidTeamName(iv.TeamName) || !hashRe.MatchString(iv.Team) || !emailRe.MatchString(iv.Email) {
+	if len(iv.Secret) != 32 || !ValidTeamName(iv.TeamName) || !hashRe.MatchString(iv.Team) || !emailRe.MatchString(iv.Email) || !emailRe.MatchString(iv.Inviter) {
 		return iv, ErrInviteToken
 	}
 	if _, err := DecodeKey(iv.Owner); err != nil {
 		return iv, ErrInviteToken
 	}
 	return iv, nil
+}
+
+// LinkPrefix starts a join link (spec 19.7): kalka://join/<token>.
+const LinkPrefix = "kalka://join/"
+
+// MaxJoinInput bounds what ParseJoin reads: a link or a token is pasted
+// from anywhere, and raised by any web page.
+const MaxJoinInput = 4 << 10
+
+// Link is the invite as a kalka://join/ link.
+func (iv Invite) Link() string { return LinkPrefix + iv.Token() }
+
+// NormalizeJoin reduces what a user gives, a kalka://join/<token> link or
+// a bare token, to the token in upper case (spec 19.7, "Parsing"): any
+// letter case, surrounding whitespace, angle brackets as chat tools add
+// them, and line breaks inside, as mail wraps long lines. A single
+// trailing slash, which some systems add to a link, is dropped. Another
+// scheme, another path, extra path parts, a query, a fragment, or input
+// over 4 KiB are refused. The checksum is ParseJoin's.
+func NormalizeJoin(s string) (string, error) {
+	if len(s) > MaxJoinInput {
+		return "", ErrInviteToken
+	}
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	s = strings.Join(strings.Fields(s), "")
+	if i := strings.Index(s, ":"); i >= 0 {
+		if !strings.EqualFold(s[:min(len(s), len(LinkPrefix))], LinkPrefix) {
+			return "", ErrInviteToken
+		}
+		s = strings.TrimSuffix(s[len(LinkPrefix):], "/")
+	}
+	if s == "" {
+		return "", ErrInviteToken
+	}
+	for _, c := range s {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '2' && c <= '7') {
+			return "", ErrInviteToken
+		}
+	}
+	return strings.ToUpper(s), nil
+}
+
+// ParseJoin parses a join link or a bare token: NormalizeJoin, then the
+// token's checksum and record. `kalka join`, the paste box and a link
+// opened from the system all go through it.
+func ParseJoin(s string) (Invite, error) {
+	t, err := NormalizeJoin(s)
+	if err != nil {
+		return Invite{}, err
+	}
+	return ParseToken(t)
 }
 
 // ID is the invite's public identifier: it appears in add-member and in

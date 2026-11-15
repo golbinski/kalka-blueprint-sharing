@@ -43,6 +43,9 @@ type Plan struct {
 	Action StartAction
 	Lock   *lockfile.Lock // StartInProcess
 	Client *daemon.Client // StartAttach
+	// Route is where the window opens, such as the join screen of a
+	// kalka:// link the shell was started with; "" is the page's start.
+	Route string
 }
 
 // HolderTimeout bounds how long Prepare waits for the daemon holding the
@@ -51,13 +54,17 @@ var HolderTimeout = 15 * time.Second
 
 // Prepare takes the single-daemon lock or finds out who holds it, and
 // picks the start (DecideStart). StartShowOther has already asked the
-// other shell to show its window.
-func Prepare(ctx context.Context, dir string, hidden bool) (Plan, error) {
+// other shell to show its window, on route if given: a kalka:// link is
+// handed to the shell that runs (spec 19.7).
+func Prepare(ctx context.Context, dir string, hidden bool, route string) (Plan, error) {
+	if route != "" {
+		hidden = false
+	}
 	deadline := time.Now().Add(HolderTimeout)
 	for {
 		lock, err := daemon.AcquireLock(dir)
 		if err == nil {
-			return Plan{Action: StartInProcess, Lock: lock}, nil
+			return Plan{Action: StartInProcess, Lock: lock, Route: route}, nil
 		}
 		if !errors.Is(err, lockfile.ErrHeld) {
 			return Plan{}, err
@@ -81,12 +88,15 @@ func Prepare(ctx context.Context, dir string, hidden bool) (Plan, error) {
 			}
 		case StartShowOther:
 			err := c.ShowUI(ctx, "")
+			if route != "" {
+				err = c.ShowRoute(ctx, route)
+			}
 			if errors.Is(err, daemon.ErrNoShell) { // it just left
-				return Plan{Action: StartAttach, Client: c}, nil
+				return Plan{Action: StartAttach, Client: c, Route: route}, nil
 			}
 			return Plan{Action: a}, err
 		case StartAttach:
-			return Plan{Action: a, Client: c}, nil
+			return Plan{Action: a, Client: c, Route: route}, nil
 		default:
 			return Plan{Action: a}, nil
 		}
@@ -133,6 +143,8 @@ type Shell struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	kick     chan struct{}
+	route    string // where the window opens once the daemon answers
+	loaded   bool   // the window holds the daemon's page
 }
 
 // Start runs the plan; it returns at once and works in the background.
@@ -147,6 +159,11 @@ func (s *Shell) Start(p Plan) {
 	s.kick = make(chan struct{}, 1)
 	s.tray = StartingTray()
 	s.UI.SetTray(s.tray)
+	s.mu.Lock()
+	if p.Route != "" {
+		s.route = p.Route
+	}
+	s.mu.Unlock()
 	switch p.Action {
 	case StartInProcess:
 		dctx, stop := context.WithCancel(context.Background())
@@ -170,10 +187,31 @@ func (s *Shell) Start(p Plan) {
 	}
 }
 
-// openUI shows the setup form, before the daemon itself runs.
+// openUI shows the setup form, before the daemon itself runs. Opened
+// from a join link, the form fills itself in from the token and goes on
+// to the join screen (spec 11.1).
 func (s *Shell) openUI(url string) {
-	s.UI.LoadWindow(url)
+	s.mu.Lock()
+	route := s.route
+	s.mu.Unlock()
+	s.UI.LoadWindow(url + route)
 	s.UI.ShowWindow("")
+}
+
+// Link opens a kalka:// link the system handed to the running shell
+// (macOS sends it as an event): the join screen, never a join. Before
+// the daemon answers, the window opens there when it does.
+func (s *Shell) Link(raw string) {
+	route := daemon.JoinRoute(raw)
+	s.mu.Lock()
+	ready := s.loaded
+	if !ready {
+		s.route = route
+	}
+	s.mu.Unlock()
+	if ready {
+		s.UI.ShowWindow(route)
+	}
 }
 
 // waitForDaemon connects to the in-process daemon once it answers.
@@ -229,7 +267,13 @@ func (s *Shell) connected(c *daemon.Client) {
 	s.set = set
 	s.mu.Unlock()
 	s.UI.LoadWindow(c.URL() + "&" + daemon.WindowParam + "=1")
-	if !s.Hidden || s.UI.WindowVisible() {
+	s.mu.Lock()
+	route := s.route
+	s.route, s.loaded = "", true
+	s.mu.Unlock()
+	if route != "" {
+		s.UI.ShowWindow(route)
+	} else if !s.Hidden || s.UI.WindowVisible() {
 		s.UI.ShowWindow("")
 	}
 	s.refresh()
@@ -277,10 +321,15 @@ func (s *Shell) onEvent(typ string, data json.RawMessage) {
 		}
 	case "ui-show":
 		var q struct {
-			Path string `json:"path"`
+			Path  string `json:"path"`
+			Route string `json:"route"`
 		}
 		_ = json.Unmarshal(data, &q)
-		s.UI.ShowWindow(DocHash(q.Path))
+		if daemon.ValidRoute(q.Route) {
+			s.UI.ShowWindow(q.Route)
+		} else {
+			s.UI.ShowWindow(DocHash(q.Path))
+		}
 	}
 	s.poke()
 }

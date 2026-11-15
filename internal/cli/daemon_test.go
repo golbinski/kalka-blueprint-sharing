@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/rendezvous"
 )
@@ -377,7 +378,7 @@ func TestCLIClasses(t *testing.T) {
 	if code, out, _ := w.kalka("status", "--json"); code != 0 || !strings.Contains(out, `"paused": true`) {
 		t.Fatalf("status paused: %s", out)
 	}
-	if code, out, errs := w.kalka("join", "kalka-invite-x", "--json"); code == 0 || !strings.Contains(errs, "paused") {
+	if code, out, errs := w.kalka("join", "kalka-invite-x", "--json"); code == 0 || !strings.Contains(out, `"kind": "paused"`) {
 		t.Fatalf("join while paused: %d %s %s", code, out, errs)
 	}
 	if code, out, _ := w.kalka("resume"); code != 0 || !strings.Contains(out, "syncing again") {
@@ -385,6 +386,38 @@ func TestCLIClasses(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(filepath.Join(w.dir, daemon.StateFile)); !strings.Contains(string(raw), "paused: false") {
 		t.Fatalf("state.yaml after resume:\n%s", raw)
+	}
+
+	// Join links (spec 19.7): the invite prints a link and a token; the
+	// link opens the join screen, and --show never joins.
+	code, out, errs = w.kalka("team", "invite", "bob@corp.com", "--team", "lending")
+	lines := strings.Fields(out)
+	if code != 0 || len(lines) != 2 || lines[0] != "kalka://join/"+lines[1] {
+		t.Fatalf("invite: %d %q %s", code, out, errs)
+	}
+	link, token := lines[0], lines[1]
+	code, out, errs = w.kalka("open", "--print", "<"+strings.ToLower(link)+">")
+	if code != 0 || !strings.HasSuffix(strings.TrimSpace(out), "#/join/"+token) || !strings.Contains(out, "?token=") {
+		t.Fatalf("open --print <link>: %d %q %s", code, out, errs)
+	}
+	code, out, _ = w.kalka("open", "--print", "kalka://join/"+token+"?x=1")
+	if code != 0 || !strings.HasSuffix(strings.TrimSpace(out), "#/join/") {
+		t.Fatalf("open --print <bad link>: %d %q", code, out)
+	}
+	code, out, errs = w.kalka("join", "--show", link, "--json")
+	var pv core.JoinPreview
+	if code != 0 || json.Unmarshal([]byte(out), &pv) != nil || pv.Problem != core.ProblemOwnInvite || pv.Inviter != "alice@corp.com" || pv.Email != "bob@corp.com" || pv.Name != "lending" {
+		t.Fatalf("join --show: %d %s %s", code, out, errs)
+	}
+	code, out, _ = w.kalka("join", "--show", token)
+	if code != 0 || !strings.Contains(out, "invited by") || !strings.Contains(out, "cannot join: this is an invite you made") {
+		t.Fatalf("join --show text: %d %s", code, out)
+	}
+	if code, out, _ = w.kalka("join", "--show", "kalka://join/"+token+"/x", "--json"); code != 1 || !strings.Contains(out, `"kind": "invite-token"`) {
+		t.Fatalf("join --show junk: %d %s", code, out)
+	}
+	if code, out, _ = w.kalka("join", link, "--json"); code != 1 || !strings.Contains(out, `"kind": "own-invite"`) {
+		t.Fatalf("join own invite: %d %s", code, out)
 	}
 
 	// No configuration: a daemon command says so and starts nothing.

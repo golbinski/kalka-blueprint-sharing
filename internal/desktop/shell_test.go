@@ -140,7 +140,7 @@ func TestShellInProcess(t *testing.T) {
 	}
 	dir := world(t)
 	ctx := context.Background()
-	plan, err := Prepare(ctx, dir, false)
+	plan, err := Prepare(ctx, dir, false, "")
 	if err != nil || plan.Action != StartInProcess {
 		t.Fatalf("prepare: %+v %v", plan, err)
 	}
@@ -170,12 +170,12 @@ func TestShellInProcess(t *testing.T) {
 
 	// A second start of the shell shows this window and exits.
 	ui.HideWindow()
-	if p, err := Prepare(ctx, dir, false); err != nil || p.Action != StartShowOther {
+	if p, err := Prepare(ctx, dir, false, ""); err != nil || p.Action != StartShowOther {
 		t.Fatalf("second start: %+v %v", p, err)
 	}
 	eventually(t, "the window shown again", func() bool { return ui.WindowVisible() })
 	ui.HideWindow()
-	if p, err := Prepare(ctx, dir, true); err != nil || p.Action != StartExit {
+	if p, err := Prepare(ctx, dir, true, ""); err != nil || p.Action != StartExit {
 		t.Fatalf("hidden second start: %+v %v", p, err)
 	}
 	time.Sleep(200 * time.Millisecond)
@@ -230,14 +230,14 @@ func TestShellInProcess(t *testing.T) {
 	if strings.Contains(ui.asked[0], "without a window") {
 		t.Fatalf("question: %q", ui.asked[0])
 	}
-	if p, err := Prepare(ctx, dir, false); err != nil || p.Action != StartInProcess {
+	if p, err := Prepare(ctx, dir, false, ""); err != nil || p.Action != StartInProcess {
 		t.Fatalf("after quit: %+v %v", p, err)
 	} else {
 		p.Lock.Release()
 	}
 
 	// A later start does not turn start at login on again.
-	plan, _ = Prepare(ctx, dir, true)
+	plan, _ = Prepare(ctx, dir, true, "")
 	ui2 := newFakeUI()
 	s2 := &Shell{UI: ui2, Dir: dir, Hidden: true, TrayHost: true, Autostart: as}
 	s2.Start(plan)
@@ -282,7 +282,7 @@ func TestShellAttach(t *testing.T) {
 	}()
 	eventually(t, "the headless daemon", func() bool { return answering(ctx, dir) != nil })
 
-	plan, err := Prepare(ctx, dir, false)
+	plan, err := Prepare(ctx, dir, false, "")
 	if err != nil || plan.Action != StartAttach {
 		t.Fatalf("prepare: %+v %v", plan, err)
 	}
@@ -312,7 +312,7 @@ func TestShellAttach(t *testing.T) {
 	eventually(t, "the shell detached", func() bool { sum, _ := c.Summary(ctx); return sum.Shell == "" })
 
 	// A new shell attaches again; Quit stops the headless daemon.
-	plan, _ = Prepare(ctx, dir, false)
+	plan, _ = Prepare(ctx, dir, false, "")
 	ui = newFakeUI()
 	s = &Shell{UI: ui, Dir: dir, TrayHost: true}
 	s.Start(plan)

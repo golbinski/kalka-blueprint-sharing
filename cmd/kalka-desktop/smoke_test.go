@@ -59,7 +59,8 @@ func TestSmoke(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "--hidden")
-	cmd.Env = append(os.Environ(), "KALKA_DESKTOP_MAIN=1")
+	// Nor a URL scheme handler (spec 23.1a).
+	cmd.Env = append(os.Environ(), "KALKA_DESKTOP_MAIN=1", "KALKA_NO_URL_SCHEME=1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

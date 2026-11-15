@@ -399,6 +399,8 @@ export interface Team {
 }
 export interface InviteResult {
   token: string
+  /** kalka://join/<token> */
+  link: string
   id: string
   team: string
   name: string
@@ -416,7 +418,22 @@ export interface Join {
   detail?: string
   tries: number
   last_try?: string
-  warning?: string
+  inviter?: string
+}
+/** What the join screen shows (spec 11.1, 19.7). The team name and the
+ * inviter are claims until the join completes: render them as text. */
+export interface JoinPreview {
+  token: string
+  team: string
+  name: string
+  inviter: string
+  email: string
+  expires: string
+  rendezvous: string
+  /** What stops the join; absent when Join can go ahead. */
+  problem?: 'invite-email' | 'invite-expired' | 'already-member' | 'own-invite' | 'rendezvous-mismatch'
+  message?: string
+  joining?: Join
 }
 export interface Reassigned {
   kalka_id: string
@@ -448,6 +465,7 @@ export const api = {
   replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),
+  joinPreview: (token: string) => call<JoinPreview>('POST', '/api/joins/preview', { token }),
   seeds: () => call<SeedRow[] | null>('GET', '/api/seeds').then((l) => l ?? []),
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),

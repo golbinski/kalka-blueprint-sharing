@@ -337,6 +337,7 @@ func (d *Node) CreateTeam(teamName string) (TeamView, error) {
 // InviteResult is a new invite (spec 19.7 step 1).
 type InviteResult struct {
 	Token   string    `json:"token"`
+	Link    string    `json:"link"` // kalka://join/<token>
 	ID      string    `json:"id"`
 	Team    string    `json:"team"`
 	Name    string    `json:"name"`
@@ -372,7 +373,7 @@ func (d *Node) Invite(ref, email string, ttl time.Duration) (InviteResult, error
 		return InviteResult{}, err
 	}
 	now := d.now()
-	iv := teamlog.Invite{TeamName: t.Name, Team: t.Team, Owner: teamlog.EncodeKey(d.pub), Email: email,
+	iv := teamlog.Invite{TeamName: t.Name, Team: t.Team, Owner: teamlog.EncodeKey(d.pub), Inviter: d.self.Email, Email: email,
 		Secret: secret, Expires: now.Add(ttl).UTC().Truncate(time.Second), Rendezvous: d.cfg.Rendezvous}
 	rec := inviteRecord{ID: iv.ID(), Team: t.Team, Name: t.Name, Email: email, Token: iv.Token(), Created: now.UTC(), Expires: iv.Expires}
 	if err := d.teams.invites.update(func(l []inviteRecord) ([]inviteRecord, bool) { return append(l, rec), true }); err != nil {
@@ -380,7 +381,7 @@ func (d *Node) Invite(ref, email string, ttl time.Duration) (InviteResult, error
 	}
 	d.bus.Publish(BusEvent{Type: "teams"})
 	d.logf("invited %s to %s (expires %s)", email, t.Name, iv.Expires.Format(time.RFC3339))
-	return InviteResult{Token: rec.Token, ID: rec.ID, Team: t.Team, Name: t.Name, Email: email, Expires: iv.Expires}, nil
+	return InviteResult{Token: rec.Token, Link: iv.Link(), ID: rec.ID, Team: t.Team, Name: t.Name, Email: email, Expires: iv.Expires}, nil
 }
 
 // CancelInvite withdraws an open invite this installation issued.
