@@ -657,7 +657,8 @@ A waiting item is something only the local user can move forward. Each has a tea
 | Owner is no longer a member | The team's owners | The removal | A reassignment |
 
 - Not waiting items: your own pending join (it waits for the inviter; the switcher shows "joining <team>…"), a queued push, new comments (a notice, 22.4).
-- The `seen` marks are a small list in `state.yaml`: document id and release id. A mark is dropped when that release is no longer the head.
+- The `seen` marks are a small list in `state.yaml`: document id and what made it yours, the handoff release's id or the reassignment's operation. A mark is dropped when that is no longer what makes the document yours.
+- After a reassignment or an accept, the new owner's kalka releases on its own (7.3); that release is not "a release of yours", so the item stays until the document is opened or a release is made by hand.
 - Timestamps come from other people's clocks. "Oldest" chooses which team the tray opens (22.1) and nothing else.
 
 ---
@@ -701,7 +702,7 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka reassign <file> <email>` | daemon | Team owners: make any member the owner (7.3). | Review *Reassign…*, Waiting |
 | `kalka copy <file> --to <team>` | daemon | Offer a copy to another team (20.7). | Review *Copy to team…* |
 | `kalka move <file> --to <team>` | daemon | Offer a move to another team (20.7). | Review *Move to team…* |
-| `kalka transfers` | view | Transfers into and out of the team. | Team, transfers; Waiting |
+| `kalka transfers [--team <t>]` | view | Transfers into and out of the team. | Team, transfers; Waiting |
 | `kalka transfer accept <id> [--owner <email>]` | daemon | Team owners: accept a pending transfer. | Waiting *Accept* |
 | `kalka transfer decline <id>` | daemon | Team owners: decline it. | Waiting *Decline* |
 | `kalka transfer withdraw <id>` | daemon | Withdraw your own pending transfer. | Team, transfers, *Withdraw* |
@@ -710,12 +711,12 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka seed <parent> --title <t> [--from <entry id>] [-m <text>] [--why <text>]` | file | Bud a seed (6.11). | *Create seed* |
 | `kalka seed backlink <seed>` | file | Add a missing `budded` entry to the seed's parent. | Review *Add the backlink* |
 | `kalka promote <file> [--status <s>]` | daemon | Change a seed's `status` (default `draft`). | Pre-backlog, Review *Promote* |
-| `kalka seeds` | view | The pre-backlog of a team or Personal. | Pre-backlog |
-| `kalka domains` | view | Domain documents and versions. | Domains |
+| `kalka seeds [--team <t>\|personal]` | view | The pre-backlog of a team or Personal. | Pre-backlog |
+| `kalka domains [--team <t>]` | view | Domain documents and versions. | Domains |
 | `kalka check <file>` | file | Validate format; exit code for use in scripts and agents. | Problems in Blueprints and Review |
-| `kalka waiting [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Waiting, tray |
+| `kalka waiting [--team <t>] [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Waiting, tray |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). | Settings, tray |
-| `kalka settings [--notifications on\|off] [--keep-running on\|off]` | daemon | The settings of 22.2. | Settings |
+| `kalka settings [--notifications on\|off] [--keep-running on\|off]` | daemon (a view with no option) | The settings of 22.2; with no option it shows them. | Settings |
 | `kalka autostart on [--headless]\|off\|status` | file | Start kalka at login (22.2). | Settings *Start at login* |
 | `kalka reference export [-o <file>] [--force]` / `reference version` | file | Write or name `BLUEPRINT-REFERENCE.md` (6.13). Never overwrites without `--force`. | Settings *Blueprint reference* |
 | `kalka version` | file | Version and protocol numbers. | Settings, version line |
@@ -740,6 +741,7 @@ A Go test checks that every command has a row, every workflow row has an action 
 
 With `--json`, a failure is `{"error": "...", "kind": "..."}` on stdout, and the exit code is 1 (2 for usage errors). A view's JSON is an object carrying `"daemon"`, with live fields `null` when no daemon runs (unknown, not zero). The kinds are stable:
 
+<!-- error-kinds -->
 | Kind | Meaning |
 |---|---|
 | `not-set-up` | No configuration; a daemon command does not start a daemon that would wait for the setup form. |
@@ -765,8 +767,10 @@ With `--json`, a failure is `{"error": "...", "kind": "..."}` on stdout, and the
 | `invite-token` | The link or token does not parse. |
 | `invite-expired`, `invite-used`, `invite-email` | The invite has expired, was used, or names another email. |
 | `rendezvous-mismatch` | The invite names another rendezvous server. |
+| `error` | Anything else (a file that cannot be read, a network failure); the message says what. |
+<!-- /error-kinds -->
 
-The parity test checks this list against the kinds the code can return.
+A test checks this list against the kinds the code declares, and that each is returned somewhere.
 
 ---
 
@@ -780,7 +784,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - Requests that change state must carry an `Origin` equal to the daemon's own origin, or none (the CLI). When a `Sec-Fetch-Site` header is present on an `/api/` request it must be `same-origin` or `none`, for reads too. A web page elsewhere that aims requests at `localhost` is refused. The token link itself is not checked: opened from a mail or chat page it arrives as `cross-site`, and a page that does not know the token gains nothing from it. The UI's static files carry no data and are served without these checks (the sandboxed Mermaid frame loads them from an opaque origin).
 - The token is in `daemon.json` in the config directory, written owner-only (mode 0600; on Windows an ACL restricted to the current user). Another local user cannot read it. The user's own processes can, as they can read the identity key: they are trusted with the user's files.
 - `--no-ui` stops the daemon from serving the web UI (every page path answers 404 and no cookie is set); the API stays up for the CLI and the shell.
-- **Scope.** Lists take `?team=<name or hash>` or `?team=personal`: `GET /api/blueprints`, `/api/seeds`, `/api/domains`, `/api/waiting`, `/api/transfers`. `GET /api/teams` lists the teams with their waiting counts. `GET /api/summary` carries `waiting: {total, oldest: {team, at, target}, teams: [{team, name, count}]}`.
+- **Scope.** Lists take `?team=<name or hash>` or `?team=personal`: `GET /api/blueprints`, `/api/seeds`, `/api/domains`, `/api/waiting`, `/api/transfers`. `GET /api/teams` lists the teams with their waiting counts. `GET /api/waiting` lists the items oldest first; `POST /api/waiting/seen {path}` clears a handed-to-you item, as opening the document with `GET /api/doc` does. `GET /api/summary` carries `waiting: {total, oldest: {team, at, target}, teams: [{team, name, count}]}`.
 - `POST /api/joins/preview {token}` returns what the join screen shows (11.1) and never joins: the token as normalized, the team name and hash, the inviter, the invited email, the expiry and the rendezvous; `problem` with `message` when the join cannot go ahead here (`invite-email`, `invite-expired`, `rendezvous-mismatch`, `already-member`, or `own-invite` when the owner opens their own link); and `joining` when this installation is already redeeming it. Before setup it answers from the token alone, so the setup form can fill itself in. `POST /api/joins` refuses with the same kinds.
 - Links the page opens to the outside go through `POST /api/open-external` when it runs in the desktop window: only `http` and `https` are accepted, and the system browser opens them. The window never navigates away from the loopback origin.
 - **The desktop shell** (22) is a client like the others. It holds an event stream with `GET /api/events?shell=1`; while one is open, `GET /api/summary` reports `"shell": "desktop"` and the shell, not the daemon, presents notices. `POST /api/ui/show {"path"}` or `{"route"}` asks it to show its window, on a document's route or on a route of the page (`#/` and URL-safe characters only: the waiting list, the join screen); with no shell attached it fails with kind `no-shell`, and bare `kalka` opens the browser instead. The window loads the token link with `window=1`, which also sets a cookie the page can read (`kalka_window=1`): the page then sends links outside, leaves notifications to the shell, and shows the window settings.

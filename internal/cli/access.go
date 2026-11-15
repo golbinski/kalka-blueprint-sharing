@@ -52,12 +52,12 @@ var notSetUp = fmt.Sprintf("%s is not set up: run `%s` and finish setup in the b
 func daemonFor(asJSON bool, stdout, stderr io.Writer) (*daemon.Client, int) {
 	dir, err := config.Dir()
 	if err != nil {
-		return nil, report(asJSON, stdout, stderr, "config", err.Error())
+		return nil, failWith(asJSON, stdout, stderr, err)
 	}
 	if _, err := config.Load(); errors.Is(err, config.ErrMissing) {
-		return nil, report(asJSON, stdout, stderr, "not-set-up", notSetUp)
+		return nil, report(asJSON, stdout, stderr, core.KindNotSetUp, notSetUp)
 	} else if err != nil {
-		return nil, report(asJSON, stdout, stderr, "config", err.Error())
+		return nil, failWith(asJSON, stdout, stderr, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 	defer cancel()
@@ -65,12 +65,12 @@ func daemonFor(asJSON bool, stdout, stderr io.Writer) (*daemon.Client, int) {
 		return c, exitOK
 	}
 	if noStart || os.Getenv(NoStartEnv) == "1" {
-		return nil, report(asJSON, stdout, stderr, "not-running",
+		return nil, report(asJSON, stdout, stderr, core.KindNotRunning,
 			fmt.Sprintf("%s is not running, and --no-start (or %s=1) says not to start it", name.Product, NoStartEnv))
 	}
 	c, err := ensureDaemon(ctx, dir)
 	if err != nil {
-		return nil, report(asJSON, stdout, stderr, "not-running", err.Error())
+		return nil, report(asJSON, stdout, stderr, core.KindNotRunning, err.Error())
 	}
 	fmt.Fprintf(stderr, "started %s in the background; `%s stop` stops it\n", name.Product, name.Binary)
 	return c, exitOK
@@ -86,13 +86,13 @@ type views struct {
 func openViews(asJSON bool, stdout, stderr io.Writer) (*views, int) {
 	dir, err := config.Dir()
 	if err != nil {
-		return nil, report(asJSON, stdout, stderr, "config", err.Error())
+		return nil, failWith(asJSON, stdout, stderr, err)
 	}
 	cfg, err := config.Load()
 	if errors.Is(err, config.ErrMissing) {
-		return nil, report(asJSON, stdout, stderr, "not-set-up", notSetUp)
+		return nil, report(asJSON, stdout, stderr, core.KindNotSetUp, notSetUp)
 	} else if err != nil {
-		return nil, report(asJSON, stdout, stderr, "config", err.Error())
+		return nil, failWith(asJSON, stdout, stderr, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -101,7 +101,10 @@ func openViews(asJSON bool, stdout, stderr io.Writer) (*views, int) {
 	}
 	n, err := core.Open(core.Options{Config: cfg, ConfigDir: dir, Log: io.Discard})
 	if err != nil {
-		return nil, report(asJSON, stdout, stderr, "local", err.Error())
+		return nil, failWith(asJSON, stdout, stderr, err)
+	}
+	if st, err := daemon.LoadState(dir); err == nil {
+		n.SetSeen(func() map[string]string { return st.Seen })
 	}
 	return &views{n: n}, exitOK
 }
@@ -124,11 +127,53 @@ func (v *views) team(ctx context.Context, ref string) (core.TeamView, error) {
 	return v.n.Team(ref)
 }
 
-func (v *views) domains(ctx context.Context) ([]core.DomainRow, error) {
+func (v *views) domains(ctx context.Context, team string) ([]core.DomainRow, error) {
 	if v.c != nil {
-		return v.c.Domains(ctx)
+		return v.c.Domains(ctx, team)
 	}
-	return v.n.Domains(), nil
+	sc, err := v.n.ResolveScope(team)
+	if err != nil {
+		return nil, err
+	}
+	return v.n.DomainsIn(sc), nil
+}
+
+func (v *views) seeds(ctx context.Context, team string) ([]core.SeedView, error) {
+	if v.c != nil {
+		return v.c.Seeds(ctx, team)
+	}
+	sc, err := v.n.ResolveScope(team)
+	if err != nil {
+		return nil, err
+	}
+	return v.n.SeedsIn(sc), nil
+}
+
+func (v *views) teams(ctx context.Context) ([]core.TeamView, error) {
+	if v.c != nil {
+		return v.c.Teams(ctx)
+	}
+	return v.n.Teams(), nil
+}
+
+// waiting lists the waiting items. Without a daemon the seen marks come
+// from state.yaml, which only the daemon writes.
+func (v *views) waiting(ctx context.Context, team string) ([]core.WaitingItem, error) {
+	if v.c != nil {
+		return v.c.Waiting(ctx, team)
+	}
+	return v.n.Waiting(team)
+}
+
+func (v *views) transfers(ctx context.Context, team string) ([]core.TransferView, error) {
+	if v.c != nil {
+		return v.c.Transfers(ctx, team)
+	}
+	sc, err := v.n.ResolveScope(team)
+	if err != nil {
+		return nil, err
+	}
+	return v.n.TransfersIn(sc), nil
 }
 
 // notRunningNote ends a text view read from files.
@@ -168,13 +213,13 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	st, err := v.status(ctx)
 	if err != nil {
-		return report(asJSON, stdout, stderr, "daemon", err.Error())
+		return failWith(asJSON, stdout, stderr, err)
 	}
 	out := statusView{Daemon: v.live(), Status: st, Paused: st.Paused}
 	if v.live() {
 		sum, err := v.c.Summary(ctx)
 		if err != nil {
-			return report(asJSON, stdout, stderr, "daemon", err.Error())
+			return failWith(asJSON, stdout, stderr, err)
 		}
 		out.Online, out.PeersOnline, out.Pushes = &sum.Online, &sum.PeersOnline, &sum.Pushes
 		out.PeersKnown, out.Joins, out.Paused, out.Shell = sum.PeersKnown, sum.Joins, sum.Paused, sum.Shell
@@ -261,7 +306,7 @@ func cmdPause(paused bool, args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	s, err := c.SetPaused(ctx, paused)
 	if err != nil {
-		return report(asJSON, stdout, stderr, "daemon", err.Error())
+		return failWith(asJSON, stdout, stderr, err)
 	}
 	if asJSON {
 		writeJSON(stdout, s)

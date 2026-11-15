@@ -101,6 +101,7 @@ export function App() {
             break
           }
           case 'teams':
+          case 'waiting':
             setTeamTick((n) => n + 1)
             break
           case 'refs': {

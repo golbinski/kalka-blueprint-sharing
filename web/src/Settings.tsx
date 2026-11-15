@@ -44,7 +44,7 @@ export function SettingsPage({ tick }: { tick: number }) {
           {" · "}
           last sync{" "}
           {sum.last_sync ? localTime(sum.last_sync) : "none since start"}
-          {sum.joins > 0 && <> · {sum.joins} waiting for you</>}
+          {sum.waiting.total > 0 && <> · {sum.waiting.total} waiting for you</>}
           {sum.pushes > 0 && (
             <>
               {" "}

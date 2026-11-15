@@ -46,8 +46,7 @@ func cmdReference(args []string, stdout, stderr io.Writer) int {
 	if *out == "" || *out == "-" {
 		_, err := stdout.Write(reference.Bytes())
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitProblems
+			return failWith(*asJSON, stdout, stderr, err)
 		}
 		return exitOK
 	}
@@ -59,12 +58,10 @@ func cmdReference(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s already exists; add --force to overwrite it\n", path)
 		return exitProblems
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	if err := fsutil.WriteAtomic(path, reference.Bytes(), nil); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	_ = os.Chmod(path, 0o644)
 	if *asJSON {

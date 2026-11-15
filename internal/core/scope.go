@@ -118,3 +118,88 @@ func (d *Node) duplicate(path string) bool {
 	}
 	return false
 }
+
+// Scope is a list's scope (spec 13, `?team=`): "" is everything, a team's
+// name or hash its folder, ScopePersonal the Personal folder.
+type Scope struct {
+	All      bool
+	Personal bool
+	Team     teamDir
+}
+
+// ResolveScope reads a scope parameter.
+func (d *Node) ResolveScope(s string) (Scope, error) {
+	switch s {
+	case "":
+		return Scope{All: true}, nil
+	case ScopePersonal:
+		return Scope{Personal: true}, nil
+	}
+	t, err := d.findTeam(s)
+	if err != nil {
+		return Scope{}, err
+	}
+	return Scope{Team: t}, nil
+}
+
+// Holds reports whether the file at path (absolute, or relative to the
+// folder) is in the scope.
+func (d *Node) Holds(sc Scope, path string) bool {
+	if sc.All {
+		return true
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(d.Store.Dir(), filepath.FromSlash(path))
+	}
+	if sc.Personal {
+		return inDir(filepath.Join(d.Store.Dir(), store.PersonalDir), path)
+	}
+	return inDir(sc.Team.Dir, path)
+}
+
+// HoldsTeam reports whether a team, by hash, is the scope's.
+func (sc Scope) HoldsTeam(hash string) bool { return sc.All || (!sc.Personal && sc.Team.Team == hash) }
+
+// TransfersIn lists the transfers of a scope.
+func (d *Node) TransfersIn(sc Scope) []TransferView {
+	out := []TransferView{}
+	for _, v := range d.Transfers() {
+		if sc.HoldsTeam(v.teamHash) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// SeedsIn lists the seeds of a scope.
+func (d *Node) SeedsIn(sc Scope) []SeedView {
+	out := []SeedView{}
+	for _, v := range d.Seeds() {
+		if d.Holds(sc, v.Rel) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// DomainsIn lists the domain documents of a scope.
+func (d *Node) DomainsIn(sc Scope) []DomainRow {
+	out := []DomainRow{}
+	for _, r := range d.Domains() {
+		if d.Holds(sc, r.Path) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// BlueprintsIn lists the indexed files of a scope.
+func (d *Node) BlueprintsIn(sc Scope) []store.Info {
+	out := []store.Info{}
+	for _, in := range d.Store.List() {
+		if d.Holds(sc, in.Path) {
+			out = append(out, in)
+		}
+	}
+	return out
+}

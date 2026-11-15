@@ -136,7 +136,7 @@ var ErrNoShell = errors.New("no desktop window is attached")
 func (c *Client) ShowUI(ctx context.Context, path string) error {
 	err := c.do(ctx, http.MethodPost, "/api/ui/show", map[string]string{"path": path}, nil)
 	var re *RemoteError
-	if errors.As(err, &re) && re.Kind == "no-shell" {
+	if errors.As(err, &re) && re.Kind == core.KindNoShell {
 		return ErrNoShell
 	}
 	return err
@@ -146,7 +146,7 @@ func (c *Client) ShowUI(ctx context.Context, path string) error {
 func (c *Client) ShowRoute(ctx context.Context, route string) error {
 	err := c.do(ctx, http.MethodPost, "/api/ui/show", map[string]string{"route": route}, nil)
 	var re *RemoteError
-	if errors.As(err, &re) && re.Kind == "no-shell" {
+	if errors.As(err, &re) && re.Kind == core.KindNoShell {
 		return ErrNoShell
 	}
 	return err

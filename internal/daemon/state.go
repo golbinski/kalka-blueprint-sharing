@@ -27,6 +27,9 @@ type State struct {
 	KeepRunningOnClose   *bool `yaml:"keep_running_on_close,omitempty"`
 	CloseNoticeShown     bool  `yaml:"close_notice_shown,omitempty"`
 	AutostartInitialized bool  `yaml:"autostart_initialized,omitempty"`
+	// Seen marks handed-to-you items as seen (spec 11.3): document id ->
+	// the release or reassignment it was seen at.
+	Seen map[string]string `yaml:"seen,omitempty"`
 }
 
 func on(b *bool) bool { return b == nil || *b }
@@ -126,6 +129,14 @@ func (d *Daemon) Settings() Settings {
 	return out
 }
 
+// Settings are the settings state.yaml holds, read without a daemon:
+// start at login, which the system's entry decides, is left out.
+func (s State) Settings() Settings {
+	return Settings{Paused: ptr(s.Paused), Notifications: ptr(on(s.Notifications)),
+		KeepRunningOnClose: ptr(on(s.KeepRunningOnClose)), CloseNoticeShown: ptr(s.CloseNoticeShown),
+		AutostartInitialized: ptr(s.AutostartInitialized)}
+}
+
 // Apply changes the settings given and saves state.yaml.
 func (d *Daemon) Apply(in Settings) (Settings, error) {
 	if in.StartAtLogin != nil {
@@ -219,4 +230,50 @@ func (d *Daemon) presentNotices(done <-chan struct{}, events <-chan core.BusEven
 			d.opts.Notify(n)
 		}
 	}
+}
+
+// seen is the seen marks, for the node.
+func (d *Daemon) seen() map[string]string {
+	d.set.mu.Lock()
+	defer d.set.mu.Unlock()
+	out := make(map[string]string, len(d.set.st.Seen))
+	for k, v := range d.set.st.Seen {
+		out[k] = v
+	}
+	return out
+}
+
+// MarkSeen clears the handed-to-you item of the document at path
+// (opening it, or `kalka waiting --seen`). Marks that no longer name what
+// makes a document yours are dropped. It reports whether an item was
+// waiting and is cleared now.
+func (d *Daemon) MarkSeen(path string) (bool, error) {
+	id, mark, ok := d.SeenMark(path)
+	if !ok {
+		return false, nil
+	}
+	current := d.WaitingMarks()
+	d.set.mu.Lock()
+	st := d.set.st
+	seen := map[string]string{id: mark}
+	for k, v := range st.Seen {
+		if k != id && current[k] == v {
+			seen[k] = v
+		}
+	}
+	if st.Seen[id] == mark {
+		d.set.mu.Unlock()
+		return false, nil // seen already
+	}
+	st.Seen = seen
+	err := saveState(d.dir, st)
+	if err == nil {
+		d.set.st = st
+	}
+	d.set.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	d.Bus().Publish(core.BusEvent{Type: "waiting"})
+	return true, nil
 }

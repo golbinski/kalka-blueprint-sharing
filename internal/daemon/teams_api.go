@@ -121,8 +121,12 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, res)
 	})
-	mux.HandleFunc("GET /api/transfers", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, d.Transfers())
+	mux.HandleFunc("GET /api/transfers", func(w http.ResponseWriter, r *http.Request) {
+		sc, ok := d.scope(w, r)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, d.TransfersIn(sc))
 	})
 	mux.HandleFunc("POST /api/transfers/{id}/{action}", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
@@ -191,7 +195,13 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, res)
 	})
-	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Domains()) })
+	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, r *http.Request) {
+		sc, ok := d.scope(w, r)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, d.DomainsIn(sc))
+	})
 	mux.HandleFunc("POST /api/delete", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
 			Path     string `json:"path"`
@@ -321,9 +331,9 @@ func (c *Client) Transfer(ctx context.Context, q TransferRequest) (core.Transfer
 }
 
 // Transfers lists the pending transfers the user may see.
-func (c *Client) Transfers(ctx context.Context) ([]core.TransferView, error) {
+func (c *Client) Transfers(ctx context.Context, team string) ([]core.TransferView, error) {
 	var v []core.TransferView
-	return v, c.do(ctx, http.MethodGet, "/api/transfers", nil, &v)
+	return v, c.do(ctx, http.MethodGet, "/api/transfers"+scopeQuery(team), nil, &v)
 }
 
 // DecideTransfer accepts (owner may be empty), declines or withdraws a
@@ -365,9 +375,9 @@ func (c *Client) Release(ctx context.Context, path, note string, incorporates []
 }
 
 // Domains lists the domain documents held by the daemon.
-func (c *Client) Domains(ctx context.Context) ([]core.DomainRow, error) {
+func (c *Client) Domains(ctx context.Context, team string) ([]core.DomainRow, error) {
 	var v []core.DomainRow
-	return v, c.do(ctx, http.MethodGet, "/api/domains", nil, &v)
+	return v, c.do(ctx, http.MethodGet, "/api/domains"+scopeQuery(team), nil, &v)
 }
 
 // Delete deletes a published document for the team.
@@ -379,4 +389,44 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 func (c *Client) Replicate(ctx context.Context, team string) (core.TeamStatus, error) {
 	var v core.TeamStatus
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/replicate", struct{}{}, &v)
+}
+
+// scopeQuery is ?team= for a list (spec 13); empty for everything.
+func scopeQuery(team string) string {
+	if team == "" {
+		return ""
+	}
+	return "?team=" + url.QueryEscape(team)
+}
+
+// Seeds lists the seeds of a scope.
+func (c *Client) Seeds(ctx context.Context, team string) ([]core.SeedView, error) {
+	var v []core.SeedView
+	return v, c.do(ctx, http.MethodGet, "/api/seeds"+scopeQuery(team), nil, &v)
+}
+
+// Waiting lists the waiting items of a scope (spec 11.3).
+func (c *Client) Waiting(ctx context.Context, team string) ([]core.WaitingItem, error) {
+	var v []core.WaitingItem
+	return v, c.do(ctx, http.MethodGet, "/api/waiting"+scopeQuery(team), nil, &v)
+}
+
+// MarkSeen clears the handed-to-you item of a document; it reports
+// whether there was one.
+func (c *Client) MarkSeen(ctx context.Context, path string) (bool, error) {
+	var v struct {
+		Cleared bool `json:"cleared"`
+	}
+	err := c.do(ctx, http.MethodPost, "/api/waiting/seen", map[string]string{"path": path}, &v)
+	return v.Cleared, err
+}
+
+// CancelInvite cancels an open invite.
+func (c *Client) CancelInvite(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/invites/"+url.PathEscape(id), nil, nil)
+}
+
+// Promote turns a seed into a blueprint (spec 6.11).
+func (c *Client) Promote(ctx context.Context, path, status string) error {
+	return c.do(ctx, http.MethodPost, "/api/promote", map[string]string{"path": path, "status": status}, nil)
 }

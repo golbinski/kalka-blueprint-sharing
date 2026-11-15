@@ -35,6 +35,8 @@ type JoinView struct {
 	Expires time.Time `json:"expires"`
 	State   string    `json:"state"`
 	Detail  string    `json:"detail,omitempty"`
+	// Kind is the error kind of a failed join (spec 12.3), when it has one.
+	Kind    string    `json:"kind,omitempty"`
 	Tries   int       `json:"tries"`
 	LastTry time.Time `json:"last_try,omitzero"`
 	Inviter string    `json:"inviter,omitempty"`
@@ -46,7 +48,7 @@ func joinView(r joinRecord) JoinView {
 		inviter = iv.Inviter
 	}
 	return JoinView{Inviter: inviter, ID: r.ID, Team: r.Team, Name: r.Name, Owner: r.Owner, Created: r.Created, Expires: r.Expires,
-		State: r.State, Detail: r.Detail, Tries: r.Tries, LastTry: r.LastTry}
+		State: r.State, Detail: r.Detail, Kind: r.Kind, Tries: r.Tries, LastTry: r.LastTry}
 }
 
 // Joins lists the joins recorded in joins.yaml, newest first.
@@ -166,7 +168,7 @@ func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
 		for i := range l {
 			if l[i].ID == id {
 				if l[i].State == JoinFailed {
-					l[i].State, l[i].Detail = JoinPending, ""
+					l[i].State, l[i].Detail, l[i].Kind = JoinPending, "", ""
 				}
 				rec = l[i]
 				return l, true
@@ -223,7 +225,7 @@ func (d *Node) setJoin(id string, f func(*joinRecord)) {
 }
 
 // joinFailure is an attempt that ends the join, with the reason shown.
-type joinFailure struct{ msg string }
+type joinFailure struct{ msg, kind string }
 
 func (e *joinFailure) Error() string { return e.msg }
 
@@ -253,7 +255,7 @@ func (d *Node) tryJoin(ctx context.Context, id string) {
 	}
 	if !d.now().Before(rec.Expires) {
 		d.setJoin(id, func(r *joinRecord) {
-			r.State, r.Detail = JoinFailed, "the invite expired before the owner was reached: ask them for a new one"
+			r.State, r.Detail, r.Kind = JoinFailed, "the invite expired before the owner was reached: ask them for a new one", KindInviteExpired
 		})
 		return
 	}
@@ -274,7 +276,7 @@ func (d *Node) tryJoin(ctx context.Context, id string) {
 		case err == nil:
 			r.State, r.Detail = JoinDone, ""
 		case errors.As(err, &fail):
-			r.State, r.Detail = JoinFailed, fail.msg
+			r.State, r.Detail, r.Kind = JoinFailed, fail.msg, fail.kind
 		default:
 			r.Detail = err.Error()
 		}
@@ -354,13 +356,24 @@ func (d *Node) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, erro
 				msg += " (" + b.Detail + ")"
 			}
 			if b.Reason == "" || strings.HasPrefix(b.Reason, "invite-") || b.Reason == "refused" {
-				return peer.Email, &joinFailure{msg}
+				kind := ""
+				switch b.Reason {
+				case syncproto.ByeInviteUsed:
+					kind = KindInviteUsed
+				case syncproto.ByeInviteExpired:
+					kind = KindInviteExpired
+				case syncproto.ByeInviteEmail:
+					kind = KindInviteEmail
+				case syncproto.ByeInviteUnknown, syncproto.ByeInviteProof, syncproto.ByeInviteTeam:
+					kind = KindInviteToken // the token does not match what the owner issued
+				}
+				return peer.Email, &joinFailure{msg, kind}
 			}
 			return peer.Email, errors.New(msg)
 		case "team_log":
 			var m syncproto.TeamLog
 			if err := env.Decode(&m); err != nil {
-				return peer.Email, &joinFailure{"the owner sent a damaged team log"}
+				return peer.Email, &joinFailure{"the owner sent a damaged team log", ""}
 			}
 			err := d.acceptJoinLog(iv, m)
 			reason, detail := syncproto.ByeJoined, ""
@@ -370,7 +383,7 @@ func (d *Node) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, erro
 			_ = c.Send(syncproto.Bye{Type: "bye", Reason: reason, Detail: detail})
 			time.Sleep(200 * time.Millisecond)
 			if err != nil {
-				return peer.Email, &joinFailure{err.Error()}
+				return peer.Email, &joinFailure{err.Error(), ""}
 			}
 			return peer.Email, nil
 		}

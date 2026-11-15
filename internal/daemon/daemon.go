@@ -112,6 +112,7 @@ func New(opts Options) (*Daemon, error) {
 	}
 	d := &Daemon{Node: n, opts: opts, dir: opts.ConfigDir, token: token}
 	d.set.st = st
+	n.SetSeen(d.seen)
 	return d, nil
 }
 

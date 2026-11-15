@@ -46,8 +46,12 @@ func TestSeedCommands(t *testing.T) {
 		t.Fatal(errs)
 	}
 	code, out, _ = call("", "seeds", "--json")
-	var rows []seedRow
-	if err := json.Unmarshal([]byte(out), &rows); code != 0 || err != nil || len(rows) != 2 || rows[0].ParentTitle != "Redelivery scheduling" {
+	var view struct {
+		Seeds []seedRow `json:"seeds"`
+	}
+	err := json.Unmarshal([]byte(out), &view)
+	rows := view.Seeds
+	if code != 0 || err != nil || len(rows) != 2 || rows[0].ParentTitle != "Redelivery scheduling" {
 		t.Fatalf("seeds: %d %v %s", code, err, out)
 	}
 	if code, out, _ := call("", "seeds"); code != 0 || !strings.Contains(out, "from: Redelivery scheduling") {

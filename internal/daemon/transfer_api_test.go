@@ -12,7 +12,7 @@ func TestTransferAPI(t *testing.T) {
 	a := w.node("ewa@parcels.example")
 	c := NewClient(a.d.APIAddr(), a.d.Token())
 	ctx := context.Background()
-	ts, err := c.Transfers(ctx)
+	ts, err := c.Transfers(ctx, "")
 	if err != nil || len(ts) != 0 {
 		t.Fatalf("transfers %v %v", ts, err)
 	}

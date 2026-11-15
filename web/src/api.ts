@@ -16,6 +16,11 @@ export interface Status {
   notice?: string
 }
 
+/** ?team= of a list (spec 13): '' is everything, 'personal' is Personal. */
+export function scope(team: string): string {
+  return team ? '?team=' + encodeURIComponent(team) : ''
+}
+
 // Summary is the one-line state (spec 22.1).
 export interface Summary {
   online: boolean
@@ -24,9 +29,35 @@ export interface Summary {
   peers_online: number
   peers_known: number
   last_sync?: string
+  /** What waits for the user over every team (spec 11.3). */
+  waiting: WaitingSummary
+  /** Joins in progress and queued pushes: not waiting items. */
   joins: number
   pushes: number
   shell?: 'desktop'
+}
+
+export interface WaitingSummary {
+  total: number
+  /** The oldest item; target is its team's waiting list. */
+  oldest?: { team: string; at: string; target: string }
+  teams: { team: string; name: string; count: number }[]
+}
+
+// WaitingItem is one waiting item (spec 11.3).
+export interface WaitingItem {
+  kind: 'transfer' | 'handed' | 'disputed' | 'owner-gone'
+  team: string
+  team_name: string
+  at: string
+  /** The page route: the document, or the team's waiting list. */
+  target: string
+  title: string
+  path?: string
+  kalka_id?: string
+  transfer?: string
+  by?: string
+  message: string
 }
 
 // Settings are the daemon's own settings (spec 22.2).
@@ -384,6 +415,8 @@ export interface Team {
   log: string
   me: 'owner' | 'member' | 'none'
   error?: string
+  /** The team's waiting items (spec 11.3). */
+  waiting: number
   members: TeamMember[]
   owners: string[]
   invites: TeamInvite[]
@@ -448,6 +481,9 @@ export const api = {
   applySettings: (s: Settings) => call<Settings>('PUT', '/api/settings', s),
   setPaused: (paused: boolean) => call<Settings>('POST', paused ? '/api/pause' : '/api/resume', {}),
   teams: () => call<Team[] | null>('GET', '/api/teams').then((l) => l ?? []),
+  waiting: (team = '') =>
+    call<WaitingItem[] | null>('GET', '/api/waiting' + scope(team)).then((l) => l ?? []),
+  markSeen: (path: string) => call<{ cleared: boolean }>('POST', '/api/waiting/seen', { path }),
   createTeam: (name: string) => call<Team>('POST', '/api/teams', { name }),
   invite: (team: string, email: string, expires: string) => call<InviteResult>('POST', `/api/teams/${enc(team)}/invites`, { email, expires }),
   cancelInvite: (id: string) => call<object>('DELETE', '/api/invites/' + enc(id)),
@@ -460,32 +496,32 @@ export const api = {
     call<PublishResult>('POST', '/api/release', { path, note, incorporates, take_over: takeOver }),
   handoff: (path: string, email: string) => call<PublishResult>('POST', '/api/handoff', { path, email }),
   reassign: (path: string, email: string) => call<ReassignResult>('POST', '/api/reassign', { path, email }),
-  domains: () => call<DomainRow[] | null>('GET', '/api/domains').then((l) => l ?? []),
+  domains: (team = '') => call<DomainRow[] | null>('GET', '/api/domains' + scope(team)).then((l) => l ?? []),
   deleteForTeam: (path: string, takeOver = false) => call<object>('POST', '/api/delete', { path, take_over: takeOver }),
   replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),
   joinPreview: (token: string) => call<JoinPreview>('POST', '/api/joins/preview', { token }),
-  seeds: () => call<SeedRow[] | null>('GET', '/api/seeds').then((l) => l ?? []),
+  seeds: (team = '') => call<SeedRow[] | null>('GET', '/api/seeds' + scope(team)).then((l) => l ?? []),
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
   status: () => call<Status>('GET', '/api/status'),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
-  blueprints: () => call<BlueprintInfo[] | null>('GET', '/api/blueprints').then((l) => l ?? []),
+  blueprints: (team = '') => call<BlueprintInfo[] | null>('GET', '/api/blueprints' + scope(team)).then((l) => l ?? []),
   doc: (path: string, version?: number) =>
     call<Doc>('GET', '/api/doc?path=' + enc(path) + (version ? '&v=' + version : '')).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
   addEntry: (e: { path: string; kind: string; anchor: string; re?: string; quote?: string; body: string }) =>
     call<{ id: string }>('POST', '/api/entries', e),
 }
 
-export type BusType = 'folder' | 'status' | 'refs' | 'teams' | 'notice' | 'settings'
+export type BusType = 'folder' | 'status' | 'refs' | 'teams' | 'waiting' | 'notice' | 'settings'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'status', 'refs', 'teams', 'notice', 'settings']
+  const types: BusType[] = ['folder', 'status', 'refs', 'teams', 'waiting', 'notice', 'settings']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

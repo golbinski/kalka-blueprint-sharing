@@ -36,7 +36,7 @@ func cmdTransferStart(mode string, args []string, stdout, stderr io.Writer) int 
 	defer cancel()
 	r, err := c.Transfer(ctx, daemon.TransferRequest{Path: absPath(pos[0]), Team: *to, Mode: mode})
 	if err != nil {
-		return report(*j, stdout, stderr, remoteKind(err), err.Error())
+		return failWith(*j, stdout, stderr, err)
 	}
 	if *j {
 		writeJSON(stdout, r)
@@ -52,21 +52,22 @@ func cmdTransfers(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("transfers", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	j := fs.Bool("json", false, "print JSON")
+	team := fs.String("team", "", "only transfers into or out of this team (name or hash)")
 	if pos, err := parseInterspersed(fs, args); err != nil || len(pos) > 0 {
 		return exitUsage
 	}
-	c, code := daemonFor(*j, stdout, stderr)
-	if c == nil {
+	vs, code := openViews(*j, stdout, stderr)
+	if vs == nil {
 		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ts, err := c.Transfers(ctx)
+	ts, err := vs.transfers(ctx, *team)
 	if err != nil {
-		return report(*j, stdout, stderr, remoteKind(err), err.Error())
+		return failWith(*j, stdout, stderr, err)
 	}
 	if *j {
-		writeJSON(stdout, ts)
+		writeJSON(stdout, map[string]any{"daemon": vs.live(), "transfers": ts})
 		return exitOK
 	}
 	if len(ts) == 0 {
@@ -113,7 +114,7 @@ func cmdTransfer(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	v, err := c.DecideTransfer(ctx, pos[0], action, *owner)
 	if err != nil {
-		return report(*j, stdout, stderr, remoteKind(err), err.Error())
+		return failWith(*j, stdout, stderr, err)
 	}
 	if *j {
 		writeJSON(stdout, v)

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/golbinski/kalka/internal/fsutil"
-	"github.com/golbinski/kalka/internal/store"
 )
 
 // DaemonFile tells the CLI where the API is and holds its token (spec 13).
@@ -51,7 +50,36 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("GET /api/blueprints", d.apiBlueprints)
 	mux.HandleFunc("GET /api/doc", d.apiDoc)
 	mux.HandleFunc("POST /api/entries", d.apiEntry)
-	mux.HandleFunc("GET /api/seeds", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Seeds()) })
+	mux.HandleFunc("GET /api/seeds", func(w http.ResponseWriter, r *http.Request) {
+		sc, ok := d.scope(w, r)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, d.SeedsIn(sc))
+	})
+	mux.HandleFunc("GET /api/waiting", func(w http.ResponseWriter, r *http.Request) {
+		items, err := d.Waiting(r.URL.Query().Get("team"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, items)
+	})
+	mux.HandleFunc("POST /api/waiting/seen", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		had, err := d.MarkSeen(q.Path)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"cleared": had})
+	})
 	mux.HandleFunc("POST /api/seeds", d.apiBud)
 	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
@@ -81,7 +109,7 @@ func (d *Daemon) Handler() http.Handler {
 			return
 		}
 		if d.Bus().Shells() == 0 {
-			writeJSON(w, http.StatusConflict, APIError{Error: "no desktop window is attached", Kind: "no-shell"})
+			writeJSON(w, http.StatusConflict, APIError{Error: "no desktop window is attached", Kind: core.KindNoShell})
 			return
 		}
 		ev := map[string]string{"path": q.Path}
@@ -122,29 +150,29 @@ func fail(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, APIError{Error: err.Error(), Kind: errKind(err)})
 }
 
-// errKind classifies an error for agents.
-func errKind(err error) string {
-	var (
-		off *core.ErrOffline
-		dup *store.ErrDuplicate
-	)
-	switch {
-	case errors.As(err, &off):
-		return "offline"
-	case errors.As(err, &dup):
-		return "duplicate"
-	case errors.Is(err, core.ErrPaused):
-		return "paused"
-	}
-	return core.KindOf(err)
-}
+// errKind classifies an error for agents (spec 12.3).
+func errKind(err error) string { return core.KindOf(err) }
 
 func (d *Daemon) apiStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, d.State())
 }
 
-func (d *Daemon) apiBlueprints(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.Store.List())
+func (d *Daemon) apiBlueprints(w http.ResponseWriter, r *http.Request) {
+	sc, ok := d.scope(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, d.BlueprintsIn(sc))
+}
+
+// scope reads ?team= (spec 13); on a bad one it has answered.
+func (d *Daemon) scope(w http.ResponseWriter, r *http.Request) (core.Scope, bool) {
+	sc, err := d.ResolveScope(r.URL.Query().Get("team"))
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return sc, false
+	}
+	return sc, true
 }
 
 func readBody(r *http.Request, v any) error {
@@ -167,6 +195,10 @@ func (d *Daemon) apiDoc(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, http.StatusNotFound, err)
 		return
+	}
+	// Opening a document clears its handed-to-you item (spec 11.3).
+	if ver == 0 {
+		_, _ = d.MarkSeen(v.Path)
 	}
 	writeJSON(w, http.StatusOK, v)
 }

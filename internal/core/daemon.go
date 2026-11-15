@@ -103,7 +103,8 @@ type Node struct {
 	presence  map[string]presence
 	readyCh   chan struct{}
 	readyOnce sync.Once
-	lastSync  time.Time // guarded by mu; see noteSync
+	lastSync  time.Time                // guarded by mu; see noteSync
+	seen      func() map[string]string // guarded by mu; see SetSeen
 	notes     notices
 
 	// pause (spec 22.3): paused is the state, pauseCh is closed and
@@ -300,7 +301,7 @@ func (d *Node) network(stop, work context.Context) {
 func (d *Node) markReady() { d.readyOnce.Do(func() { close(d.readyCh) }) }
 
 // ErrPaused is returned by actions that need the network while paused.
-var ErrPaused = errors.New(name.Product + " is paused: resume sync to do this")
+var ErrPaused = &Error{Kind: KindPaused, Msg: name.Product + " is paused: resume sync to do this"}
 
 // Paused reports whether kalka is paused (spec 22.3).
 func (d *Node) Paused() bool {
@@ -606,8 +607,10 @@ const CloudNotice = "Public PeerJS cloud: a community-run demo service with no a
 func (d *Node) State() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	paused := d.Paused()
+	// Paused is offline at once, not when the connection loop notices.
 	s := Status{Email: d.self.Email, PeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
-		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, Paused: d.Paused()}
+		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online && !paused, Error: d.sigErr, Paused: paused}
 	if d.cloud {
 		s.Notice = CloudNotice
 	}

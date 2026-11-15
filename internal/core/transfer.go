@@ -983,10 +983,12 @@ type TransferView struct {
 	Path      string `json:"path,omitempty"`  // accepted and held: the document
 	// Entries counts the attested entries the offer brings.
 	Entries int `json:"entries"`
+
+	teamHash string
 }
 
 func (d *Node) transferView(h *held, p pendingDoc) TransferView {
-	v := TransferView{ID: p.id, Team: h.dir.Name, Title: p.doc.Title(), Status: TransferPending}
+	v := TransferView{ID: p.id, Team: h.dir.Name, Title: p.doc.Title(), Status: TransferPending, teamHash: h.dir.Team}
 	if p.offer != nil {
 		v.Mode, v.From, v.Actor, v.At = p.offer.Transfer.Mode, p.offer.Transfer.From(), p.offer.Actor, p.offer.Offer.Timestamp
 		v.Entries = len(p.offer.Entries)

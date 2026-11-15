@@ -110,6 +110,7 @@ type joinRecord struct {
 	Expires time.Time `yaml:"expires"`
 	State   string    `yaml:"state"` // pending, joined, failed
 	Detail  string    `yaml:"detail,omitempty"`
+	Kind    string    `yaml:"kind,omitempty"`
 	Tries   int       `yaml:"tries,omitempty"`
 	LastTry time.Time `yaml:"last_try,omitempty"`
 	Owner   string    `yaml:"owner_email,omitempty"` // learned on meeting
@@ -198,11 +199,11 @@ func (d *Node) findTeam(ref string) (teamDir, error) {
 	if ref == "" {
 		switch len(ts) {
 		case 0:
-			return teamDir{}, fmt.Errorf("you are in no team: create one with `%s team create <name>` or join with `%[1]s join <token>`", name.Binary)
+			return teamDir{}, &Error{Kind: KindNoTeam, Msg: fmt.Sprintf("you are in no team: create one with `%s team create <name>` or join with `%[1]s join <link>`", name.Binary)}
 		case 1:
 			return ts[0], nil
 		}
-		return teamDir{}, errors.New("you are in several teams: say which with --team <name>")
+		return teamDir{}, &Error{Kind: KindAmbiguousTeam, Msg: "you are in several teams: say which with --team <name>"}
 	}
 	var hit []teamDir
 	for _, t := range ts {
@@ -212,11 +213,11 @@ func (d *Node) findTeam(ref string) (teamDir, error) {
 	}
 	switch len(hit) {
 	case 0:
-		return teamDir{}, fmt.Errorf("no team %q in the folder", ref)
+		return teamDir{}, &Error{Kind: KindUnknownTeam, Msg: fmt.Sprintf("no team %q in the folder", ref)}
 	case 1:
 		return hit[0], nil
 	}
-	return teamDir{}, fmt.Errorf("two teams are named %q: give the team hash instead", ref)
+	return teamDir{}, &Error{Kind: KindAmbiguousTeam, Msg: fmt.Sprintf("two teams are named %q: give the team hash instead", ref)}
 }
 
 // newTeamDir picks the folder for a team (spec 19.2): <folder>/<name>, or
@@ -463,10 +464,13 @@ func (d *Node) Remove(ref, email string) (TeamView, error) {
 		return TeamView{}, err
 	}
 	if bp.SameEmail(email, d.self.Email) {
+		if len(st.Owners) == 1 {
+			return TeamView{}, &Error{Kind: KindLastOwner, Msg: fmt.Sprintf("you are the only owner of %s: make another member an owner first", t.Name)}
+		}
 		return TeamView{}, errors.New("you cannot remove yourself: another owner removes you (spec 19.4 rule 7)")
 	}
 	if _, ok := memberOf(st, email); !ok {
-		return TeamView{}, fmt.Errorf("%s is not a member of %s", email, t.Name)
+		return TeamView{}, &Error{Kind: KindNotMember, Msg: fmt.Sprintf("%s is not a member of %s", email, t.Name)}
 	}
 	var docs []teamlog.Owned
 	for _, r := range d.ownedBy(t, email) {
@@ -495,7 +499,7 @@ func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 	}
 	m, ok := memberOf(st, email)
 	if !ok {
-		return TeamView{}, fmt.Errorf("%s is not a member of %s: invite them first", email, t.Name)
+		return TeamView{}, &Error{Kind: KindNotMember, Msg: fmt.Sprintf("%s is not a member of %s: invite them first", email, t.Name)}
 	}
 	var op teamlog.Op
 	if owner {
@@ -508,6 +512,9 @@ func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 			return TeamView{}, fmt.Errorf("%s is not an owner", email)
 		}
 		if bp.SameEmail(email, d.self.Email) {
+			if len(st.Owners) == 1 {
+				return TeamView{}, &Error{Kind: KindLastOwner, Msg: fmt.Sprintf("you are the only owner of %s: make another member an owner first", t.Name)}
+			}
 			return TeamView{}, errors.New("you cannot remove yourself as owner: another owner does that (spec 19.4 rule 7)")
 		}
 		op = d.teamSigner(t).RemoveOwner(st.Heads, email, d.now())
@@ -526,6 +533,8 @@ type TeamView struct {
 	Log   string `json:"log"`
 	Me    string `json:"me"` // owner, member or none
 	Error string `json:"error,omitempty"`
+	// Waiting counts the team's waiting items (spec 11.3); set in Teams.
+	Waiting int `json:"waiting"`
 
 	Members []MemberView  `json:"members"`
 	Owners  []string      `json:"owners"`
@@ -586,8 +595,14 @@ type HistoryLine struct {
 // Teams lists the teams held in the folder.
 func (d *Node) Teams() []TeamView {
 	out := []TeamView{}
+	counts := map[string]int{}
+	for _, w := range d.WaitingSummary().Teams {
+		counts[w.Team] = w.Count
+	}
 	for _, t := range d.teamDirs() {
-		out = append(out, d.teamView(t))
+		v := d.teamView(t)
+		v.Waiting = counts[t.Team]
+		out = append(out, v)
 	}
 	return out
 }

@@ -39,8 +39,8 @@ type TrayModel struct {
 	Status string // the status line
 	// Waiting is "N waiting for you", empty when nothing waits.
 	Waiting string
-	// WaitingHash is where "N waiting" opens the window: the Team page,
-	// where joins show.
+	// WaitingHash is where "N waiting" opens the window: the waiting list
+	// of the team holding the oldest item (spec 22.1).
 	WaitingHash string
 	Paused      bool
 	PauseLabel  string
@@ -76,9 +76,11 @@ func Tray(sum core.Summary, set daemon.Settings, loc *time.Location) TrayModel {
 		}
 		m.Status = "Offline: " + reason
 	}
-	if n := sum.Waiting(); n > 0 {
-		m.Waiting = fmt.Sprintf("%d waiting for you", n)
-		m.WaitingHash = "#/team"
+	if w := sum.Waiting; w.Total > 0 {
+		m.Waiting = fmt.Sprintf("%d waiting for you", w.Total)
+		if w.Oldest != nil {
+			m.WaitingHash = w.Oldest.Target
+		}
 	}
 	m.Tooltip = name.Product + ": " + m.Status
 	return m

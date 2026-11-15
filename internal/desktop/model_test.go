@@ -24,9 +24,10 @@ func TestTrayModel(t *testing.T) {
 		{core.Summary{Online: true, PeersOnline: 4, PeersKnown: 6, LastSync: last}, TrayOnline,
 			"Online · 4 of 6 members reachable · last sync 14:02", "", "Pause sync", ""},
 		{core.Summary{Online: true}, TrayOnline, "Online · no team members yet", "", "Pause sync", ""},
-		{core.Summary{Paused: true, Joins: 2}, TrayPaused, "Paused", "2 waiting for you", "Resume sync", "#/team"},
+		{core.Summary{Paused: true, Joins: 2, Waiting: core.WaitingSummary{Total: 2, Oldest: &core.WaitingAt{Team: "lending", At: "2026-11-02T09:00:00Z", Target: "#/t/lending/waiting"}}}, TrayPaused, "Paused", "2 waiting for you", "Resume sync", "#/t/lending/waiting"},
 		{core.Summary{Error: "rendezvous refused the key"}, TrayOffline, "Offline: rendezvous refused the key", "", "Pause sync", ""},
-		{core.Summary{Joins: 1, Pushes: 3}, TrayOffline, "Offline: rendezvous not reachable", "1 waiting for you", "Pause sync", "#/team"},
+		{core.Summary{Joins: 1, Pushes: 3}, TrayOffline, "Offline: rendezvous not reachable", "", "Pause sync", ""},
+		{core.Summary{Waiting: core.WaitingSummary{Total: 5, Oldest: &core.WaitingAt{Team: "returns", At: "2026-11-01T08:00:00Z", Target: "#/t/returns/waiting"}}}, TrayOffline, "Offline: rendezvous not reachable", "5 waiting for you", "Pause sync", "#/t/returns/waiting"},
 	}
 	for i, c := range cases {
 		m := Tray(c.sum, set, time.UTC)

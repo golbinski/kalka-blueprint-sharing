@@ -778,6 +778,41 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - On macOS the scheme is registered only once `Kalka.app` has been opened, which no test does.
   - `kalka join --show` is a view, but it is not yet in a parity table; that is T6.
 
+### T6. Waiting items, the scoped API and the missing commands (done)
+
+- **Waiting items** (`internal/core/waiting.go`, spec 11.3):
+  - Four kinds: `transfer` (a pending transfer the local user can decide), `handed` (handed off, reassigned or accepted to you), `disputed` and `owner-gone` (both for team owners).
+  - A handed item is cleared by any release of yours; the release your kalka makes on its own after a reassignment does not count. Its seen mark is the handoff release's id or the reassignment's operation, kept in `state.yaml` (`seen:`). A mark that no longer matches is dropped on the next write.
+  - Opening a document (`GET /api/doc`), `POST /api/waiting/seen` and `kalka waiting --seen <file>` clear it.
+  - `Summary.waiting` is `{total, oldest:{team, at, target}, teams:[{team, name, count}]}`. Joins and pushes are no longer counted as waiting. `GET /api/teams` carries each team's count.
+- **Scope:** `?team=<name|hash|personal>` on `/api/blueprints`, `/api/seeds`, `/api/domains`, `/api/waiting` and `/api/transfers`. The filters are in core (`ResolveScope`, `SeedsIn`, `DomainsIn`, `BlueprintsIn`, `TransfersIn`), shared by the daemon and the views that run with no daemon.
+- **Error kinds:**
+  - `core.KindOf` gives every error a kind; untyped ones are `error`.
+  - Team lookups return `no-team`, `unknown-team` and `ambiguous-team`. Removing yourself as the only owner returns `last-owner`. Pausing returns `paused`.
+  - Join failures carry `invite-used`, `invite-expired`, `invite-email` or `invite-token`.
+  - `not-set-up`, `not-running` and `no-shell` are constants in core too.
+  - Spec 12.3 gained `error`, and its table sits between `error-kinds` markers.
+- **CLI:**
+  - The dispatch switch is a command table (`internal/cli/commands.go`), with a parity class for each command: workflow, view or process. `rendezvous` is process until T8 moves it out.
+  - New commands: `teams`, `waiting [--team] [--seen <file>]`, `promote <file> [--status]`, `seed backlink <seed>` (a file command, as spec 12.1 says), `team uninvite <id>`, `team sync`, and `settings [--notifications on|off] [--keep-running on|off]`. With no option, `settings` shows the settings, from `state.yaml` when no daemon runs.
+  - `--team` on `seeds`, `domains`, `transfers` and `waiting`.
+  - `seeds` and `transfers` are views now: with no daemon they read the files, and their JSON is an object carrying `daemon`.
+  - `team remove` takes `--dry-run`, as in the spec, in place of `--yes`.
+- **Fixes found on the way:**
+  - `team remove` printed success when the removal failed: a shadowed `err` in the CLI.
+  - A reassignment whose cut-off release arrived after the log, in the same session, was never taken over until the next log change. Received documents now retry it.
+  - A paused node said online until its connection loop noticed. `State` now reports it offline at once (spec 22.3).
+- **Tray:** it shows "N waiting for you" from the total and opens the oldest item's team waiting list (`#/t/<team>/waiting`, the T7 route).
+- **Web:** types for `WaitingItem`, `WaitingSummary` and the team count; `api.waiting`, `api.markSeen`, and the scope parameter on the lists; the `waiting` bus event. The Settings line uses the waiting total. The screens themselves are T7.
+- **Tests:**
+  - Core: `TestWaitingHanded` (a handoff, seen marks, a stale mark, your own release, a reassignment with the automatic release, a take-over), `TestWaitingDisputed`, `TestWaitingOwnerGone`, `TestWaitingTransfer` and `TestWaitingSummaryOrder` (three teams).
+  - Daemon: `TestWaitingAPI` (scope, summary, teams count, opening clears, the `state.yaml` mark, repeat seen, scoped blueprints and domains).
+  - CLI: `TestNewCommands`. It runs every new command with `--json`, views with no daemon starting none, and kinds `no-team`, `unknown-team`, `ambiguous-team`, `last-owner` and `error`.
+  - CLI: `TestCommandTable`.
+  - CLI: `TestErrorKinds`. Every declared kind is in spec 12.3, and every listed kind is declared and returned somewhere. It found `invite-used`, which was returned only by string equality.
+  - Desktop: the tray cases for the total and the oldest team.
+- **Left for T7:** `parity.json` with its Go and web tests, `actions.ts`, and the switcher, waiting list and tray route in the page.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

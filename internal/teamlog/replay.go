@@ -60,6 +60,7 @@ type Assignment struct {
 	Plan     string `json:"plan,omitempty"`
 	At       string `json:"at,omitempty"`
 	Transfer string `json:"transfer,omitempty"`
+	By       string `json:"by,omitempty"` // who signed the operation
 }
 
 // Decision is the effective decision on one transfer offer: an accept, or
@@ -977,9 +978,9 @@ func (r *replayer) state(e *eval) *State {
 		}
 		a := nd.op.Args
 		as := s.Reassigned[a.Doc]
-		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, Plan: a.Plan, At: nd.op.At}
+		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, Plan: a.Plan, At: nd.op.At, By: e.used[i].mt.email}
 		if nd.op.Kind == AcceptTransfer {
-			x = Assignment{Op: nd.hash, Owner: a.Owner, At: nd.op.At, Transfer: a.Transfer}
+			x = Assignment{Op: nd.hash, Owner: a.Owner, At: nd.op.At, Transfer: a.Transfer, By: e.used[i].mt.email}
 		}
 		k := sort.Search(len(as), func(j int) bool { return as[j].After >= a.After })
 		if k < len(as) && as[k].After == a.After {

@@ -19,8 +19,10 @@ import (
 const teamUsage = `usage:
   %[1]s team create <name>
   %[1]s team invite <email> [--expires 72h]
+  %[1]s team uninvite <invite id>
   %[1]s team members | log | invites
-  %[1]s team remove <email> [--yes]
+  %[1]s team sync              replicate with every member now
+  %[1]s team remove <email> [--dry-run]
   %[1]s team add-owner <email> | remove-owner <email>
   every subcommand takes --team <name> when you are in several teams, and --json
 `
@@ -32,7 +34,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	team := fs.String("team", "", "the team, by name or hash, when you are in several")
 	expires := fs.Duration("expires", 0, "how long an invite is valid (default 72h)")
-	yes := fs.Bool("yes", false, "remove without listing the documents first")
+	dry := fs.Bool("dry-run", false, "list the documents a removal would reassign to you, and remove no one")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
@@ -41,7 +43,8 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 0 {
 		return bad()
 	}
-	need := map[string]int{"create": 2, "invite": 2, "members": 1, "log": 1, "invites": 1, "remove": 2, "add-owner": 2, "remove-owner": 2}
+	need := map[string]int{"create": 2, "invite": 2, "uninvite": 2, "members": 1, "log": 1, "invites": 1, "remove": 2,
+		"add-owner": 2, "remove-owner": 2, "sync": 1}
 	if n, ok := need[pos[0]]; !ok || len(pos) != n {
 		return bad()
 	}
@@ -51,7 +54,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	fail := func(err error) int { return report(*asJSON, stdout, stderr, "team", err.Error()) }
+	fail := func(err error) int { return failWith(*asJSON, stdout, stderr, err) }
 	if pos[0] == "members" || pos[0] == "log" || pos[0] == "invites" {
 		vs, code := openViews(*asJSON, stdout, stderr)
 		if vs == nil {
@@ -88,6 +91,37 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 
 	var v core.TeamView
 	switch pos[0] {
+	case "uninvite":
+		if err := c.CancelInvite(ctx, pos[1]); err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			writeJSON(stdout, map[string]string{"canceled": pos[1]})
+			return exitOK
+		}
+		fmt.Fprintf(stdout, "canceled invite %s; its link and token no longer work\n", pos[1])
+		return exitOK
+	case "sync":
+		st, err := c.Replicate(ctx, *team)
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			writeJSON(stdout, st)
+			return exitOK
+		}
+		if st.Error != "" {
+			fmt.Fprintf(stdout, "sync: %s\n", st.Error)
+		}
+		fmt.Fprintf(stdout, "reached %d of %d members", len(st.Reached), st.Tried)
+		if st.Received > 0 {
+			fmt.Fprintf(stdout, ", received %d documents", st.Received)
+		}
+		fmt.Fprintln(stdout)
+		for _, r := range st.Refused {
+			fmt.Fprintf(stdout, "refused “%s” from %s: %s\n", r.Title, r.From, r.Reason)
+		}
+		return exitOK
 	case "create":
 		if v, err = c.CreateTeam(ctx, pos[1]); err != nil {
 			return fail(err)
@@ -118,16 +152,23 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "they open the link, paste either line under Join with link or token, or run: %s join <link or token>\n", name.Binary)
 		return exitOK
 	case "remove":
-		docs, err := c.RemovalPreview(ctx, *team, pos[1])
-		if err != nil {
-			return fail(err)
+		docs, perr := c.RemovalPreview(ctx, *team, pos[1])
+		if perr != nil {
+			return fail(perr)
 		}
-		if len(docs) > 0 && !*yes && !*asJSON {
-			fmt.Fprintf(stdout, "removing %s reassigns these published documents to you:\n", pos[1])
+		if *dry {
+			if *asJSON {
+				writeJSON(stdout, map[string]any{"email": pos[1], "reassigned": docs})
+				return exitOK
+			}
+			if len(docs) == 0 {
+				fmt.Fprintf(stdout, "removing %s reassigns no documents\n", pos[1])
+			} else {
+				fmt.Fprintf(stdout, "removing %s reassigns these published documents to you:\n", pos[1])
+			}
 			for _, d := range docs {
 				fmt.Fprintf(stdout, "  %s  (%s, released up to v%d)\n", d.Title, d.Path, d.After)
 			}
-			fmt.Fprintln(stdout, "run again with --yes to remove")
 			return exitOK
 		}
 		v, err = c.Remove(ctx, *team, pos[1])
@@ -225,7 +266,7 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	j, err := c.Join(ctx, token)
 	if err != nil {
-		return report(*asJSON, stdout, stderr, remoteKind(err), err.Error())
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	deadline := time.Now().Add(*wait)
 	for j.State == core.JoinPending && time.Now().Before(deadline) {
@@ -291,8 +332,7 @@ func cmdPublish(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	r, err := c.Publish(ctx, absPath(pos[0]), *team, *note)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	if *asJSON {
 		writeJSON(stdout, r)
@@ -309,23 +349,27 @@ func cmdPublish(args []string, stdout, stderr io.Writer) int {
 func cmdDelete(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
 	}
 	if len(pos) != 1 {
-		fmt.Fprintf(stderr, "usage: %s delete <file>\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s delete <file> [--json]\n", name.Binary)
 		return exitUsage
 	}
-	c, code := daemonFor(false, stdout, stderr)
+	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
 		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := c.Delete(ctx, absPath(pos[0])); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
+	}
+	if *asJSON {
+		writeJSON(stdout, map[string]string{"deleted": absPath(pos[0])})
+		return exitOK
 	}
 	fmt.Fprintf(stdout, "deleted %s for the team; the last copy is in the team folder's .kalka/trash\n", pos[0])
 	return exitOK
@@ -368,8 +412,7 @@ func cmdRelease(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	r, err := c.Release(ctx, absPath(pos[0]), *note, ids)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	if *asJSON {
 		writeJSON(stdout, r)
@@ -384,7 +427,8 @@ func cmdDomains(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("domains", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print JSON")
-	if _, err := parseInterspersed(fs, args); err != nil {
+	team := fs.String("team", "", "only this team (name or hash)")
+	if pos, err := parseInterspersed(fs, args); err != nil || len(pos) > 0 {
 		return exitUsage
 	}
 	vs, code := openViews(*asJSON, stdout, stderr)
@@ -393,9 +437,9 @@ func cmdDomains(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	rows, err := vs.domains(ctx)
+	rows, err := vs.domains(ctx, *team)
 	if err != nil {
-		return report(*asJSON, stdout, stderr, "daemon", err.Error())
+		return failWith(*asJSON, stdout, stderr, err)
 	}
 	if *asJSON {
 		writeJSON(stdout, map[string]any{"daemon": vs.live(), "domains": rows})
@@ -448,11 +492,7 @@ func joinShow(token string, asJSON bool, stdout, stderr io.Writer) int {
 		}
 	}
 	if err != nil {
-		kind := remoteKind(err)
-		if k := core.KindOf(err); k != "" {
-			kind = k
-		}
-		return report(asJSON, stdout, stderr, kind, err.Error())
+		return failWith(asJSON, stdout, stderr, err)
 	}
 	if asJSON {
 		writeJSON(stdout, p)

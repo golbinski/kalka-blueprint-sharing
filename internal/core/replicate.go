@@ -625,6 +625,14 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 	} else {
 		end(syncproto.ByeDone)
 	}
+	// A reassignment to the local user waits for the releases up to its
+	// cut-off (spec 7.3); a document received after the log can complete
+	// them.
+	for _, id := range res.Received {
+		if as := h.st.Reassigned[strings.ToLower(id)]; len(as) > 0 && bp.SameEmail(as[len(as)-1].Owner, d.self.Email) {
+			d.takeReassigned(h, strings.ToLower(id), "")
+		}
+	}
 	return res, nil
 }
 

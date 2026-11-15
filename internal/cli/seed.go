@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"flag"
@@ -8,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
@@ -41,6 +41,9 @@ func signerFromConfig() (string, bp.Signer, error) {
 
 // `kalka seed <parent> [--from <entry id>] --title <t> [-m <text>] [--why <text>]`
 func cmdSeed(args []string, stdout, stderr io.Writer, now func() time.Time) int {
+	if isSubcommand(args, "backlink") {
+		return cmdBacklink(args[1:], stdout, stderr, now)
+	}
 	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	from := fs.String("from", "", "id of the entry the seed starts from (usually a deviation)")
@@ -58,14 +61,12 @@ func cmdSeed(args []string, stdout, stderr io.Writer, now func() time.Time) int 
 	}
 	email, sign, err := signerFromConfig()
 	if err != nil {
-		fmt.Fprintln(stderr, "seed:", err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 	}
 	parentPath := files[0]
 	raw, err := os.ReadFile(parentPath)
 	if err != nil {
-		fmt.Fprintln(stderr, "seed:", err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 	}
 	parent, err := bp.Parse(raw)
 	if err != nil || parent.HasErrors() {
@@ -79,26 +80,22 @@ func cmdSeed(args []string, stdout, stderr io.Writer, now func() time.Time) int 
 			parent.SetFrontmatter(name.FrontmatterOwner, email)
 		}
 		if err := fsutil.WriteAtomic(parentPath, parent.Bytes(), raw); err != nil {
-			fmt.Fprintln(stderr, "seed:", err)
-			return exitProblems
+			return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 		}
 		if raw, err = os.ReadFile(parentPath); err == nil {
 			parent, err = bp.Parse(raw)
 		}
 		if err != nil {
-			fmt.Fprintln(stderr, "seed:", err)
-			return exitProblems
+			return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 		}
 	}
 	seed, _, err := bp.Bud(parent, bp.SeedSpec{KalkaID: bp.NewKalkaID(), Owner: email, Title: *title, Problem: *msg, Why: *why, At: now(), From: *from}, sign)
 	if err != nil {
-		fmt.Fprintln(stderr, "seed:", err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 	}
 	seedPath, err := createBeside(parentPath, store.SafeName(seed.Title()), seed.Bytes())
 	if err != nil {
-		fmt.Fprintln(stderr, "seed:", err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 	}
 	// The backlink: re-read and redo if the parent changed meanwhile.
 	var entry *bp.Entry
@@ -174,50 +171,27 @@ func cmdSeeds(args []string, stdout, stderr io.Writer, now func() time.Time) int
 	fs := flag.NewFlagSet("seeds", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "machine-readable output")
-	if _, err := parseInterspersed(fs, args); err != nil {
+	team := fs.String("team", "", "only this team (name or hash), or personal")
+	if pos, err := parseInterspersed(fs, args); err != nil || len(pos) > 0 {
 		return exitUsage
 	}
-	cfg, err := config.Load()
+	vs, code := openViews(*asJSON, stdout, stderr)
+	if vs == nil {
+		return code
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	seeds, err := vs.seeds(ctx, *team)
 	if err != nil {
-		fmt.Fprintln(stderr, "seeds:", err)
-		return exitProblems
+		return failWith(*asJSON, stdout, stderr, err)
 	}
-	st, err := store.Open(cfg.Folder)
-	if err != nil {
-		fmt.Fprintln(stderr, "seeds:", err)
-		return exitProblems
+	rows := []seedRow{}
+	for _, v := range seeds {
+		rows = append(rows, seedRow{Path: v.Rel, KalkaID: v.KalkaID, Title: v.Title, Owner: v.Owner,
+			Parent: v.Parent, ParentTitle: v.ParentTitle, Created: v.Created, Active: v.Active})
 	}
-	titles := map[string]string{}
-	var rows []seedRow
-	for _, info := range st.List() {
-		if info.KalkaID != "" {
-			titles[info.KalkaID] = info.Title
-		}
-		f, err := st.Load(info.Path)
-		if err != nil || !f.Doc.IsSeed() {
-			continue
-		}
-		r := seedRow{Path: info.Rel, KalkaID: f.Doc.KalkaID(), Title: f.Doc.Title(), Owner: f.Doc.Owner(), Parent: f.Doc.Parent()}
-		if c, ok := f.Doc.Created(); ok {
-			active := c.UTC()
-			for _, it := range f.Doc.Items() {
-				if t, err := time.Parse(bp.TimeLayout, it.Entry.Timestamp); err == nil && t.After(active) {
-					active = t
-				}
-			}
-			r.Created, r.Active = c.UTC().Format(time.RFC3339), active.Format(time.RFC3339)
-		}
-		rows = append(rows, r)
-	}
-	for i := range rows {
-		rows[i].ParentTitle = titles[rows[i].Parent]
-	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Active > rows[j].Active })
 	if *asJSON {
-		if rows == nil {
-			rows = []seedRow{}
-		}
-		writeJSON(stdout, rows)
+		writeJSON(stdout, map[string]any{"daemon": vs.live(), "seeds": rows})
 		return exitOK
 	}
 	if len(rows) == 0 {

@@ -19,16 +19,15 @@ type Summary struct {
 	// LastSync is the latest replication session that completed with a
 	// member, either side; zero if none since start.
 	LastSync time.Time `json:"last_sync,omitzero"`
-	// Waiting: joins not completed, teams with a push still queued (it
-	// goes out when a member is reachable).
+	// Waiting is what waits for the user, over every team (spec 11.3).
+	Waiting WaitingSummary `json:"waiting"`
+	// Joins in progress and teams with a push still queued (it goes out
+	// when a member is reachable): not waiting items.
 	Joins  int `json:"joins"`
 	Pushes int `json:"pushes"`
 	// Shell is "desktop" while a desktop shell is attached (spec 22).
 	Shell string `json:"shell,omitempty"`
 }
-
-// Waiting is what needs the user: joins.
-func (s Summary) Waiting() int { return s.Joins }
 
 // noteSync records a completed exchange with a peer.
 func (d *Node) noteSync() {
@@ -66,5 +65,6 @@ func (d *Node) Summary() Summary {
 		}
 	}
 	d.repl.mu.Unlock()
+	s.Waiting = d.WaitingSummary()
 	return s
 }
