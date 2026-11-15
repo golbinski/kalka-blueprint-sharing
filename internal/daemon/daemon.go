@@ -150,9 +150,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return err
 		}
 		defer d.removeDaemonFile()
-		hs := &http.Server{Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
+		// Requests' contexts end when the server shuts down, so event
+		// streams close at once and the graceful shutdown below is quick.
+		reqCtx, endRequests := context.WithCancel(context.Background())
+		hs := &http.Server{Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second,
+			BaseContext: func(net.Listener) context.Context { return reqCtx }}
+		hs.RegisterOnShutdown(endRequests)
 		go func() { _ = hs.Serve(ln) }()
-		defer hs.Close()
+		defer func() {
+			// Let answers in flight (POST /api/shutdown's among them) finish,
+			// for at most a second.
+			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if hs.Shutdown(sctx) != nil {
+				_ = hs.Close()
+			}
+		}()
 	}
 	pctx, stop := context.WithCancel(ctx)
 	defer stop()

@@ -36,7 +36,7 @@ func (r *release) installer(stage, goarch string) error {
 	if err := os.WriteFile(nsi, script, 0o644); err != nil {
 		return err
 	}
-	cmd := exec.Command(mk, "-V2", "-INPUTCHARSET", "UTF8", nsi)
+	cmd := exec.Command(mk, append(makensisFlags, nsi)...)
 	cmd.Stdout, cmd.Stderr = r.log, r.log
 	fmt.Fprintf(r.log, "build %s\n", out)
 	if err := cmd.Run(); err != nil {
@@ -47,6 +47,10 @@ func (r *release) installer(stage, goarch string) error {
 	}
 	return r.addFile(filepath.Join(dir, out), out)
 }
+
+// makensisFlags: warnings are errors, so a script change that NSIS only
+// warns about (an unused function, a bad jump) fails the release.
+var makensisFlags = []string{"-V2", "-WX", "-INPUTCHARSET", "UTF8"}
 
 //go:embed kalka.nsi.tmpl
 var nsisTemplate string

@@ -72,6 +72,11 @@ func (d *Daemon) Handler() http.Handler {
 	d.mountTeams(mux)
 	mux.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]int{"pid": os.Getpid()})
+		// Send the answer before the server starts closing, or the caller
+		// can see a dropped connection and take kalka for not running.
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
 		go d.Shutdown()
 	})
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) { serveEvents(d.Bus(), w, r) })

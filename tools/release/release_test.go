@@ -123,6 +123,32 @@ func TestNSISScript(t *testing.T) {
 	}
 }
 
+// TestNSISCompile compiles the installer script around placeholder files
+// when makensis is installed.
+func TestNSISCompile(t *testing.T) {
+	mk, err := exec.LookPath("makensis")
+	if err != nil {
+		t.Skip("no makensis")
+	}
+	src, out := t.TempDir(), t.TempDir()
+	for _, f := range []string{"kalka.exe", "kalka-desktop.exe", "kalka-plugin-gh.exe", "README.txt"} {
+		os.WriteFile(filepath.Join(src, f), []byte(f), 0o644)
+	}
+	setup := filepath.Join(out, "kalka_0.3.0_windows_amd64_setup.exe")
+	b, err := nsisScript(nsisVars{Version: "0.3.0", Arch: "amd64", AppID: "com.example.kalka", Src: src, Out: setup, WebView2: "https://wv2.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsi := filepath.Join(out, "kalka.nsi")
+	os.WriteFile(nsi, b, 0o644)
+	if msg, err := exec.Command(mk, append(makensisFlags, nsi)...).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, msg)
+	}
+	if fi, err := os.Stat(setup); err != nil || fi.Size() == 0 {
+		t.Fatalf("no installer: %v", err)
+	}
+}
+
 func TestInfoPlist(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "Info.plist")
 	os.WriteFile(p, infoPlist("0.3.0", "kalka"), 0o644)
