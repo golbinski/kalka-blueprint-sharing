@@ -21,16 +21,20 @@ const (
 	appIDKey = `Software\Classes\AppUserModelId\` + name.AppID
 )
 
-// background returns kalkaw.exe next to exe.
+// background returns kalka-desktop.exe next to exe (or exe itself): a GUI
+// program, so starting it opens no console window.
 func background(exe string) (string, error) {
-	w := filepath.Join(filepath.Dir(exe), name.BackgroundBinary+".exe")
+	if strings.EqualFold(filepath.Base(exe), name.DesktopBinary+".exe") {
+		return exe, nil
+	}
+	w := filepath.Join(filepath.Dir(exe), name.DesktopBinary+".exe")
 	if _, err := os.Stat(w); err != nil {
-		return "", ErrNoBackgroundBinary
+		return "", ErrNoDesktopBinary
 	}
 	return w, nil
 }
 
-// headless is kalkaw.exe daemon --background.
+// headless is kalka-desktop.exe daemon --background.
 func headless(exe string) (Target, error) {
 	w, err := background(exe)
 	if err != nil {

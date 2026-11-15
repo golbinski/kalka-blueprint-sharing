@@ -73,9 +73,44 @@ func blend(img *image.NRGBA, x, y int, ink color.NRGBA, a float64) {
 	if a <= 0 {
 		return
 	}
+	a = math.Min(a, 1)
+	// "ink over old", in straight alpha.
 	old := img.NRGBAAt(x, y)
-	na := uint8(math.Min(255, float64(old.A)+a*255))
-	img.SetNRGBA(x, y, color.NRGBA{ink.R, ink.G, ink.B, na})
+	oa := float64(old.A) / 255
+	na := a + oa*(1-a)
+	mix := func(i, o uint8) uint8 {
+		return uint8(math.Round((float64(i)*a + float64(o)*oa*(1-a)) / na))
+	}
+	img.SetNRGBA(x, y, color.NRGBA{mix(ink.R, old.R), mix(ink.G, old.G), mix(ink.B, old.B), uint8(math.Round(na * 255))})
 }
 
 func clamp(v float64) float64 { return math.Max(0, math.Min(1, v)) }
+
+// AppIcon is the application icon at size×size pixels: the online mark in
+// white on a rounded blue square (the app bundle, the Linux .desktop
+// entry, the window).
+func AppIcon(size int) []byte {
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	bg := color.NRGBA{0x2f, 0x6f, 0xd0, 255}
+	white := color.NRGBA{255, 255, 255, 255}
+	s := float64(size)
+	// The rounded square, inset as macOS icons are (about 10%).
+	inset, radius := s*0.1, s*0.18
+	lo, hi := inset, s-inset
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			px, py := float64(x)+0.5, float64(y)+0.5
+			cx := math.Max(lo+radius, math.Min(hi-radius, px))
+			cy := math.Max(lo+radius, math.Min(hi-radius, py))
+			d := math.Hypot(px-cx, py-cy)
+			blend(img, x, y, bg, clamp(radius-d+0.5))
+		}
+	}
+	c := s / 2
+	k := s / 44 // the tray mark's scale
+	disc(img, c, c, 13*k, 10.5*k, white)
+	disc(img, c, c, 6.5*k, 0, white)
+	var b bytes.Buffer
+	_ = png.Encode(&b, img)
+	return b.Bytes()
+}

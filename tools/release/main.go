@@ -1,22 +1,33 @@
-// Command release builds the release archives (spec 15): for each target,
-// kalka and kalka-plugin-gh (and kalkaw.exe, the console-less build that
-// starts at logon, on Windows) in a .zip or .tar.gz, plus SHA256SUMS.
+// Command release builds the release artifacts (spec 15, 23) into one
+// directory, with SHA256SUMS:
+//
+//   - every target: kalka and kalka-plugin-gh in a .tar.gz (.zip on
+//     Windows), the headless archive of spec 15. On Windows it also holds
+//     kalka-desktop.exe, the shell, which with arguments is the console-less
+//     CLI (pure Go, so it builds on any host);
+//   - Windows: a per-user NSIS installer, when makensis is on the PATH;
+//   - macOS: Kalka.app in a zip, built on a Mac (cgo);
+//   - Linux: a desktop archive (kalka, kalka-desktop, a .desktop file and an
+//     icon), built on Linux with GTK 4 and WebKitGTK 6.0 installed.
+//
+// Desktop artifacts the host cannot build are skipped with a line saying
+// so. -purego builds them without cgo (Wails' experimental back ends), so
+// one host can build them all.
+//
+// Signing is configuration (spec 23.5): see signing.go. With none, every
+// artifact is reported "unsigned" and the build succeeds.
 //
 // The archives are reproducible: -trimpath, no build id or VCS stamp, and
 // every archive entry gets the commit's time, fixed owners and modes, in
 // sorted order. Two runs on one commit with one Go version give the same
-// bytes.
+// bytes (signatures and the installer aside).
 //
-//	go run ./tools/release -version 0.2.0 [-out dist] [-targets windows/amd64,...]
+//	go run ./tools/release -version 0.2.0 [-out dist] [-targets windows/amd64,...] [-purego]
 //
 // The web UI must be built first (make web): it is embedded in kalka.
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -27,6 +38,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,8 +51,14 @@ func main() {
 	version := flag.String("version", "", "release version, e.g. 0.2.0 (required)")
 	out := flag.String("out", "dist", "output directory")
 	targets := flag.String("targets", defaultTargets, "comma-separated GOOS/GOARCH list")
+	purego := flag.Bool("purego", false, "build the macOS and Linux desktop apps without cgo (experimental)")
 	flag.Parse()
-	if err := run(*version, *out, strings.Split(*targets, ",")); err != nil {
+	sign, err := loadSigning(os.Getenv)
+	if err == nil {
+		r := &release{version: *version, out: *out, purego: *purego, sign: sign, log: os.Stderr}
+		err = r.run(strings.Split(*targets, ","))
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "release:", err)
 		os.Exit(1)
 	}
@@ -48,90 +66,228 @@ func main() {
 
 var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
+// MacMinimum is the oldest macOS the app supports.
+const MacMinimum = "11.0"
+
 type file struct {
 	name string
 	data []byte
 	mode int64
 }
 
-func run(version, out string, targets []string) error {
-	if !versionRe.MatchString(version) {
-		return fmt.Errorf("-version %q: want semver like 0.2.0", version)
+type release struct {
+	version, out string
+	purego       bool
+	sign         signing
+	log          io.Writer
+
+	tmp   string
+	mtime time.Time
+	sums  []string
+}
+
+func (r *release) run(targets []string) error {
+	if !versionRe.MatchString(r.version) {
+		return fmt.Errorf("-version %q: want semver like 0.2.0", r.version)
 	}
 	if _, err := os.Stat(filepath.Join("internal", "ui", "dist", "index.html")); err != nil {
 		return errors.New("the web UI is not built: run `make web` first")
 	}
-	mtime, err := sourceTime()
-	if err != nil {
+	var err error
+	if r.mtime, err = sourceTime(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	if err := os.MkdirAll(r.out, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp("", "kalka-release-")
-	if err != nil {
+	if r.tmp, err = os.MkdirTemp("", "kalka-release-"); err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
-
-	var sums []string
+	defer os.RemoveAll(r.tmp)
 	for _, t := range targets {
 		goos, goarch, ok := strings.Cut(strings.TrimSpace(t), "/")
 		if !ok {
 			return fmt.Errorf("target %q: want GOOS/GOARCH", t)
 		}
-		exe := ""
-		if goos == "windows" {
-			exe = ".exe"
+		if err := r.target(goos, goarch); err != nil {
+			return fmt.Errorf("%s: %w", t, err)
 		}
-		builds := []struct{ pkg, bin, ldflags string }{
-			{"./cmd/kalka", "kalka" + exe, ""},
-			{"./cmd/kalka-plugin-gh", "kalka-plugin-gh" + exe, ""},
+	}
+	sort.Strings(r.sums)
+	return os.WriteFile(filepath.Join(r.out, "SHA256SUMS"), []byte(strings.Join(r.sums, "\n")+"\n"), 0o644)
+}
+
+func (r *release) target(goos, goarch string) error {
+	exe := ""
+	if goos == "windows" {
+		exe = ".exe"
+	}
+	base := fmt.Sprintf("kalka_%s_%s_%s", r.version, goos, goarch)
+	stage := filepath.Join(r.tmp, base)
+	bins := []build{
+		{pkg: "./cmd/kalka", bin: "kalka" + exe},
+		{pkg: "./cmd/kalka-plugin-gh", bin: "kalka-plugin-gh" + exe},
+	}
+	if goos == "windows" {
+		bins = append(bins, build{pkg: "./cmd/kalka-desktop", bin: "kalka-desktop.exe", tags: "desktop,production", ldflags: " -H=windowsgui"})
+	}
+	for _, b := range bins {
+		if err := r.gobuild(goos, goarch, b, filepath.Join(stage, b.bin)); err != nil {
+			return err
 		}
-		if goos == "windows" {
-			builds = append(builds, struct{ pkg, bin, ldflags string }{"./cmd/kalka", "kalkaw.exe", " -H=windowsgui"})
+	}
+	if goos == "windows" {
+		if err := checkSubsystems(stage); err != nil {
+			return err
 		}
-		base := fmt.Sprintf("kalka_%s_%s_%s", version, goos, goarch)
-		var files []file
-		for _, b := range builds {
-			dst := filepath.Join(tmp, base, b.bin)
-			cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false",
-				"-ldflags", "-s -w -buildid= -X github.com/golbinski/kalka/internal/cli.version="+version+b.ldflags, "-o", dst, b.pkg)
-			cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0", "GOFLAGS=")
-			cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-			fmt.Fprintf(os.Stderr, "build %s/%s %s\n", goos, goarch, b.bin)
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("%s for %s: %w", b.bin, t, err)
-			}
-			data, err := os.ReadFile(dst)
-			if err != nil {
+		for _, b := range bins {
+			if err := r.sign.windows(filepath.Join(stage, b.bin), base+"/"+b.bin, r.log); err != nil {
 				return err
 			}
-			files = append(files, file{base + "/" + b.bin, data, 0o755})
 		}
-		files = append(files, file{base + "/README.txt", []byte(readme(version, goos)), 0o644})
-		sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
+	}
+	if err := os.WriteFile(filepath.Join(stage, "README.txt"), []byte(readme(r.version, goos)), 0o644); err != nil {
+		return err
+	}
+	files, err := collect(stage, base)
+	if err != nil {
+		return err
+	}
+	name := base + ".tar.gz"
+	if goos == "windows" {
+		name = base + ".zip"
+	}
+	if err := r.archive(name, files); err != nil {
+		return err
+	}
+	switch goos {
+	case "windows":
+		return r.installer(stage, goarch)
+	case "darwin":
+		return r.macApp(stage, goarch)
+	case "linux":
+		return r.linuxDesktop(stage, goarch)
+	}
+	return nil
+}
 
-		var archive bytes.Buffer
-		name := base + ".tar.gz"
-		if goos == "windows" {
-			name = base + ".zip"
-			err = writeZip(&archive, files, mtime)
-		} else {
-			err = writeTarGz(&archive, files, mtime)
+type build struct{ pkg, bin, tags, ldflags string }
+
+// gobuild compiles one binary; cgo is off unless the build needs it.
+func (r *release) gobuild(goos, goarch string, b build, dst string) error {
+	return r.gobuildCgo(goos, goarch, b, dst, false)
+}
+
+func (r *release) gobuildCgo(goos, goarch string, b build, dst string, cgo bool) error {
+	args := []string{"build", "-trimpath", "-buildvcs=false",
+		"-ldflags", "-s -w -buildid= -X github.com/golbinski/kalka/internal/cli.version=" + r.version + b.ldflags, "-o", dst}
+	if b.tags != "" {
+		args = append(args, "-tags", b.tags)
+	}
+	cmd := exec.Command("go", append(args, b.pkg)...)
+	cgoFlag := "0"
+	if cgo {
+		cgoFlag = "1"
+	}
+	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED="+cgoFlag, "GOFLAGS=")
+	if goos == "darwin" {
+		cmd.Env = append(cmd.Env, "MACOSX_DEPLOYMENT_TARGET="+MacMinimum)
+	}
+	cmd.Stdout, cmd.Stderr = r.log, r.log
+	fmt.Fprintf(r.log, "build %s/%s %s\n", goos, goarch, b.bin)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w", b.bin, err)
+	}
+	return nil
+}
+
+// desktopBuild is how the shell is built for goos/goarch on this host, or
+// why it cannot be.
+func (r *release) desktopBuild(goos, goarch string) (tags string, cgo bool, why string) {
+	if r.purego {
+		return "desktop,production,purego", false, ""
+	}
+	switch goos {
+	case "darwin":
+		if runtime.GOOS != "darwin" {
+			return "", false, "needs a Mac (cgo), or -purego"
 		}
+	case "linux":
+		if runtime.GOOS != "linux" || runtime.GOARCH != goarch {
+			return "", false, "needs Linux on " + goarch + " (cgo), or -purego"
+		}
+		if err := exec.Command("pkg-config", "--exists", "gtk4", "webkitgtk-6.0").Run(); err != nil {
+			return "", false, "needs the GTK 4 and WebKitGTK 6.0 development packages (libgtk-4-dev libwebkitgtk-6.0-dev), or -purego"
+		}
+	}
+	return "desktop,production", true, ""
+}
+
+// archive writes a zip or tar.gz of files into the output and sums it.
+func (r *release) archive(name string, files []file) error {
+	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
+	f, err := os.Create(filepath.Join(r.out, name))
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	w := io.MultiWriter(f, h)
+	if strings.HasSuffix(name, ".zip") {
+		err = writeZip(w, files, r.mtime)
+	} else {
+		err = writeTarGz(w, files, r.mtime)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	r.sums = append(r.sums, hex.EncodeToString(h.Sum(nil))+"  "+name)
+	fmt.Fprintf(r.log, "wrote %s\n", filepath.Join(r.out, name))
+	return nil
+}
+
+// addFile copies a finished artifact (the installer) into the output.
+func (r *release) addFile(src, name string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(r.out, name), data, 0o644); err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+	r.sums = append(r.sums, hex.EncodeToString(sum[:])+"  "+name)
+	fmt.Fprintf(r.log, "wrote %s\n", filepath.Join(r.out, name))
+	return nil
+}
+
+// collect reads the files under dir as archive entries under prefix:
+// executables 0755, the rest 0644.
+func collect(dir, prefix string) ([]file, error) {
+	var files []file
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(out, name), archive.Bytes(), 0o644); err != nil {
+		data, err := os.ReadFile(p)
+		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(archive.Bytes())
-		sums = append(sums, hex.EncodeToString(sum[:])+"  "+name)
-		fmt.Fprintf(os.Stderr, "wrote %s\n", filepath.Join(out, name))
-	}
-	sort.Strings(sums)
-	return os.WriteFile(filepath.Join(out, "SHA256SUMS"), []byte(strings.Join(sums, "\n")+"\n"), 0o644)
+		rel, _ := filepath.Rel(dir, p)
+		mode := int64(0o644)
+		if info.Mode()&0o111 != 0 || strings.HasSuffix(p, ".exe") {
+			mode = 0o755
+		}
+		files = append(files, file{prefix + "/" + filepath.ToSlash(rel), data, mode})
+		return nil
+	})
+	return files, err
 }
 
 // sourceTime is SOURCE_DATE_EPOCH, else the last commit's time.
@@ -149,79 +305,4 @@ func sourceTime() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("SOURCE_DATE_EPOCH %q: %w", s, err)
 	}
 	return time.Unix(n, 0).UTC(), nil
-}
-
-func writeTarGz(w io.Writer, files []file, mtime time.Time) error {
-	gz, _ := gzip.NewWriterLevel(w, gzip.BestCompression)
-	gz.ModTime = time.Time{} // no timestamp or name in the gzip header
-	tw := tar.NewWriter(gz)
-	for _, f := range files {
-		h := &tar.Header{Name: f.name, Mode: f.mode, Size: int64(len(f.data)), ModTime: mtime, Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
-		if err := tw.WriteHeader(h); err != nil {
-			return err
-		}
-		if _, err := tw.Write(f.data); err != nil {
-			return err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	return gz.Close()
-}
-
-func writeZip(w io.Writer, files []file, mtime time.Time) error {
-	zw := zip.NewWriter(w)
-	for _, f := range files {
-		h := &zip.FileHeader{Name: f.name, Method: zip.Deflate, Modified: mtime}
-		h.SetMode(os.FileMode(f.mode))
-		fw, err := zw.CreateHeader(h)
-		if err != nil {
-			return err
-		}
-		if _, err := fw.Write(f.data); err != nil {
-			return err
-		}
-	}
-	return zw.Close()
-}
-
-func readme(version, goos string) string {
-	s := "kalka " + version + "\n\nPeer-to-peer review of blueprints. Full guide: docs/install.md in the source.\n\n"
-	switch goos {
-	case "windows":
-		s += `Install
-  1. Unzip to a folder of your own, e.g. %LOCALAPPDATA%\Programs\kalka.
-     Keep kalka.exe, kalkaw.exe and kalka-plugin-gh.exe together.
-  2. Run kalka.exe once: the browser opens the setup form.
-  3. In a terminal in that folder: kalka autostart on
-     kalka then starts at each logon with no window (kalkaw.exe), and a
-     teammate's sync shows as a Windows notification.
-
-The binaries are not code-signed: SmartScreen may warn on first start
-("More info" > "Run anyway").
-Uninstall: kalka autostart off, then delete the folder and %APPDATA%\kalka.
-`
-	case "darwin":
-		s += `Install
-  1. Copy kalka and kalka-plugin-gh to a folder on your PATH, e.g. ~/bin.
-  2. The binaries are not notarized. If macOS refuses to run them:
-       xattr -d com.apple.quarantine ~/bin/kalka ~/bin/kalka-plugin-gh
-  3. Run kalka once: the browser opens the setup form.
-  4. kalka autostart on    (a LaunchAgent; kalka starts at each login)
-
-Uninstall: kalka autostart off, then delete the binaries and
-~/.config/kalka.
-`
-	default:
-		s += `Install
-  1. Copy kalka and kalka-plugin-gh to a folder on your PATH, e.g. ~/.local/bin.
-  2. Run kalka once: the browser opens the setup form.
-  3. kalka autostart on    (an entry in ~/.config/autostart)
-
-Popups need zenity. Uninstall: kalka autostart off, then delete the
-binaries and ~/.config/kalka.
-`
-	}
-	return s
 }

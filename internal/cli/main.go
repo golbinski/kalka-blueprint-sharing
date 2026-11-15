@@ -126,7 +126,9 @@ func usage(w io.Writer) {
   %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
   %[1]s status [--json]       online state, peers reachable, last sync, what waits, paused
   %[1]s pause | resume [--json]   go offline and back; kept across restarts
-  %[1]s autostart on|off|status [--json]   start kalka at logon
+  %[1]s autostart on [--headless]|off|status [--json]
+                                   start kalka at logon (the desktop app
+                                   if installed; --headless: no window)
   %[1]s open [--print]        open the running daemon's UI
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
   %[1]s send <file> <email> [--json]

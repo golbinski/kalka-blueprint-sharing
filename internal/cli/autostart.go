@@ -18,9 +18,10 @@ func cmdAutostart(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("autostart", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	headless := fs.Bool("headless", false, "on: start `kalka daemon --background` at logon, not the desktop app")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil || len(pos) != 1 || (pos[0] != "on" && pos[0] != "off" && pos[0] != "status") {
-		fmt.Fprintf(stderr, "usage: %s autostart on|off|status [--json]\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s autostart on [--headless] | off | status [--json]\n", name.Binary)
 		return exitUsage
 	}
 	fail := func(err error) int {
@@ -35,11 +36,18 @@ func cmdAutostart(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(err)
 		}
-		if st, err = autostart.Enable(exe); err != nil {
+		target, err := autostart.TargetFor(exe)
+		if *headless {
+			target, err = autostart.HeadlessTarget(exe)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		if st, err = autostart.EnableTarget(target); err != nil {
 			return fail(err)
 		}
 		if !autostart.StartsOnEnable && !running() {
-			if err := autostart.Start(exe); err != nil {
+			if err := autostart.StartTarget(target); err != nil {
 				return fail(fmt.Errorf("saved, but starting now failed: %w", err))
 			}
 			started = true

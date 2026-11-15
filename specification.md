@@ -660,7 +660,7 @@ The CLI is a first-class interface: agents and scripts use it, it works without 
 | `kalka status` | view | Online state, peers reachable, last sync, pending items, paused. |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). |
 | `kalka open [--print]` | daemon | Open the UI in the browser, or print its URL. |
-| `kalka autostart on\|off\|status` | file | Start kalka at login (22.2). |
+| `kalka autostart on [--headless]\|off\|status` | file | Start kalka at login (22.2): the desktop app where installed, else (or with `--headless`) `daemon --background`. |
 | `kalka setup --email … --rendezvous … --folder …` | file | Write the three settings. |
 | `kalka check <file>` | file | Validate format; exit code for use in scripts and agents. |
 | `kalka comment <file> --anchor <slug> [--kind deviation] [--re <id>]` | file | Append an entry; body from `-m` or stdin. Author is the configured email. |
@@ -733,7 +733,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - WebRTC: `pion/webrtc`; TURN: `pion/turn`.
 - File watching: `fsnotify`.
 - Frontend: TypeScript with a small framework of the implementer's choice, built to static assets and embedded.
-- Releases: reproducible archives containing `kalka`, `kalka-plugin-gh` and, where the host can build it, the desktop shell; see 23.5 for signing.
+- Releases (`tools/release`): per target a reproducible headless archive (`kalka`, `kalka-plugin-gh`; on Windows also `kalka-desktop.exe`); the Windows installer (when NSIS is installed), `Kalka.app` in a zip (built on a Mac) and a Linux desktop archive (built on Linux with GTK 4 and WebKitGTK 6.0), each skipped with a reason when the host cannot build it; `SHA256SUMS`. See 23.5 for signing.
 - Pin dependency versions at implementation time; do not assume the versions current when this was written.
 
 ---
@@ -1168,13 +1168,17 @@ The headless archives of 15 remain for servers, containers and machines without 
 ### 23.2 Windows
 
 - WebView2 is preinstalled on Windows 10 and 11, but can be missing or removed by policy. Before opening a window the shell reads the runtime version from the registry keys Microsoft documents for the Evergreen runtime. If it is missing, a native message names the download and offers "Open kalka in the browser instead", which keeps the daemon running and uses `kalka open`. The window is never blank.
-- Notifications need the Start-menu shortcut with the AppUserModelID, which the installer creates.
+- Notifications need an AppUserModelID registered for the sender. Wails' notification service registers its own under `HKCU\Software\Classes\AppUserModelId` at first start, so the installer's Start-menu shortcut is a plain one. Untested on real Windows until the D8 pass.
 
 ### 23.3 macOS and Linux
 
 - macOS: notifications and a clean tray need a signed bundle (23.5). Unsigned bundles are ad-hoc signed so they start on Apple Silicon.
 - Linux: the shell needs GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04 or newer as the stated base). The tray uses StatusNotifierItem; stock GNOME shows it only with an extension (22.2).
-- Webview rendering differences found during the work are listed here.
+- Webview rendering differences found during the work are listed here. None recorded yet: the window has only been checked on macOS, by its network traffic and the smoke test, not by eye.
+
+### 23.3a Building without cgo
+
+Wails v3.1.0 has experimental cgo-free back ends (`purego` tag; GTK 4 on Linux by default). With them `kalka-desktop` builds for macOS and Linux from any host, and the macOS build passes the shell's smoke test (hidden window, attach, stop). The release build keeps cgo on macOS and Linux and offers `-purego` as an option, until the cgo-free window has been used by hand on both systems.
 
 ### 23.4 Restricted environments
 

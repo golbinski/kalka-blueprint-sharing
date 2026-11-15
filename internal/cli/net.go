@@ -167,7 +167,7 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
 		NoUI: *noUI, OpenExternal: openBrowser, Autostart: o.Autostart,
-		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), Log: stderr}}
+		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: stderr}}
 	var d *daemon.Daemon
 	if !*noPopups && !*noUI {
 		// A notification-centre toast where the system has one for kalka
@@ -804,4 +804,13 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "verification code for %s: %s (%s)\n", v.Email, v.Code, state)
 	return exitOK
+}
+
+// exeDir is the folder of the running kalka, symlinks resolved.
+func exeDir() string {
+	exe, err := autostart.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
 }

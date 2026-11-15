@@ -167,4 +167,11 @@ func TestFindAndDescribe(t *testing.T) {
 	if p, err := h.Find("onpath"); err != nil || filepath.Dir(p) != other {
 		t.Fatal(p, err)
 	}
+	// Beside kalka itself, before PATH.
+	beside := t.TempDir()
+	install(t, beside, "onpath")
+	h.ExeDir = beside
+	if p, err := h.Find("onpath"); err != nil || filepath.Dir(p) != beside {
+		t.Fatal(p, err)
+	}
 }

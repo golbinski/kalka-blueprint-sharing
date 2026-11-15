@@ -26,10 +26,6 @@ const (
 	// and with arguments the CLI without a console.
 	DesktopBinary = Product + "-desktop"
 
-	// BackgroundBinary is the Windows build with no console window, used
-	// when kalka starts at logon.
-	BackgroundBinary = Product + "w"
-
 	// EntrySigContext prefixes the message signed in any entry (spec 6.5,
 	// v2): it covers the full digest of the entry, not the 48-bit id.
 	EntrySigContext = Product + "-entry-v2"

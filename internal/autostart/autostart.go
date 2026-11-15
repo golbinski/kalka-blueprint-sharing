@@ -3,8 +3,8 @@
 // the user's desktop, profile and browser.
 //
 //   - Windows: a value under HKCU\...\CurrentVersion\Run that starts the
-//     console-less kalkaw.exe, and the AppUserModelID registration that
-//     lets kalka show notification-centre toasts.
+//     console-less kalka-desktop.exe, and the AppUserModelID registration
+//     that lets kalka show notification-centre toasts.
 //   - macOS: a LaunchAgent in ~/Library/LaunchAgents, loaded with launchctl.
 //   - Linux: an XDG autostart entry in ~/.config/autostart.
 //
@@ -48,7 +48,7 @@ func (t Target) String() string { return strings.Join(append([]string{t.Exe}, t.
 
 // TargetFor picks what to start at logon for the binary exe: the shell
 // with --hidden when exe is the shell or the shell is installed next to
-// it, else the headless daemon (on Windows the console-less kalkaw.exe).
+// it, else the headless daemon (HeadlessTarget).
 func TargetFor(exe string) (Target, error) {
 	if DesktopBuild {
 		return Target{exe, []string{HiddenArg}}, nil
@@ -60,6 +60,18 @@ func TargetFor(exe string) (Target, error) {
 	return headless(exe)
 }
 
+// HeadlessTarget is `daemon --background` with no window at all, for
+// machines where the desktop app is not wanted or not allowed. On Windows
+// it runs the console-less kalka-desktop.exe, which with arguments is the
+// CLI; elsewhere exe itself.
+func HeadlessTarget(exe string) (Target, error) { return headless(exe) }
+
+// EnableTarget writes the entry for t (see Enable).
+func EnableTarget(t Target) (Status, error) { return enable(t) }
+
+// StartTarget launches t detached, as the entry would.
+func StartTarget(t Target) error { return start(t) }
+
 // Status describes the autostart entry.
 type Status struct {
 	Enabled bool   `json:"enabled"`
@@ -69,8 +81,9 @@ type Status struct {
 	Stale bool `json:"stale,omitempty"`
 }
 
-// ErrNoBackgroundBinary means kalkaw.exe is missing next to kalka.exe.
-var ErrNoBackgroundBinary = errors.New("kalkaw.exe is not next to kalka.exe; install both from the release archive")
+// ErrNoDesktopBinary means kalka-desktop.exe is missing next to kalka.exe
+// (Windows), so nothing can start at logon without a console window.
+var ErrNoDesktopBinary = errors.New("kalka-desktop.exe is not next to kalka.exe; install both from the release archive or the installer")
 
 // Executable returns the absolute path of the running binary, with
 // symlinks resolved, so the entry survives a changed working directory.

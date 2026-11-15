@@ -145,3 +145,19 @@ func TestTrayIcons(t *testing.T) {
 		}
 	}
 }
+
+func TestAppIcon(t *testing.T) {
+	for _, n := range []int{16, 128, 1024} {
+		img, err := png.Decode(bytes.NewReader(AppIcon(n)))
+		if err != nil || img.Bounds().Dx() != n {
+			t.Fatalf("%d: %v", n, err)
+		}
+		// Transparent corner, opaque middle.
+		if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
+			t.Errorf("%d: corner alpha %d", n, a)
+		}
+		if _, _, _, a := img.At(n/2, n/2).RGBA(); a != 0xffff {
+			t.Errorf("%d: centre alpha %d", n, a)
+		}
+	}
+}

@@ -37,6 +37,11 @@ func Main(args []string) int {
 	if len(args) > 0 && !hidden {
 		return cli.Run(args, os.Stdin, os.Stdout, os.Stderr)
 	}
+	// Started bare in a terminal (macOS, where `kalka` on the PATH is this
+	// binary): run the shell detached, so it outlives the terminal.
+	if !hidden && os.Getenv(detachedEnv) == "" && isTerminal(os.Stdin) {
+		return detach()
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -108,6 +113,7 @@ func run(plan Plan, dir string, hidden bool, logw io.Writer) int {
 	ui.app = application.New(application.Options{
 		Name:        name.Product,
 		Description: "Peer-to-peer blueprint review",
+		Icon:        AppIcon(256),
 		Services:    services,
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyAccessory,

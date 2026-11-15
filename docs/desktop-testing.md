@@ -89,6 +89,22 @@ rendezvous are needed for the notification items.
       a prompt shows as a dialog with "Open kalka", other notices only in
       the window.
 
+## Packages
+
+- [ ] Windows installer: installs without an elevation prompt into
+      `%LOCALAPPDATA%\Programs\kalka`; a new terminal finds `kalka`; the
+      Start-menu entry starts the app; *Start kalka* on the last page works.
+- [ ] Installing again over a running kalka stops it first and replaces
+      the files; the login entry still works.
+- [ ] Uninstall (Settings > Apps): kalka stops, the login entry, files,
+      Start-menu entry and PATH entry are gone; `%APPDATA%\kalka` stays.
+- [ ] A PATH longer than 900 characters is left alone, with a message.
+- [ ] macOS: `Kalka.app` from the zip opens after right-click > Open, has
+      no Dock icon, shows its icon in Finder; the `kalka` symlink works as
+      the CLI and finds `kalka-plugin-gh`.
+- [ ] Linux: the `.desktop` entry appears in the applications menu with
+      its icon and starts the app.
+
 ## Windows only
 
 - [ ] Remove or block WebView2: starting the shell shows a message naming

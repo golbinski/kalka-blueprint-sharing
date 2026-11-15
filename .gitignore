@@ -7,3 +7,5 @@
 /web/dist/
 /internal/ui/dist/*
 !/internal/ui/dist/.gitkeep
+/kalka-desktop
+/kalka-desktop.exe

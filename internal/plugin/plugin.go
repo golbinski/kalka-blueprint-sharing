@@ -100,8 +100,12 @@ type response struct {
 
 // Host finds and runs plugins.
 type Host struct {
-	// Dir is searched before PATH (<config>/plugins).
+	// Dir is searched first (<config>/plugins), then ExeDir, then PATH.
 	Dir string
+	// ExeDir is the folder kalka itself is installed in, so the plugins
+	// shipped beside it are found when kalka was started from the desktop
+	// or at login, with no PATH of the user's shell.
+	ExeDir string
 	// Log receives each plugin's stderr and failures.
 	Log io.Writer
 }
@@ -115,13 +119,16 @@ func (h *Host) Find(scheme string) (string, error) {
 		return "", ErrNotFound
 	}
 	base := Prefix + scheme
-	if h.Dir != "" {
-		exts := []string{""}
-		if runtime.GOOS == "windows" {
-			exts = []string{".exe", ".cmd"}
+	exts := []string{""}
+	if runtime.GOOS == "windows" {
+		exts = []string{".exe", ".cmd"}
+	}
+	for _, dir := range []string{h.Dir, h.ExeDir} {
+		if dir == "" {
+			continue
 		}
 		for _, ext := range exts {
-			p := filepath.Join(h.Dir, base+ext)
+			p := filepath.Join(dir, base+ext)
 			if st, err := os.Stat(p); err == nil && !st.IsDir() && (runtime.GOOS == "windows" || st.Mode()&0o111 != 0) {
 				return p, nil
 			}
