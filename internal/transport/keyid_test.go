@@ -3,13 +3,11 @@ package transport
 import (
 	"context"
 	"crypto/ed25519"
-	"errors"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/rendezvous"
@@ -49,7 +47,7 @@ func handshakeBoth(t *testing.T, a, b *node, verifyA Verifier) (pa, pb Peer, err
 			return
 		}
 		defer c.Close()
-		pb, errB = Handshake(c, b.id, "", nil)
+		pb, errB = Handshake(c, b.id, nil)
 	}()
 	c, err := a.ep.Dial(ctx, b.sig.ID())
 	if err != nil {
@@ -58,7 +56,7 @@ func handshakeBoth(t *testing.T, a, b *node, verifyA Verifier) (pa, pb Peer, err
 		return pa, pb, err, errB
 	}
 	defer c.Close()
-	pa, errA = Handshake(c, a.id, "", verifyA)
+	pa, errA = Handshake(c, a.id, verifyA)
 	<-done
 	return
 }
@@ -77,27 +75,14 @@ func TestKeyIDsNewToNew(t *testing.T) {
 	if errA != nil || errB != nil {
 		t.Fatalf("handshake: %v / %v", errA, errB)
 	}
-	if !pa.ViaKey || !pb.ViaKey || pa.Email != "stacks@library.example" {
+	if pa.Email != "stacks@library.example" || pb.Email != "desk@library.example" {
 		t.Fatalf("peers: %+v / %+v", pa, pb)
 	}
 }
 
-// Peers that meet on email ids are not reported as key ids.
-func TestEmailIDs(t *testing.T) {
-	h := newHarness(t, &rendezvous.Server{})
-	a, b := h.node(t, "desk@library.example", Options{}), h.node(t, "stacks@library.example", Options{})
-	pa, pb, errA, errB := handshakeBoth(t, a, b, nil)
-	if errA != nil || errB != nil {
-		t.Fatalf("handshake: %v / %v", errA, errB)
-	}
-	if pa.ViaKey || pb.ViaKey {
-		t.Fatal("email ids reported as key ids")
-	}
-}
-
 // On a server that does not check proofs, a squatter can hold someone's
-// key id, but the dialer detects it before pinning: no key_changed record,
-// so the real owner is not locked out of syncs (spec 8.4, 9.2).
+// key id, but the dialer detects it in the handshake, before the key is
+// checked against any team log (spec 8.3, 9.2).
 func TestKeyIDSquatter(t *testing.T) {
 	h := newHarness(t, &rendezvous.Server{NoKeyProof: true})
 	victim := newKey()
@@ -116,23 +101,14 @@ func TestKeyIDSquatter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peers, err := identity.OpenPeers(t.TempDir(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := peers.Pin("stacks@library.example", vpub); err != nil {
-		t.Fatal(err)
-	}
-	_, _, errA, _ := handshakeBoth(t, dialer, squatter, peers.Pin)
+	verified := false
+	verify := func(string, ed25519.PublicKey) error { verified = true; return nil }
+	_, _, errA, _ := handshakeBoth(t, dialer, squatter, verify)
 	if errA == nil || !strings.Contains(errA.Error(), "presented another key") {
 		t.Fatalf("squatter not detected: %v", errA)
 	}
-	var kc *identity.KeyChangedError
-	if errors.As(errA, &kc) {
-		t.Fatal("reported as a changed key")
-	}
-	if p, _ := peers.Get("stacks@library.example"); p.KeyChanged != nil {
-		t.Fatal("the squatter left a key_changed record")
+	if verified {
+		t.Fatal("the key check ran before the key id check")
 	}
 }
 

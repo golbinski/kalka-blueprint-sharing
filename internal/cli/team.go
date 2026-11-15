@@ -155,17 +155,17 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 func printMembers(w io.Writer, v core.TeamView) {
 	fmt.Fprintf(w, "team %s (%s), you are %s\n", v.Name, v.Team[:12], strings.Replace(v.Me, "none", "not a member", 1))
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "EMAIL\tROLE\tFINGERPRINT\tPIN")
+	fmt.Fprintln(tw, "EMAIL\tROLE\tFINGERPRINT\t")
 	for _, m := range v.Members {
 		role := "member"
 		if m.Owner {
 			role = "owner"
 		}
-		pin := map[string]string{"match": "matches", "none": "not pinned", "clash": "OTHER KEY PINNED: compare fingerprints"}[m.Pin]
+		you := ""
 		if m.You {
-			pin = "you"
+			you = "you"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Email, role, m.Fingerprint, pin)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Email, role, m.Fingerprint, you)
 	}
 	tw.Flush()
 	for _, d := range v.Domains {

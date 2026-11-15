@@ -11,41 +11,51 @@ const seedParent = "# Redelivery scheduling\n\n## Scope\nThe redelivery module.\
 
 // R4 acceptance: budding from a reviewer's copy gives a seed with its
 // keys; the parent gains one signed budded entry with its plan unchanged;
-// the backlink and the seed survive a sync both ways.
+// the backlink and the seed survive replication both ways.
 func TestBudFromReviewerAndSync(t *testing.T) {
-	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
+	_, ns := teamOfN(t, "alice@parcels.example", "bob@parcels.example")
+	alice, bob := ns[0], ns[1]
 	alice.write("plan.md", seedParent)
-	alice.mustSync("plan.md", bob, IntentSync)
-	planBefore := bob.doc("plan.md").Plan()
-	dev := bob.comment("plan.md", "scope", "The courier app needs the new rule too.")
+	waitIndexed(t, alice, 1)
+	pid := alice.share("plan.md", bob)
+	pname := bob.rel(pid)
+	planBefore := bob.doc(pname).Plan()
+	dev := bob.comment(pname, "scope", "The courier app needs the new rule too.")
 
-	res, err := bob.d.Bud(BudRequest{Path: "plan.md", From: dev.ID, Title: "Courier app rescheduling"})
+	res, err := bob.d.Bud(BudRequest{Path: pname, From: dev.ID, Title: "Courier app rescheduling"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	seed := bob.doc(res.Seed)
-	parent := bob.doc("plan.md")
-	if !seed.IsSeed() || seed.Owner() != "bob@corp.com" || seed.Parent() != parent.KalkaID() || seed.Origin() != dev.ID {
+	parent := bob.doc(pname)
+	if !seed.IsSeed() || seed.Owner() != bob.email || seed.Parent() != parent.KalkaID() || seed.Origin() != dev.ID {
 		t.Fatalf("seed:\n%s", seed.Bytes())
 	}
-	if parent.Plan() != planBefore || len(parent.Items()) != 2 || parent.Items()[1].Entry.Kind != bp.KindBudded {
+	if its := parent.Items(); parent.Plan() != planBefore || its[len(its)-1].Entry.Kind != bp.KindBudded {
 		t.Fatalf("parent:\n%s", parent.Bytes())
 	}
 
-	// The backlink reaches the owner, and the seed can be sent to her.
-	bob.mustSync("plan.md", alice, IntentSync)
-	equalFiles(t, "plan.md", alice, bob)
-	bob.mustSync(res.Seed, alice, IntentSync)
+	// The backlink reaches the owner, and so does the seed: budded from a
+	// team document, it is published to the team with its first version.
+	bob.replicate(alice)
 	seeds := alice.d.Seeds()
-	if len(seeds) != 1 || seeds[0].Owner != "bob@corp.com" || seeds[0].ParentRel != "plan.md" || seeds[0].Mine || seeds[0].Active == "" {
+	if len(seeds) != 1 || seeds[0].Owner != bob.email || seeds[0].ParentRel != alice.rel(pid) || seeds[0].Mine || seeds[0].Active == "" {
 		t.Fatalf("alice's pre-backlog %+v", seeds)
 	}
+	budded := 0
+	for _, it := range alice.doc(alice.rel(pid)).Items() {
+		if it.Entry.Kind == bp.KindBudded {
+			budded++
+		}
+	}
+	if budded != 1 {
+		t.Fatalf("alice holds %d budded entries", budded)
+	}
 	// And back: alice comments, bob receives; the backlink stays one.
-	alice.comment("plan.md", "scope", "Agreed, later.")
-	alice.mustSync("plan.md", bob, IntentSync)
+	alice.comment(alice.rel(pid), "scope", "Agreed, later.")
+	alice.replicate(bob)
 	n := 0
-	for _, it := range bob.doc("plan.md").Items() {
+	for _, it := range bob.doc(pname).Items() {
 		if it.Entry.Kind == bp.KindBudded {
 			n++
 		}
@@ -85,29 +95,25 @@ func TestBacklinkRetry(t *testing.T) {
 	}
 }
 
-// Promotion by the owner only; a seed can be handed off like any
-// blueprint, and the new owner can then promote it.
-func TestPromoteAndHandoffSeed(t *testing.T) {
-	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
+// Promotion by the owner only (handing a seed off returns with T3).
+func TestPromoteSeed(t *testing.T) {
+	_, ns := teamOfN(t, "alice@parcels.example", "bob@parcels.example")
+	alice, bob := ns[0], ns[1]
 	alice.write("plan.md", seedParent)
 	res, err := alice.d.Bud(BudRequest{Path: "plan.md", Title: "Locker pickup", Problem: "Recipients ask for lockers."})
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice.mustSync(res.Seed, bob, IntentSync)
-	if err := bob.d.Promote(res.Seed, "draft"); err == nil || !strings.Contains(err.Error(), "only the owner") {
+	waitIndexed(t, alice, 2)
+	id := alice.share(res.Seed, bob)
+	if err := bob.d.Promote(bob.rel(id), "draft"); err == nil || !strings.Contains(err.Error(), "only the owner") {
 		t.Fatalf("reviewer promoted: %v", err)
 	}
-	alice.mustSync(res.Seed, bob, IntentHandoff)
-	if err := bob.d.Promote(res.Seed, ""); err != nil {
+	name := alice.rel(id)
+	if err := alice.d.Promote(name, ""); err != nil {
 		t.Fatal(err)
 	}
-	if d := bob.doc(res.Seed); d.IsSeed() || d.Status() != "draft" {
+	if d := alice.doc(name); d.IsSeed() || d.Status() != "draft" {
 		t.Fatalf("status %q", d.Status())
-	}
-	bob.mustSync(res.Seed, alice, IntentSync)
-	if alice.doc(res.Seed).Status() != "draft" || len(alice.d.Seeds()) != 0 {
-		t.Fatal("promotion did not reach alice")
 	}
 }

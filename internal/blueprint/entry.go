@@ -18,7 +18,6 @@ import (
 const (
 	KindComment   = "comment"
 	KindDeviation = "deviation"
-	KindHandoff   = "handoff"
 	KindRelease   = "release" // spec 20.4
 	KindBudded    = "budded"  // spec 6.11
 )
@@ -33,14 +32,13 @@ const TimeLayout = "2006-01-02T15:04:05Z"
 const MaxEntryBody = 64 << 10
 
 var (
-	kindRe    = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	emailRe   = regexp.MustCompile(`^[^\s@\x{00b7}]+@[^\s@\x{00b7}]+$`)
-	tsRe      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
-	revRe     = regexp.MustCompile(`^[0-9a-f]{8}$`)
-	idRe      = regexp.MustCompile(`^[0-9a-f]{12}$`)
-	sigRe     = regexp.MustCompile(`^[A-Za-z0-9_-]{86}$`)
-	nodeIDRe  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
-	handoffRe = regexp.MustCompile(`^\x{2192} (\S+@\S+)$`)
+	kindRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	emailRe  = regexp.MustCompile(`^[^\s@\x{00b7}]+@[^\s@\x{00b7}]+$`)
+	tsRe     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
+	revRe    = regexp.MustCompile(`^[0-9a-f]{8}$`)
+	idRe     = regexp.MustCompile(`^[0-9a-f]{12}$`)
+	sigRe    = regexp.MustCompile(`^[A-Za-z0-9_-]{86}$`)
+	nodeIDRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 )
 
 // Entry is one record in the review log. Entries are immutable once written.
@@ -192,18 +190,6 @@ func (e *Entry) Quote() string {
 	return strings.Join(q, "\n")
 }
 
-// HandoffTarget returns the new owner named by a handoff entry.
-func (e *Entry) HandoffTarget() (string, bool) {
-	if e.Kind != KindHandoff {
-		return "", false
-	}
-	m := handoffRe.FindStringSubmatch(Normalize(e.Body))
-	if m == nil || !emailRe.MatchString(m[1]) {
-		return "", false
-	}
-	return m[1], true
-}
-
 // SigMessage is the message every entry signature covers (spec 6.5): the
 // full digest of the entry.
 func SigMessage(kalkaID, digest string) []byte {
@@ -277,19 +263,6 @@ func NewEntry(kind, author string, at time.Time, anchor, rev, body string) (*Ent
 		Anchor: anchor, Rev: rev, Body: b,
 	}
 	e.ID = e.ComputeID()
-	return e, nil
-}
-
-// NewHandoff builds a signed handoff entry passing ownership to target.
-func NewHandoff(kalkaID, author, target string, at time.Time, rev string, sign Signer) (*Entry, error) {
-	if !emailRe.MatchString(target) {
-		return nil, fmt.Errorf("handoff target %q is not an email address", target)
-	}
-	e, err := NewEntry(KindHandoff, author, at, "", rev, "→ "+target)
-	if err != nil {
-		return nil, err
-	}
-	e.Sign(kalkaID, sign)
 	return e, nil
 }
 

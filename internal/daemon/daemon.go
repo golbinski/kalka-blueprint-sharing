@@ -1,7 +1,7 @@
 // Package daemon is the process around the core (spec 4): it hosts one
 // core.Node, serves the local API and the web UI on loopback (13), and
-// presents prompts when no page is open. All networking and sync live in
-// the core.
+// shows notices when no page is open. All networking and replication live
+// in the core.
 package daemon
 
 import (
@@ -34,12 +34,8 @@ type Options struct {
 	Token string
 	// OpenUI, if set, opens the UI's URL in a browser.
 	OpenUI func(url string)
-	// Popup, if set, asks the user whether to open the UI; see popups.go.
-	// It returns true for "open", false for "later", and must close and
-	// return when ctx ends. An error falls back to OpenUI.
-	Popup func(ctx context.Context, title, message string) (bool, error)
 	// NoUI serves the API but not the web UI (`--no-ui`, spec 13). It
-	// also turns popups off: there is no page for them to open.
+	// also turns notifications off: there is no page for them to open.
 	NoUI bool
 	// OpenExternal, if set, opens an http or https link in the system
 	// browser (POST /api/open-external).
@@ -94,7 +90,7 @@ func New(opts Options) (*Daemon, error) {
 		opts.Lock = l
 	}
 	if opts.NoUI {
-		opts.Popup, opts.OpenUI = nil, nil
+		opts.Notify, opts.OpenUI = nil, nil
 	}
 	st, err := LoadState(opts.ConfigDir)
 	if err != nil {
@@ -169,7 +165,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	pctx, stop := context.WithCancel(ctx)
 	defer stop()
-	go d.present(pctx)
 	// Subscribe before anything can publish: a paused start raises its
 	// notice as soon as the node is ready.
 	if d.opts.Notify != nil {
@@ -190,28 +185,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 	return d.Node.Run(ctx)
-}
-
-// present brings the UI up for a prompt nobody can see (popups.go).
-func (d *Daemon) present(ctx context.Context) {
-	prompts, stopP := d.Prompts.Subscribe("")
-	defer stopP()
-	pop := newPopups(d)
-	defer pop.stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case n := <-prompts:
-			if n.Closed {
-				pop.closed(n.Prompt)
-				continue
-			}
-			pop.opened(ctx, n.Prompt)
-		case r := <-pop.results:
-			pop.finished(ctx, r)
-		}
-	}
 }
 
 // Shutdown asks Run to stop; it returns at once.

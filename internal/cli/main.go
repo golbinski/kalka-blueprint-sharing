@@ -82,12 +82,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdOpen(rest, stdout, stderr)
 	case "setup":
 		return cmdSetup(rest, stdout, stderr)
-	case "send", "handoff":
-		return cmdSync(cmd, rest, stdin, stdout, stderr)
-	case "peers":
-		return cmdPeers(rest, stdout, stderr)
-	case "verify":
-		return cmdVerify(rest, stdout, stderr)
 	case "rendezvous":
 		return cmdRendezvous(rest, stdout, stderr)
 	case "autostart":
@@ -122,19 +116,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `usage:
   %[1]s                     make sure the daemon runs, then open its UI
-  %[1]s daemon [--background] [--no-ui] [--no-popups]   run the daemon (in a terminal, prompts are asked there too)
+  %[1]s daemon [--background] [--no-ui] [--no-notifications]   run the daemon
   %[1]s stop [--wait 1m] [--json]   stop the daemon after its running rounds finish
-  %[1]s status [--json]       online state, peers reachable, last sync, what waits, paused
+  %[1]s status [--json]       online state, members reachable, last sync, what waits, paused
   %[1]s pause | resume [--json]   go offline and back; kept across restarts
   %[1]s autostart on [--headless]|off|status [--json]
                                    start kalka at logon (the desktop app
                                    if installed; --headless: no window)
   %[1]s open [--print]        open the running daemon's UI
-  %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir> [--team <t>]
-  %[1]s send <file> <email> [--json]
-  %[1]s handoff <file> <email> [--json]
-  %[1]s peers [--json] | peers add <email> | peers forget <email>
-  %[1]s verify <email> [--confirm] [--json]
+  %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir>
   %[1]s check <file>... [--json] [--verbose]
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
@@ -150,10 +140,10 @@ func usage(w io.Writer) {
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
 
-Commands that act through kalka (send, handoff, peers add|forget, verify, team changes,
-join, publish, release, delete, open, pause, resume) start it in the background when it is not running;
+Commands that act through kalka (team changes, join, publish, release, delete, open,
+pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
-peers, team members|log|invites, domains) never start it: with none running they read the
+team members|log|invites, domains) never start it: with none running they read the
 local files and their JSON says "daemon": false. check, comment, seed, seeds and reference
 never need it.
 `, name.Binary, NoStartEnv)
@@ -272,9 +262,8 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-// localKeys returns the keys this installation knows, its own and its
-// pinned peers', without creating a config or a key. With no config, no
-// signature can be checked.
+// localKeys returns the key this installation knows, its own, without
+// creating a config or a key. With no config, no signature can be checked.
 func localKeys() func(string) (ed25519.PublicKey, bool) {
 	none := func(string) (ed25519.PublicKey, bool) { return nil, false }
 	dir, err := config.Dir()
@@ -291,15 +280,11 @@ func localKeys() func(string) (ed25519.PublicKey, bool) {
 			own = k.Public().(ed25519.PublicKey)
 		}
 	}
-	peers, _ := identity.OpenPeers(dir, nil)
 	return func(email string) (ed25519.PublicKey, bool) {
 		if own != nil && bp.SameEmail(email, cfg.Email) {
 			return own, true
 		}
-		if peers == nil {
-			return nil, false
-		}
-		return peers.Key(email)
+		return nil, false
 	}
 }
 
@@ -366,10 +351,6 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 	}
 	if len(files) != 1 {
 		fmt.Fprintln(stderr, "comment: name exactly one file")
-		return exitUsage
-	}
-	if *kind == bp.KindHandoff {
-		fmt.Fprintf(stderr, "comment: use `%s handoff` to hand a blueprint over\n", name.Binary)
 		return exitUsage
 	}
 	*anchor = strings.TrimPrefix(*anchor, "§")

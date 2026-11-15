@@ -19,7 +19,7 @@ Use the headless archive for your system (`kalka_<v>_<os>_<arch>.tar.gz`, or the
 
 A second start finds the running daemon and exits with status 0, so starting it from several places is safe. `kalka stop` stops it; `kalka status` shows its state.
 
-The command line works with or without a running daemon: reading commands (`status`, `peers`, `team members`, `domains`, `check`, `comment`, `seed`) read the files, and commands that need the network start the daemon in the background unless told not to (`--no-start`, or `KALKA_NO_START=1`), which agents in sandboxes should use.
+The command line works with or without a running daemon: reading commands (`status`, `team members`, `domains`, `check`, `comment`, `seed`) read the files, and commands that need the network start the daemon in the background unless told not to (`--no-start`, or `KALKA_NO_START=1`), which agents in sandboxes should use.
 
 ## The page
 
@@ -27,10 +27,10 @@ The command line works with or without a running daemon: reading commands (`stat
 
 Options for the daemon:
 
-- `--no-popups`: no native dialogs or notifications; prompts wait in the page and the terminal.
-- `--no-ui`: no web UI at all (page paths answer 404); the local API stays up for the CLI. Implies `--no-popups`.
+- `--no-notifications`: no OS notifications; notices show only in the page.
+- `--no-ui`: no web UI at all (page paths answer 404); the local API stays up for the CLI. Implies `--no-notifications`.
 
-Without a page open, prompts reach you as notification-centre toasts on Windows (registered by `kalka autostart on`), dialogs on macOS, and `zenity` dialogs on Linux; otherwise kalka opens the browser at most once a minute.
+Without a page open, notices (new comments on your documents, joins, newer domain versions) reach you as notification-centre toasts where the system has them for kalka (Windows, after `kalka autostart on`). Nothing waits for an answer: kalka never asks a question during replication.
 
 ## What IT needs to allow
 

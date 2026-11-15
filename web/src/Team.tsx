@@ -155,7 +155,6 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
       setErr((e as Error).message)
     }
   }
-  const clashes = t.members.filter((m) => m.pin === 'clash')
   const notCounting = (t.bad_lines?.length ?? 0) + (t.rejected ?? 0)
   return (
     <section className="team-card">
@@ -170,13 +169,6 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
         </span>
       </div>
       {t.error && <div className="error-box">{t.error}</div>}
-      {clashes.map((m) => (
-        <div className="banner danger loud" key={m.email}>
-          <b>The key pinned for {m.email} is not the one this team's log names.</b> One-to-one syncs keep using the pinned key;
-          team traffic uses the log's. Compare fingerprints with them ({m.fingerprint} in the log), then remove the old pin on the{' '}
-          <a href="#/peers">Peers</a> page if the log is right.
-        </div>
-      ))}
       {notCounting > 0 && (
         <div className="banner warn">
           {plural(notCounting, 'line')} of the log do not count (damaged, or not signed by the key they name). They are kept in the file and
@@ -314,7 +306,6 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
       <td>{m.owner ? 'owner' : 'member'}</td>
       <td>
         <span className="mono small">{m.fingerprint}</span>
-        {m.pin === 'clash' && <span className="cv-flag"> another key pinned</span>}
       </td>
       <td className="small">{m.since ? localTime(m.since) : ''}</td>
       {owner && (

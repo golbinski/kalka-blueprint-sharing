@@ -1,10 +1,7 @@
-// Package peerid derives the two PeerJS ids of a kalka user (spec 9.2) and
-// the proof that registers a key id on `kalka rendezvous` (spec 9.6).
+// Package peerid derives the PeerJS id of a kalka user, the key id (spec
+// 9.2), and the proof that registers it on `kalka-rendezvous` (spec 9.6).
 //
-//	email_id = "kalka-"  + hex(SHA-256("kalka-peer-v1|" + team + "|" + lowercase(email)))[0:32]
-//	key_id   = "kalka-k" + hex(SHA-256("kalka-key-v1|" + pubkey))[0:32]
-//
-// The two cannot be confused: hex never starts with "k".
+//	key_id = "kalka-k" + hex(SHA-256("kalka-key-v1|" + pubkey))[0:32]
 package peerid
 
 import (
@@ -21,20 +18,13 @@ import (
 )
 
 const (
-	emailPrefix = name.Product + "-"
-	keyPrefix   = name.Product + "-k"
+	keyPrefix = name.Product + "-k"
 
 	// ProofParam is the query parameter holding the proof.
 	ProofParam = "kproof"
 	// MaxSkew is how far a proof's time may be from the server's clock.
 	MaxSkew = 5 * time.Minute
 )
-
-// Email derives the email id. team is the optional config salt (spec 5).
-func Email(team, email string) string {
-	sum := sha256.Sum256([]byte(name.Product + "-peer-v1|" + team + "|" + strings.ToLower(email)))
-	return emailPrefix + hex.EncodeToString(sum[:])[:32]
-}
 
 // Key derives the key id of a raw ed25519 public key.
 func Key(pub ed25519.PublicKey) string {

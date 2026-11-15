@@ -5,11 +5,9 @@ export interface Status {
   setup?: boolean
   defaults?: { folder: string; rendezvous: string }
   email: string
+  /** The key id this node registers (spec 9.2). */
   peer_id: string
-  key_peer_id?: string
   fingerprint?: string
-  key_online?: boolean
-  key_error?: string
   rendezvous: string
   folder: string
   online: boolean
@@ -26,7 +24,6 @@ export interface Summary {
   peers_online: number
   peers_known: number
   last_sync?: string
-  prompts: number
   joins: number
   pushes: number
   shell?: 'desktop'
@@ -62,7 +59,6 @@ export interface BlueprintInfo {
   errors: number
   parse_error?: string
   duplicate?: boolean
-  owner_edited?: boolean
   modified: string
 }
 
@@ -97,12 +93,9 @@ export interface Entry {
   valid: boolean
   /** Signature state (spec 6.5). */
   sig?: 'unsigned' | 'invalid' | 'unknown' | 'verified'
-  handoff?: 'verified' | 'unverified'
   budded_seed?: string
   budded_title?: string
   budded_rel?: string
-  handoff_target?: string
-  handoff_note?: string
   unparsed?: string
   /** For a published document: signed by a member, a removed member, or only in this file (spec 11.1). */
   team_state?: 'member' | 'removed-member' | 'local-only'
@@ -200,7 +193,6 @@ export interface Doc {
   problems: Problem[]
   /** Soft hints of the blueprint reference (spec 6.13); never errors. */
   hints: Problem[]
-  owner_edited?: boolean
   duplicate?: boolean
   traces: Trace[]
   refs: Record<string, RefView>
@@ -302,62 +294,6 @@ export interface BudResult {
   backlink_error?: string
 }
 
-export interface Peer {
-  email: string
-  pinned: boolean
-  verified: boolean
-  first_seen?: string
-  key_changed?: boolean
-  code?: string
-  fingerprint?: string
-  presence: 'online' | 'offline' | 'unknown'
-  checked?: string
-}
-
-export interface CodeView {
-  email: string
-  code: string
-  verified: boolean
-  key_changed?: boolean
-}
-
-export type PromptKind = 'verify-code' | 'accept-new' | 'accept-handoff' | 'converge'
-
-export interface Prompt {
-  id: string
-  scope?: string
-  created: string
-  kind: PromptKind
-  peer: string
-  kalka_id?: string
-  title?: string
-  size?: number
-  code?: string
-  message: string
-}
-
-export interface SyncResult {
-  kalka_id: string
-  title?: string
-  path?: string
-  peer: string
-  intent: string
-  outcome: 'new' | 'unchanged' | 'updated' | 'rejected'
-  reason?: string
-  detail?: string
-  conflict?: string
-  notes?: string[]
-}
-
-export interface SyncEvent {
-  type: 'progress' | 'prompt' | 'prompt-closed' | 'result' | 'error'
-  message?: string
-  prompt?: Prompt
-  result?: SyncResult
-  error?: string
-  kind?: string
-}
-
 export class ApiError extends Error {
   status: number
   kind?: string
@@ -409,7 +345,6 @@ export interface TeamMember {
   fingerprint: string
   since?: string
   you?: boolean
-  pin: 'match' | 'none' | 'clash'
 }
 export interface TeamInvite {
   id: string
@@ -507,61 +442,15 @@ export const api = {
     call<Doc>('GET', '/api/doc?path=' + enc(path) + (version ? '&v=' + version : '')).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
   addEntry: (e: { path: string; kind: string; anchor: string; re?: string; quote?: string; body: string }) =>
     call<{ id: string }>('POST', '/api/entries', e),
-  peers: () => call<Peer[] | null>('GET', '/api/peers').then((l) => l ?? []),
-  addPeer: (email: string) => call<Peer>('POST', '/api/peers', { email }),
-  forget: (email: string) => call<{ forgotten: boolean }>('DELETE', '/api/peers/' + enc(email)),
-  code: (email: string) => call<CodeView>('GET', '/api/verify/' + enc(email)),
-  confirm: (email: string) => call<CodeView>('POST', '/api/verify/' + enc(email), {}),
-  prompts: () => call<Prompt[] | null>('GET', '/api/prompts').then((l) => l ?? []),
-  answer: (id: string, accept: boolean) => call<{ answered: boolean }>('POST', '/api/prompts/' + enc(id), { accept }),
-
-  // sync streams NDJSON events until the sync ends.
-  async sync(req: { path: string; to: string; intent: 'sync' | 'handoff' }, on: (e: SyncEvent) => void): Promise<void> {
-    let r: Response
-    try {
-      r = await fetch('/api/sync', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      })
-    } catch {
-      throw new ApiError('kalka is not reachable. Is it still running?', 0, 'down')
-    }
-    if (!r.ok || !r.body) {
-      const t = await r.text()
-      let msg = t
-      try {
-        msg = JSON.parse(t).error ?? t
-      } catch {
-        /* plain text */
-      }
-      throw new ApiError(msg, r.status)
-    }
-    const reader = r.body.getReader()
-    const dec = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (value) buf += dec.decode(value, { stream: true })
-      let i: number
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim()
-        buf = buf.slice(i + 1)
-        if (line) on(JSON.parse(line) as SyncEvent)
-      }
-      if (done) return
-    }
-  },
 }
 
-export type BusType = 'folder' | 'prompt' | 'prompt-closed' | 'sync' | 'status' | 'peers' | 'refs' | 'teams' | 'notice' | 'settings'
+export type BusType = 'folder' | 'status' | 'refs' | 'teams' | 'notice' | 'settings'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'prompt', 'prompt-closed', 'sync', 'status', 'peers', 'refs', 'teams', 'notice', 'settings']
+  const types: BusType[] = ['folder', 'status', 'refs', 'teams', 'notice', 'settings']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

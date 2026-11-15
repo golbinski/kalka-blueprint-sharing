@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 
+	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/rendezvous"
 )
@@ -49,7 +51,8 @@ func (h *harness) node(t *testing.T, email string, opts Options) *node {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	sig, err := peerjs.Dial(ctx, h.info, PeerID("", email))
+	id, proof := peerid.Proof(priv, time.Now())
+	sig, err := peerjs.DialQuery(ctx, h.info, id, url.Values{peerid.ProofParam: {proof}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +77,7 @@ func connect(t *testing.T, a, b *node) (ca, cb *Conn, errA, errB error) {
 			return
 		}
 		cb = c
-		_, errB = Handshake(c, b.id, "", nil)
+		_, errB = Handshake(c, b.id, nil)
 	}()
 	c, err := a.ep.Dial(ctx, b.sig.ID())
 	if err != nil {
@@ -83,7 +86,7 @@ func connect(t *testing.T, a, b *node) (ca, cb *Conn, errA, errB error) {
 		return nil, nil, err, errB
 	}
 	ca = c
-	_, errA = Handshake(c, a.id, "", nil)
+	_, errA = Handshake(c, a.id, nil)
 	wg.Wait()
 	return
 }
@@ -107,20 +110,20 @@ func TestConnectAndTransfer(t *testing.T) {
 			return
 		}
 		var m struct{ Content string }
-		if err := env.Decode(&m); err != nil || env.Type != "sync_offer" || m.Content != big {
+		if err := env.Decode(&m); err != nil || env.Type != "team_doc" || m.Content != big {
 			done <- errors.New("content mismatch")
 			return
 		}
-		done <- cb.Send(map[string]string{"type": "sync_reply", "status": "merged"})
+		done <- cb.Send(map[string]string{"type": "bye", "reason": "done"})
 	}()
-	if err := ca.Send(map[string]string{"type": "sync_offer", "content": big}); err != nil {
+	if err := ca.Send(map[string]string{"type": "team_doc", "content": big}); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	env, err := ca.Receive(10 * time.Second)
-	if err != nil || env.Type != "sync_reply" {
+	if err != nil || env.Type != "bye" {
 		t.Fatalf("reply: %v %v", env.Type, err)
 	}
 }
@@ -131,7 +134,7 @@ func TestOfflinePeer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	_, err := alice.ep.Dial(ctx, PeerID("", "nobody@corp.com"))
+	_, err := alice.ep.Dial(ctx, KeyPeerID(newKey().Public().(ed25519.PublicKey)))
 	if !errors.Is(err, ErrOffline) {
 		t.Fatalf("dial offline peer: %v", err)
 	}
@@ -142,20 +145,22 @@ func TestOfflinePeer(t *testing.T) {
 
 func TestIDTaken(t *testing.T) {
 	h := newHarness(t, &rendezvous.Server{})
-	h.node(t, "alice@corp.com", Options{})
+	alice := h.node(t, "alice@corp.com", Options{})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := peerjs.Dial(ctx, h.info, PeerID("", "alice@corp.com")); !errors.Is(err, peerjs.ErrIDTaken) {
+	_, proof := peerid.Proof(alice.id.Key, time.Now())
+	if _, err := peerjs.DialQuery(ctx, h.info, alice.sig.ID(), url.Values{peerid.ProofParam: {proof}}); !errors.Is(err, peerjs.ErrIDTaken) {
 		t.Fatalf("second registration: %v", err)
 	}
 }
 
-func TestWrongEmailForPeerID(t *testing.T) {
+// A peer must present the key its id was derived from (spec 8.3 step 4).
+func TestWrongKeyForPeerID(t *testing.T) {
 	h := newHarness(t, &rendezvous.Server{})
 	alice, bob := h.node(t, "alice@corp.com", Options{}), h.node(t, "bob@corp.com", Options{})
-	bob.id.Email = "carol@corp.com" // registered as bob, claims to be carol
+	bob.id.Key = newKey() // registered under one key, presents another
 	_, _, errA, _ := connect(t, alice, bob)
-	if errA == nil || !strings.Contains(errA.Error(), "connected as") {
+	if errA == nil || !strings.Contains(errA.Error(), "presented another key") {
 		t.Fatalf("impersonation not detected: %v", errA)
 	}
 }
@@ -361,16 +366,6 @@ func TestResolveICEFallbacks(t *testing.T) {
 	}
 }
 
-func TestPeerID(t *testing.T) {
-	a, b := PeerID("", "Alice@Corp.com"), PeerID("", "alice@corp.com")
-	if a != b || len(a) != len("kalka-")+32 || !peerjs.ValidID(a) {
-		t.Fatalf("PeerID: %q %q", a, b)
-	}
-	if PeerID("team", "alice@corp.com") == a {
-		t.Fatal("team string not mixed in")
-	}
-}
-
 // TestOfferShapeForPeerJSCloud pins the OFFER fields the public PeerJS
 // cloud requires: without label and serialization it drops the sender.
 func TestOfferShapeForPeerJSCloud(t *testing.T) {
@@ -411,7 +406,7 @@ func TestProbe(t *testing.T) {
 	if d := time.Since(t0); d > 500*time.Millisecond {
 		t.Fatalf("online probe took %v", d)
 	}
-	if p := a.ep.Probe(ctx, PeerID("", "nobody@corp.com")); p != Offline {
+	if p := a.ep.Probe(ctx, KeyPeerID(newKey().Public().(ed25519.PublicKey))); p != Offline {
 		t.Fatalf("absent peer: %s", p)
 	}
 	// The probe must not disturb a real connection afterwards.
@@ -468,10 +463,11 @@ func TestKalkaRendezvous(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := peerjs.Dial(ctx, info, PeerID("", "alice@corp.com")); !errors.Is(err, peerjs.ErrIDTaken) {
+	_, proof := peerid.Proof(alice.id.Key, time.Now())
+	if _, err := peerjs.DialQuery(ctx, info, alice.sig.ID(), url.Values{peerid.ProofParam: {proof}}); !errors.Is(err, peerjs.ErrIDTaken) {
 		t.Fatalf("id taken: %v", err)
 	}
-	if _, err := alice.ep.Dial(ctx, PeerID("", "carol@corp.com")); !errors.Is(err, ErrOffline) {
+	if _, err := alice.ep.Dial(ctx, KeyPeerID(newKey().Public().(ed25519.PublicKey))); !errors.Is(err, ErrOffline) {
 		t.Fatalf("offline: %v", err)
 	}
 }

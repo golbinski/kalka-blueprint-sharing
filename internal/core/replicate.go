@@ -371,7 +371,6 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 	if d.wrapChan != nil {
 		ch = d.wrapChan(ch)
 	}
-	s := &syncproto.Session{Ch: ch, Peer: peer.Email}
 	responder := first != nil
 	// end says why this side stops. The initiator then waits for the
 	// responder to close, so nothing still in flight is cut off; a
@@ -410,7 +409,6 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 			return fmt.Errorf("%s sent %q, expected %s", peer.Email, env.Type, typ)
 		}
 	}
-	_ = s
 
 	h, err := d.heldTeam(team)
 	if err != nil || !h.isMember(d.self.Email, d.pub) {
@@ -419,10 +417,19 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 		}
 		return res, errors.New("not a member of that team")
 	}
-	set := d.replicaSet(h)
+	// Nothing about the documents is read for a caller the log does not
+	// count yet (spec 8.2): its team_sync answer carries the log heads
+	// only, so the initiator can bring the operations that add it.
+	known := h.isMember(peer.Email, peer.Key)
+	var set map[string]teamDoc
+	dg := ""
+	if known {
+		set = d.replicaSet(h)
+		dg = digest(set)
+	}
 	var theirs syncproto.TeamSync
 	mine := func() syncproto.TeamSync {
-		return syncproto.TeamSync{Type: "team_sync", Team: team, Heads: h.st.Heads, Digest: digest(set)}
+		return syncproto.TeamSync{Type: "team_sync", Team: team, Heads: h.st.Heads, Digest: dg}
 	}
 	if responder {
 		if err := first.Decode(&theirs); err != nil {
@@ -446,7 +453,11 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 		end("invalid")
 		return res, errors.New("the peer answered for another team")
 	}
-	if slices.Equal(theirs.Heads, h.st.Heads) && theirs.Digest == digest(set) {
+	if !known && slices.Equal(theirs.Heads, h.st.Heads) {
+		end(syncproto.ByeNotMember) // its operations cannot add it
+		return res, fmt.Errorf("%s is not a member of %s", peer.Email, h.dir.Name)
+	}
+	if known && slices.Equal(theirs.Heads, h.st.Heads) && theirs.Digest == dg {
 		res.Equal = true
 		if responder {
 			_ = recv("bye", &struct{}{})
@@ -535,16 +546,16 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 
 	give := func() error {
 		for _, id := range tw.IDs {
-			off := syncproto.Offer{Type: "sync_offer", KalkaID: id, Intent: syncproto.IntentReplicate}
+			doc := syncproto.TeamDoc{Type: "team_doc", Team: team, KalkaID: id}
 			if td, ok := set[strings.ToLower(id)]; ok {
 				if rep, err := merge.Replica(td.doc, h.teamFor(td.doc)); err == nil {
-					off.Filename, off.Content = filepath.Base(td.path), string(rep.Bytes())
+					doc.Filename, doc.Content = filepath.Base(td.path), string(rep.Bytes())
 					res.Sent = append(res.Sent, td.item.ID)
 				}
 			}
-			// Anything else, a private document included, gets the
+			// Anything else, a Personal document included, gets the
 			// answer for a document that does not exist.
-			if err := ch.Send(off); err != nil {
+			if err := ch.Send(doc); err != nil {
 				return err
 			}
 		}
@@ -552,12 +563,12 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 	}
 	take := func() error {
 		for range myWants {
-			var off syncproto.Offer
-			if err := recv("sync_offer", &off); err != nil {
+			var off syncproto.TeamDoc
+			if err := recv("team_doc", &off); err != nil {
 				return err
 			}
-			if off.Intent != syncproto.IntentReplicate || !slices.Contains(myWants, off.KalkaID) {
-				return fmt.Errorf("%s sent an offer that was not asked for", peer.Email)
+			if off.Team != team || !slices.Contains(myWants, off.KalkaID) {
+				return fmt.Errorf("%s sent a document that was not asked for", peer.Email)
 			}
 			if off.Content == "" {
 				res.Unavailable++
@@ -595,7 +606,7 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 // the entries are taken but the incoming plan is not, because its release
 // does not count, it writes and also reports why (spec 20.4: each peer
 // says why it did not apply a release).
-func (d *Node) applyReplica(h *held, from string, off syncproto.Offer) (bool, *Refusal) {
+func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, *Refusal) {
 	refuse := func(title, reason string) (bool, *Refusal) {
 		return false, &Refusal{KalkaID: off.KalkaID, Title: title, From: from, Reason: reason, At: d.now().UTC()}
 	}
@@ -631,7 +642,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.Offer) (bool, *R
 			local = live.Doc
 		}
 		team := h.teamFor(local, in)
-		res := merge.DocsTeam(local, in, from, d.keys, team)
+		res := merge.Docs(local, in, team)
 		var planRef *Refusal
 		if res.Outcome != merge.Rejected && local != nil {
 			if why := voidPlan(local, in, res.Doc, team); why != "" {
@@ -948,32 +959,18 @@ func (d *Node) round(ctx context.Context, team string, force bool) {
 }
 
 // replicateWith runs one session with a member, dialing the key the log
-// binds to them (spec 8.2: the log's key, not the pin, for team traffic).
+// binds to them (spec 8.2, 9.2).
 func (d *Node) replicateWith(ctx context.Context, h *held, email string, key ed25519.PublicKey) (SessionResult, error) {
 	ep, err := d.endpoint()
 	if err != nil {
 		return SessionResult{}, err
 	}
-	d.mu.Lock()
-	kep := d.kep
-	d.mu.Unlock()
-	rs := []route{}
-	if kep != nil {
-		rs = append(rs, route{ep: kep, id: transport.KeyPeerID(key), viaKey: true})
+	dctx, cancel := context.WithTimeout(ctx, DialTimeout)
+	if d.stopping != nil {
+		context.AfterFunc(d.stopping, cancel) // a stop drains sessions, not dials
 	}
-	rs = append(rs, route{ep: ep, id: transport.PeerID(d.cfg.Team, email)})
-	var c *transport.Conn
-	for i, r := range rs {
-		dctx, cancel := context.WithTimeout(ctx, DialTimeout)
-		if d.stopping != nil {
-			context.AfterFunc(d.stopping, cancel) // a stop drains sessions, not dials
-		}
-		c, err = r.ep.Dial(dctx, r.id)
-		cancel()
-		if err == nil || ctx.Err() != nil || d.isStopping() || i == len(rs)-1 {
-			break
-		}
-	}
+	c, err := ep.Dial(dctx, transport.KeyPeerID(key))
+	cancel()
 	if errors.Is(err, transport.ErrOffline) {
 		d.markPresence(email, transport.Offline)
 		return SessionResult{}, &ErrOffline{Email: email}
@@ -989,7 +986,7 @@ func (d *Node) replicateWith(ctx context.Context, h *held, email string, key ed2
 		}
 		return nil
 	}
-	peer, err := transport.Handshake(c, d.self, d.cfg.Team, verify)
+	peer, err := transport.Handshake(c, d.self, verify)
 	if err != nil {
 		return SessionResult{}, err
 	}

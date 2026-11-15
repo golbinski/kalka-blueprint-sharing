@@ -95,8 +95,6 @@ export function noteText(e: Entry): string {
     case 'budded':
       if (e.budded_seed) return 'Split off a seed: ' + (e.budded_title || e.budded_seed)
       break
-    case 'handoff':
-      return 'Ownership passed to ' + (e.handoff_target ?? '?')
     case 'release': {
       const m = releaseRe.exec(e.body.split('\n')[0])
       if (m) return m[3] ? `Deleted for the team at version ${m[1]}` : `Released version ${m[1]}, owner ${m[2]}`

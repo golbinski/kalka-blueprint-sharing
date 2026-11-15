@@ -21,12 +21,8 @@ func TestDerivation(t *testing.T) {
 	if got := Key(pub); got != want || !IsKey(got) {
 		t.Fatalf("Key = %q, want %q", got, want)
 	}
-	e := Email("", "Reader@Library.example")
-	if e != Email("", "reader@library.example") || IsKey(e) || len(e) != len("kalka-")+32 {
-		t.Fatalf("Email = %q", e)
-	}
-	if Email("salt", "reader@library.example") == e {
-		t.Fatal("team salt not mixed in")
+	if IsKey("kalka-" + hex.EncodeToString(make([]byte, 16))) {
+		t.Fatal("IsKey accepts an id without the key prefix")
 	}
 	if IsKey("kalka-kzz") || IsKey("kalka-k"+hex.EncodeToString(make([]byte, 15))+"zz") {
 		t.Fatal("IsKey accepts junk")

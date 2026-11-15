@@ -100,6 +100,32 @@ func (n *node) teamFile(id string) (string, *bp.Document) {
 	return f.Path, f.Doc
 }
 
+// rel is the folder-relative name of the file holding kalka id.
+func (n *node) rel(id string) string {
+	n.w.t.Helper()
+	p, _ := n.teamFile(id)
+	if p == "" {
+		n.w.t.Fatalf("%s does not hold %s", n.email, id)
+	}
+	r, err := filepath.Rel(n.d.Store.Dir(), p)
+	if err != nil {
+		n.w.t.Fatal(err)
+	}
+	return r
+}
+
+// share publishes name and replicates the team with each of to; it
+// returns the document's kalka id.
+func (n *node) share(name string, to ...*node) string {
+	n.w.t.Helper()
+	n.publish(name)
+	id := mustID(n.w.t, n, name)
+	for _, m := range to {
+		n.replicate(m)
+	}
+	return id
+}
+
 func (n *node) publish(name string) PublishResult {
 	n.w.t.Helper()
 	r, err := n.d.Publish(n.path(name), "", "")
@@ -151,10 +177,10 @@ func (r *recorder) Send(v any) error {
 func (r *recorder) Receive(timeout time.Duration) (transport.Envelope, error) {
 	for {
 		env, err := r.Channel.Receive(timeout)
-		if err != nil || env.Type != "sync_offer" || len(r.ask) == 0 {
+		if err != nil || env.Type != "team_doc" || len(r.ask) == 0 {
 			return env, err
 		}
-		var off syncproto.Offer
+		var off syncproto.TeamDoc
 		_ = env.Decode(&off)
 		hit := false
 		for _, id := range r.ask {
@@ -210,8 +236,8 @@ func TestReplicationPrivateNeverLeaves(t *testing.T) {
 	// with nothing else; everything else must not mention it.
 	var others []string
 	for _, m := range sent {
-		var off syncproto.Offer
-		if json.Unmarshal([]byte(m), &off) == nil && off.Type == "sync_offer" && off.Content == "" && slices.Contains(probe.ask, off.KalkaID) {
+		var off syncproto.TeamDoc
+		if json.Unmarshal([]byte(m), &off) == nil && off.Type == "team_doc" && off.Content == "" && slices.Contains(probe.ask, off.KalkaID) {
 			continue
 		}
 		others = append(others, m)
@@ -481,9 +507,9 @@ func TestReplicationPush(t *testing.T) {
 	t.Cleanup(func() { PushDelay = old })
 	fastJoins(t)
 	w := newWorld(t)
-	depot := &node{w: w, email: "depot@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), answers: map[string]bool{}, autoRepl: true}
+	depot := &node{w: w, email: "depot@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), autoRepl: true}
 	depot.start()
-	courier := &node{w: w, email: "courier@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), answers: map[string]bool{}, autoRepl: true}
+	courier := &node{w: w, email: "courier@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), autoRepl: true}
 	courier.start()
 	waitKeyOnline(t, depot)
 	waitKeyOnline(t, courier)

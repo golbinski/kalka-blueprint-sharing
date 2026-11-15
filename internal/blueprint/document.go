@@ -376,14 +376,6 @@ func (d *Document) checkEntries() {
 		if len(e.Body) > MaxEntryBody {
 			d.problem(Error, "entry-too-large", it.Line, fmt.Sprintf("entry body is larger than %d bytes", MaxEntryBody))
 		}
-		if e.Kind == KindHandoff {
-			if _, ok := e.HandoffTarget(); !ok {
-				d.problem(Warning, "handoff-body", it.Line, "handoff body must be the single line \"→ <email>\"")
-			}
-			if e.Sig == "" {
-				d.problem(Warning, "handoff-unsigned", it.Line, "handoff entry has no signature and cannot transfer ownership")
-			}
-		}
 		if open, _ := leavesFenceOpen(strings.Split(e.Body, "\n")); open {
 			d.problem(Error, "entry-open-fence", it.Line, "entry body opens a code fence and never closes it")
 		}

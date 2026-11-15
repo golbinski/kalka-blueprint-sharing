@@ -1,12 +1,11 @@
-// Package daemon is the long-running kalka process (spec 4): it keeps the
-// rendezvous connection, accepts and starts syncs, watches the folder,
-// probes peer presence and serves the local API.
+// Package core is the long-running kalka node (spec 4): it keeps the
+// rendezvous registration, replicates teams with their members, watches
+// the folder and probes member presence.
 package core
 
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +19,6 @@ import (
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/identity"
-	"github.com/golbinski/kalka/internal/merge"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/peerjs"
@@ -52,17 +50,12 @@ type Options struct {
 	Now func() time.Time
 	// Log receives one line per event; nil discards.
 	Log io.Writer
-	// Prompter, if set, answers prompts instead of the hub (tests).
-	Prompter func(ctx context.Context, scope string, p syncproto.Prompt) (bool, error)
 	// Loopback allows loopback ICE candidates and skips ICE discovery
 	// (tests on one machine).
 	Loopback bool
 	// Plugins resolves references (spec 10); nil means none installed.
 	Plugins Plugins
 
-	// noKeyID, set by tests, skips registering the key id, as when a
-	// squatter holds it on a server without key-id proofs.
-	noKeyID bool
 	// manualReplication, set by tests, runs replication rounds only when
 	// asked (ReplicateNow), so scenarios are deterministic.
 	manualReplication bool
@@ -86,30 +79,23 @@ type Node struct {
 	opts     Options
 	self     transport.Identity
 	pub      ed25519.PublicKey
-	peerID   string // email id
-	keyID    string // key id (spec 9.2)
+	keyID    string // the one peer id (spec 9.2)
 	srv      peerjs.Server
 	cloud    bool
 
-	Peers   *identity.Peers
-	Store   *store.Store
-	Prompts *Hub
-	bus     *Bus
-	refs    *refCache
-	teams   *teams
-	repl    *replication
+	Store *store.Store
+	bus   *Bus
+	refs  *refCache
+	teams *teams
+	repl  *replication
 
 	mu        sync.Mutex
-	ep        *transport.Endpoint // on the email id
+	ep        *transport.Endpoint // on the key id
 	online    bool
 	sigErr    string
-	kep       *transport.Endpoint // on the key id
-	keyErr    string
 	ice       []webrtc.ICEServer
 	iceAt     time.Time
 	presence  map[string]presence
-	addresses map[string]bool // typed this session
-	pending   map[string]candidate
 	readyCh   chan struct{}
 	readyOnce sync.Once
 	lastSync  time.Time // guarded by mu; see noteSync
@@ -122,9 +108,6 @@ type Node struct {
 	pauseCh chan struct{}
 	logMu   sync.Mutex
 
-	// wrapStore, set by tests, replaces the store an incoming sync uses
-	// (fault injection for spec 16.1 scenario 6).
-	wrapStore func(syncproto.Store, *transport.Conn) syncproto.Store
 	// wrapChan, set by tests, wraps the channel of replication sessions
 	// (recording what leaves this daemon).
 	wrapChan func(syncproto.Channel) syncproto.Channel
@@ -135,14 +118,7 @@ type presence struct {
 	Checked time.Time          `json:"checked"`
 }
 
-// candidate is an unacknowledged handoff, kept so a retry offers the
-// identical file (spec 7.4 step 4).
-type candidate struct {
-	base [32]byte // hash of the local file it was built from
-	data []byte
-}
-
-// New prepares a daemon: identity key, peer store and folder index.
+// New prepares a node: identity key and folder index.
 func New(opts Options) (*Node, error) {
 	if err := Validate(opts.Config); err != nil {
 		return nil, err
@@ -155,7 +131,7 @@ func New(opts Options) (*Node, error) {
 }
 
 // Open is the read-only node for views with no daemon running (spec 12):
-// it reads the key, peers, folder and team logs, creates nothing, and is
+// it reads the key, folder and team logs, creates nothing, and is
 // never Run, so it makes no connection. Presence is unknown and the node
 // reports itself offline. Only its view methods may be used.
 func Open(opts Options) (*Node, error) {
@@ -175,10 +151,6 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 	if now == nil {
 		now = time.Now
 	}
-	peers, err := identity.OpenPeers(opts.ConfigDir, now)
-	if err != nil {
-		return nil, err
-	}
 	st, err := store.Open(cfg.Folder)
 	if err != nil {
 		return nil, fmt.Errorf("blueprint folder: %w", err)
@@ -190,20 +162,17 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 	}
 	return &Node{
 		cfg: cfg, dir: opts.ConfigDir, now: now, log: log, opts: opts,
-		self:   transport.Identity{Email: cfg.Email, Key: key},
-		pub:    key.Public().(ed25519.PublicKey),
-		peerID: transport.PeerID(cfg.Team, cfg.Email),
-		keyID:  transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
-		srv:    srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
-		Peers: peers, Store: st, Prompts: newHub(), bus: newBus(), refs: newRefCache(opts.Plugins, now),
-		teams:     newTeams(opts.ConfigDir),
-		repl:      newReplication(),
-		presence:  map[string]presence{},
-		addresses: map[string]bool{},
-		pending:   map[string]candidate{},
-		readyCh:   make(chan struct{}),
-		paused:    opts.Paused,
-		pauseCh:   make(chan struct{}),
+		self:  transport.Identity{Email: cfg.Email, Key: key},
+		pub:   key.Public().(ed25519.PublicKey),
+		keyID: transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
+		srv:   srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
+		Store: st, bus: newBus(), refs: newRefCache(opts.Plugins, now),
+		teams:    newTeams(opts.ConfigDir),
+		repl:     newReplication(),
+		presence: map[string]presence{},
+		readyCh:  make(chan struct{}),
+		paused:   opts.Paused,
+		pauseCh:  make(chan struct{}),
 	}, nil
 }
 
@@ -243,7 +212,7 @@ func (d *Node) logf(format string, a ...any) {
 // background work (replication rounds) before it cancels it.
 var DrainTimeout = 30 * time.Second
 
-// Run runs the node (rendezvous, syncs, replication, joins, probes) until
+// Run runs the node (rendezvous, replication, joins, probes) until
 // ctx ends. It serves nothing; the daemon around it does (spec 4). When
 // ctx ends, no new work starts; running rounds finish, still connected to
 // the rendezvous, for up to DrainTimeout (spec 12, `kalka stop`).
@@ -278,8 +247,8 @@ func (d *Node) Run(ctx context.Context) error {
 	return nil
 }
 
-// network runs the loops that use the network while not paused: the two
-// rendezvous registrations (on work, so a stop drains sessions) and the
+// network runs the loops that use the network while not paused: the
+// rendezvous registration (on work, so a stop drains sessions) and the
 // join and probe loops (which also end at a stop). A pause ends them all;
 // a resume starts them again.
 func (d *Node) network(stop, work context.Context) {
@@ -298,13 +267,9 @@ func (d *Node) network(stop, work context.Context) {
 		unstop := context.AfterFunc(stop, lcancel)
 		var wg sync.WaitGroup
 		wg.Add(3)
-		go func() { defer wg.Done(); d.signalLoop(nctx, false) }()
+		go func() { defer wg.Done(); d.signalLoop(nctx) }()
 		go func() { defer wg.Done(); d.joinLoop(lctx) }()
 		go func() { defer wg.Done(); d.probeLoop(lctx) }()
-		if !d.opts.noKeyID {
-			wg.Add(1)
-			go func() { defer wg.Done(); d.signalLoop(nctx, true) }()
-		}
 		select {
 		case <-changed:
 		case <-work.Done():
@@ -363,30 +328,22 @@ func (d *Node) background(f func()) {
 	go func() { defer d.bg.Done(); f() }()
 }
 
-// forward relays folder changes and prompts to the bus, whose subscribers
-// are the UI's event streams and the presenters around the core.
+// forward relays folder changes to the bus, whose subscribers are the
+// UI's event streams and the presenters around the core.
 func (d *Node) forward(ctx context.Context) {
-	folder, stopF := d.Store.Subscribe()
-	defer stopF()
-	prompts, stopP := d.Prompts.Subscribe("")
-	defer stopP()
+	folder, stop := d.Store.Subscribe()
+	defer stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case e := <-folder:
 			d.bus.Publish(BusEvent{Type: "folder", Data: e})
-		case n := <-prompts:
-			if n.Closed {
-				d.bus.Publish(BusEvent{Type: "prompt-closed", Data: n.Prompt})
-				continue
-			}
-			d.bus.Publish(BusEvent{Type: "prompt", Data: n.Prompt})
 		}
 	}
 }
 
-// Bus carries the node's events (folder changes, prompts, syncs, status).
+// Bus carries the node's events (folder changes, teams, status).
 func (d *Node) Bus() *Bus { return d.bus }
 
 // ConfigDir is the configuration directory.
@@ -418,24 +375,16 @@ func (d *Node) iceServers() []webrtc.ICEServer {
 	return ice
 }
 
-// signalLoop keeps one rendezvous connection, reconnecting with backoff:
-// the email id (spec 9.2, for first contact and older peers) or the key
-// id, registered with a fresh proof each time (spec 9.6; other servers
-// ignore it).
-func (d *Node) signalLoop(ctx context.Context, key bool) {
+// signalLoop keeps the one rendezvous registration, on the key id with a
+// fresh proof each time (spec 9.2, 9.6; other servers ignore the proof),
+// reconnecting with backoff.
+func (d *Node) signalLoop(ctx context.Context) {
 	backoff := time.Second
-	ready := false
 	for ctx.Err() == nil {
-		var sig *peerjs.Client
-		var err error
-		if key {
-			id, proof := peerid.Proof(d.self.Key, time.Now())
-			sig, err = peerjs.DialQuery(ctx, d.srv, id, url.Values{peerid.ProofParam: {proof}})
-		} else {
-			sig, err = peerjs.Dial(ctx, d.srv, d.peerID)
-		}
+		id, proof := peerid.Proof(d.self.Key, time.Now())
+		sig, err := peerjs.DialQuery(ctx, d.srv, id, url.Values{peerid.ProofParam: {proof}})
 		if err != nil {
-			d.setOnline(key, nil, err)
+			d.setOnline(nil, err)
 			wait := backoff
 			if errors.Is(err, peerjs.ErrIDTaken) {
 				wait = 30 * time.Second
@@ -450,16 +399,9 @@ func (d *Node) signalLoop(ctx context.Context, key bool) {
 		backoff = time.Second
 		d.iceServers()
 		ep := transport.NewEndpoint(sig, transport.Options{ICE: d.iceServers, Loopback: d.opts.Loopback, RelayOnly: d.cfg.RelayOnly})
-		d.setOnline(key, ep, nil)
-		if key {
-			d.logf("registered key id %s", sig.ID())
-		} else {
-			d.logf("connected to %s as %s", d.srv.URL, d.cfg.Email)
-			if !ready {
-				ready = true
-				d.markReady()
-			}
-		}
+		d.setOnline(ep, nil)
+		d.logf("connected to %s as %s (key id %s)", d.srv.URL, d.cfg.Email, sig.ID())
+		d.markReady()
 		for {
 			c, err := ep.Accept(ctx)
 			if err != nil {
@@ -473,11 +415,11 @@ func (d *Node) signalLoop(ctx context.Context, key bool) {
 		if err == nil && ctx.Err() == nil {
 			err = errors.New("rendezvous connection closed")
 		}
-		d.setOnline(key, nil, err)
+		d.setOnline(nil, err)
 	}
 }
 
-func (d *Node) setOnline(key bool, ep *transport.Endpoint, err error) {
+func (d *Node) setOnline(ep *transport.Endpoint, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	defer d.bus.Publish(BusEvent{Type: "status"})
@@ -485,47 +427,11 @@ func (d *Node) setOnline(key bool, ep *transport.Endpoint, err error) {
 	if err != nil {
 		msg = err.Error()
 	}
-	if key {
-		d.kep = ep
-		if msg != "" && msg != d.keyErr {
-			d.logf("rendezvous (key id): %v", err)
-		}
-		d.keyErr = msg
-		return
-	}
 	d.ep, d.online = ep, ep != nil
 	if msg != "" && msg != d.sigErr {
 		d.logf("rendezvous: %v", err)
 	}
 	d.sigErr = msg
-}
-
-// route is how to reach a peer (spec 9.2): its key id when its key is
-// pinned and it announced key ids, else its email id.
-type route struct {
-	ep     *transport.Endpoint
-	id     string
-	viaKey bool
-}
-
-func (d *Node) routes(email string) ([]route, error) {
-	ep, err := d.endpoint()
-	if err != nil {
-		return nil, err
-	}
-	byEmail := route{ep: ep, id: transport.PeerID(d.cfg.Team, email)}
-	d.mu.Lock()
-	kep := d.kep
-	d.mu.Unlock()
-	if p, ok := d.Peers.Get(email); ok && kep != nil && p.KeyChanged == nil {
-		if k := p.Key(); k != nil {
-			// The email id stays as a fallback for a peer whose key-id
-			// connection is down (for example held by a squatter on a
-			// server without key-id proofs).
-			return []route{{ep: kep, id: transport.KeyPeerID(k), viaKey: true}, byEmail}, nil
-		}
-	}
-	return []route{byEmail}, nil
 }
 
 func (d *Node) endpoint() (*transport.Endpoint, error) {
@@ -541,39 +447,15 @@ func (d *Node) endpoint() (*transport.Endpoint, error) {
 	return d.ep, nil
 }
 
-// keys looks up pinned keys, including the local user's own.
-func (d *Node) keys(email string) (ed25519.PublicKey, bool) {
-	if bp.SameEmail(email, d.self.Email) {
-		return d.pub, true
-	}
-	return d.Peers.Key(email)
-}
-
-func (d *Node) session(ch syncproto.Channel, peer, scope string, progress func(string)) *syncproto.Session {
-	ask := func(ctx context.Context, p syncproto.Prompt) (bool, error) {
-		if d.opts.Prompter != nil {
-			return d.opts.Prompter(ctx, scope, p)
-		}
-		return d.Prompts.Ask(ctx, scope, p)
-	}
-	return &syncproto.Session{Ch: ch, Self: d.self.Email, Peer: peer, Keys: d.keys, Store: noticeStore{d.Store, d}, Ask: ask, Now: d.now, Progress: progress}
-}
-
-// confirm runs code verification for an authenticated peer.
-func (d *Node) confirm(s *syncproto.Session, peer transport.Peer) error {
-	p, _ := d.Peers.Get(peer.Email)
-	code := identity.Code(d.pub, peer.Key)
-	return s.Confirm(p.Verified, code, func() error { return d.Peers.SetVerified(peer.Email, peer.Key) })
-}
-
-// serve handles an incoming connection.
+// serve handles an incoming connection. Only members are peers (spec
+// 8.2): after the handshake, a joiner's invite goes to the join and a
+// team_sync opens a replication session, which admits the caller only if
+// both sides are members once the log operations it brings are merged
+// (20.3). Anything else is told not-member; no file is read for it.
 func (d *Node) serve(c *transport.Conn) {
 	defer c.Close()
-	// Pinning waits until the kind of session is known: a joiner's key is
-	// vouched for by the invite, a member's by the team log (spec 8.2).
-	peer, err := transport.Handshake(c, d.self, d.cfg.Team, nil)
+	peer, err := transport.Handshake(c, d.self, nil)
 	if err != nil {
-		d.refuse(c, err)
 		d.logf("refused a connection: %v", err)
 		return
 	}
@@ -589,271 +471,26 @@ func (d *Node) serve(c *transport.Conn) {
 		return
 	}
 	d.markPresence(peer.Email, transport.Online)
-	if first.Type == "team_sync" {
-		d.replicaRespond(c, peer, first)
+	if first.Type != "team_sync" {
+		d.notMember(c)
+		d.logf("refused a connection from %s: it opened with %q", peer.Email, first.Type)
 		return
 	}
-	if err := d.Peers.Pin(peer.Email, peer.Key); err != nil {
-		d.refuse(c, err)
-		d.logf("refused a connection: %v", err)
-		return
-	}
-	ch := syncproto.Prepend(c, first)
-	s := d.session(ch, peer.Email, "", func(m string) { d.logf("%s: %s", peer.Email, m) })
-	if d.wrapStore != nil {
-		s.Store = d.wrapStore(s.Store, c)
-	}
-	if err := d.confirm(s, peer); err != nil {
-		d.logf("sync from %s stopped: %v", peer.Email, err)
-		return
-	}
-	results, err := s.Respond()
-	if err == nil {
-		d.noteSync()
-	}
-	d.bus.Publish(BusEvent{Type: "peers"})
-	for _, r := range results {
-		d.bus.Publish(BusEvent{Type: "sync", Data: r})
-		msg := r.Status
-		if r.Reason != "" {
-			msg += " (" + string(r.Reason) + ")"
-		}
-		d.logf("sync from %s: %q %s", peer.Email, r.Title, msg)
-	}
-	if err != nil {
-		d.logf("sync from %s: %v", peer.Email, err)
-	}
+	d.replicaRespond(c, peer, first)
 }
 
-// refuse tells the peer why the handshake failed, where that is safe to
-// say (a changed key), then the caller closes.
-func (d *Node) refuse(c *transport.Conn, err error) {
-	var kc *identity.KeyChangedError
-	detail := "handshake failed"
-	if errors.As(err, &kc) {
-		detail = fmt.Sprintf("%s has a different key pinned for you and refuses to sync until it is re-verified", d.self.Email)
-	}
-	_ = c.Send(syncproto.Bye{Type: "bye", Reason: "refused", Detail: detail})
+// notMember ends a connection with the not-member bye, then the caller
+// closes.
+func (d *Node) notMember(c *transport.Conn) {
+	_ = c.Send(syncproto.Bye{Type: "bye", Reason: syncproto.ByeNotMember})
 	time.Sleep(200 * time.Millisecond) // let the bye leave before closing
 }
 
-// Intent values for Sync.
-const (
-	IntentSync    = syncproto.IntentSync
-	IntentHandoff = syncproto.IntentHandoff
-)
-
-// SyncRequest is a sync started by the local user.
-type SyncRequest struct {
-	Path   string `json:"path"`
-	To     string `json:"to"`
-	Intent string `json:"intent,omitempty"`
-}
-
-// ErrOffline is returned when the peer is not connected.
+// ErrOffline is returned when a member is not connected.
 type ErrOffline struct{ Email string }
 
 func (e *ErrOffline) Error() string {
-	return fmt.Sprintf("%s is offline (not connected to the rendezvous server); nothing was queued, try again when they are online", e.Email)
-}
-
-// Sync syncs a blueprint with a peer, or hands it off (spec 7.1, 7.4).
-func (d *Node) Sync(ctx context.Context, req SyncRequest, scope string, progress func(string)) (syncproto.Result, error) {
-	var res syncproto.Result
-	if d.Paused() {
-		return res, ErrPaused
-	}
-	to := strings.TrimSpace(req.To)
-	if !bp.ValidEmail(to) {
-		return res, fmt.Errorf("%q is not an email address", req.To)
-	}
-	if bp.SameEmail(to, d.self.Email) {
-		return res, errors.New("that is your own address")
-	}
-	if progress == nil {
-		progress = func(string) {}
-	}
-	intent := req.Intent
-	if intent == "" {
-		intent = IntentSync
-	}
-	if intent != IntentSync && intent != IntentHandoff {
-		return res, fmt.Errorf("unknown intent %q", intent)
-	}
-	if p, ok := d.Peers.Get(to); ok && p.KeyChanged != nil {
-		return res, &identity.KeyChangedError{Email: to}
-	}
-	d.mu.Lock()
-	d.addresses[strings.ToLower(to)] = true
-	d.mu.Unlock()
-
-	f, err := d.Store.Load(d.resolve(req.Path))
-	if err != nil {
-		return res, err
-	}
-	if f.Doc.HasErrors() {
-		return res, fmt.Errorf("%s has format errors; run `%s check %s`", f.Path, name.Binary, f.Path)
-	}
-	if f.Doc.KalkaID() == "" {
-		if f, err = d.prepare(f); err != nil {
-			return res, err
-		}
-		progress(fmt.Sprintf("first send: added %s and owner to %s", name.FrontmatterID, f.Path))
-	} else if dup, err := d.Store.Find(f.Doc.KalkaID()); err != nil {
-		return res, err
-	} else if dup != nil && dup.Path != f.Path {
-		return res, &store.ErrDuplicate{KalkaID: f.Doc.KalkaID(), Paths: []string{f.Path, dup.Path}}
-	}
-	id := f.Doc.KalkaID()
-	unlock, ok := d.Store.Lock(id, syncproto.LockWait)
-	if !ok {
-		return res, errors.New("this blueprint is busy in another sync; try again")
-	}
-	defer unlock()
-	if f, err = d.Store.Load(f.Path); err != nil {
-		return res, err
-	}
-
-	offer := f.Doc
-	if intent == IntentHandoff {
-		if !bp.SameEmail(f.Doc.Owner(), d.self.Email) {
-			return res, fmt.Errorf("only the owner (%s) can hand this blueprint off", f.Doc.Owner())
-		}
-		if offer, err = d.candidate(f, to); err != nil {
-			return res, err
-		}
-	}
-
-	rs, err := d.routes(to)
-	if err != nil {
-		return res, err
-	}
-	var c *transport.Conn
-	for i, r := range rs {
-		how := "its email id"
-		if r.viaKey {
-			how = "its key id"
-		}
-		progress(fmt.Sprintf("connecting to %s by %s", to, how))
-		dctx, cancel := context.WithTimeout(ctx, DialTimeout)
-		c, err = r.ep.Dial(dctx, r.id)
-		cancel()
-		if err == nil || ctx.Err() != nil || i == len(rs)-1 {
-			break
-		}
-		// Only a failed dial falls back; a failed handshake never does.
-		d.logf("%s not reached by key id (%v); trying the email id", to, err)
-	}
-	if errors.Is(err, transport.ErrOffline) {
-		d.markPresence(to, transport.Offline)
-		return res, &ErrOffline{Email: to}
-	}
-	if err != nil {
-		return res, fmt.Errorf("connecting to %s: %w", to, err)
-	}
-	defer c.Close()
-	d.markPresence(to, transport.Online)
-
-	peer, err := transport.Handshake(c, d.self, d.cfg.Team, d.Peers.Pin)
-	if err != nil {
-		d.refuse(c, err)
-		return res, err
-	}
-	if !bp.SameEmail(peer.Email, to) {
-		return res, fmt.Errorf("connected to %s instead of %s", peer.Email, to)
-	}
-	s := d.session(c, peer.Email, scope, progress)
-	if err := d.confirm(s, peer); err != nil {
-		return res, err
-	}
-	res, err = s.Initiate(syncproto.Request{File: f, Offer: offer, Intent: intent})
-	if err == nil {
-		d.noteSync()
-	}
-	d.bus.Publish(BusEvent{Type: "peers"})
-	if err == nil && intent == IntentHandoff {
-		d.mu.Lock()
-		delete(d.pending, pendingKey(id, to))
-		d.mu.Unlock()
-	}
-	return res, err
-}
-
-// prepare gives a blueprint its kalka_id and owner before its first send.
-func (d *Node) prepare(f *store.File) (*store.File, error) {
-	doc, err := bp.Parse(f.Raw)
-	if err != nil {
-		return nil, err
-	}
-	doc.SetFrontmatter(name.FrontmatterID, newUUID())
-	if doc.Owner() == "" {
-		doc.SetFrontmatter(name.FrontmatterOwner, d.self.Email)
-	}
-	if err := d.Store.Update(f, doc); err != nil {
-		return nil, err
-	}
-	return d.Store.Load(f.Path)
-}
-
-func pendingKey(id, to string) string { return id + "|" + strings.ToLower(to) }
-
-// candidate builds the handoff candidate in memory: owner set to the
-// recipient plus a signed handoff entry. An earlier unacknowledged
-// candidate built from the same file is reused.
-func (d *Node) candidate(f *store.File, to string) (*bp.Document, error) {
-	key, base := pendingKey(f.Doc.KalkaID(), to), sha256.Sum256(f.Raw)
-	d.mu.Lock()
-	p, ok := d.pending[key]
-	d.mu.Unlock()
-	if ok && p.base == base {
-		return bp.Parse(p.data)
-	}
-	doc, err := bp.Parse(f.Raw)
-	if err != nil {
-		return nil, err
-	}
-	e, err := bp.NewHandoff(doc.KalkaID(), d.self.Email, to, d.now(), doc.Rev(), d.signer())
-	if err != nil {
-		return nil, err
-	}
-	doc.SetFrontmatter(name.FrontmatterOwner, to)
-	if err := doc.AddEntry(e); err != nil {
-		return nil, err
-	}
-	// A published document's handoff is also a release naming the new
-	// owner; only a member can receive it (spec 20.1, 20.4).
-	if t := doc.Team(); t != "" {
-		h, err := d.heldByName(t)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := h.memberKey(to); !ok {
-			return nil, fmt.Errorf("%s is not a member of %s: a published document goes only to members; delete it for the team first to hand it to someone else", to, t)
-		}
-		if doc.IsDomain() {
-			return nil, fmt.Errorf("a domain document is not handed off: a team owner assigns its domain owner with `%s team assign-domain`", name.Binary)
-		}
-		ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.teamFor(doc))
-		releaser, v := nextReleaser(ch, h.teamFor(doc), doc.KalkaID(), f.Doc.Owner())
-		if !bp.SameEmail(releaser, d.self.Email) {
-			return nil, fmt.Errorf("only %s can hand this document off", releaser)
-		}
-		r, err := bp.NewRelease(doc, strings.ToLower(d.self.Email), d.now(), v, false, nil, "handed off to "+to, d.signer())
-		if err != nil {
-			return nil, err
-		}
-		if err := doc.AddEntry(r); err != nil {
-			return nil, err
-		}
-	}
-	data := doc.Bytes()
-	if doc, err = bp.Parse(data); err != nil {
-		return nil, err
-	}
-	d.mu.Lock()
-	d.pending[key] = candidate{base: base, data: data}
-	d.mu.Unlock()
-	return doc, nil
+	return fmt.Sprintf("%s is offline (not connected to the rendezvous server)", e.Email)
 }
 
 func newUUID() string { return bp.NewKalkaID() }
@@ -864,46 +501,55 @@ func (d *Node) markPresence(email string, p transport.Presence) {
 	d.presence[strings.ToLower(email)] = presence{State: p, Checked: time.Now()}
 	d.mu.Unlock()
 	if old != p {
-		d.bus.Publish(BusEvent{Type: "peers"})
+		d.bus.Publish(BusEvent{Type: "teams"})
 	}
 	if p == transport.Online && old != transport.Online {
 		d.memberOnline(email)
 	}
 }
 
-// Probe checks one peer now (spec 9.3, on demand).
-func (d *Node) Probe(ctx context.Context, email string) transport.Presence {
-	rs, err := d.routes(email)
-	if err != nil {
-		return transport.Unknown
-	}
-	p := transport.Unknown
-	for _, r := range rs {
-		pctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
-		p = r.ep.Probe(pctx, r.id)
-		cancel()
-		if p == transport.Online {
-			break
+// memberKeys is every member of the teams held here, but the local user,
+// with the key its team log binds (spec 9.2: a member is reached by the
+// key id of that key).
+func (d *Node) memberKeys() map[string]ed25519.PublicKey {
+	out := map[string]ed25519.PublicKey{}
+	for _, t := range d.teamDirs() {
+		h, err := d.heldTeam(t.Team)
+		if err != nil {
+			continue
+		}
+		for e := range h.st.Members {
+			if bp.SameEmail(e, d.self.Email) {
+				continue
+			}
+			if k, ok := h.memberKey(e); ok {
+				out[strings.ToLower(e)] = k
+			}
 		}
 	}
+	return out
+}
+
+// Probe checks one member now (spec 9.3, on demand).
+func (d *Node) Probe(ctx context.Context, email string) transport.Presence {
+	key, ok := d.memberKeys()[strings.ToLower(email)]
+	ep, err := d.endpoint()
+	if !ok || err != nil {
+		return transport.Unknown
+	}
+	pctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	p := ep.Probe(pctx, transport.KeyPeerID(key))
+	cancel()
 	d.markPresence(email, p)
 	return p
 }
 
-// AddAddress remembers an address typed this session, for probing.
-func (d *Node) AddAddress(email string) {
-	d.mu.Lock()
-	d.addresses[strings.ToLower(email)] = true
-	d.mu.Unlock()
-}
-
-// probeLoop probes known peers and typed addresses, at most once a minute
-// each.
+// probeLoop probes the members of all teams, at most once a minute each.
 func (d *Node) probeLoop(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {
-		for _, email := range d.probeTargets() {
+		for email := range d.memberKeys() {
 			d.mu.Lock()
 			last := d.presence[email].Checked
 			d.mu.Unlock()
@@ -919,96 +565,33 @@ func (d *Node) probeLoop(ctx context.Context) {
 	}
 }
 
-func (d *Node) probeTargets() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, p := range d.Peers.List() {
-		e := strings.ToLower(p.Email)
-		if !seen[e] {
-			seen[e] = true
-			out = append(out, e)
-		}
-	}
-	d.mu.Lock()
-	for e := range d.addresses {
-		if !seen[e] {
-			seen[e] = true
-			out = append(out, e)
-		}
-	}
-	d.mu.Unlock()
-	return out
-}
-
-// PeerView is one row of `kalka peers`.
-type PeerView struct {
-	Email      string `json:"email"`
-	Pinned     bool   `json:"pinned"`
-	Verified   bool   `json:"verified"`
-	FirstSeen  string `json:"first_seen,omitempty"`
-	KeyChanged bool   `json:"key_changed,omitempty"`
-	Code       string `json:"code,omitempty"`
-	// Fingerprint of the pinned key, as its key id shows it (spec 9.2).
-	Fingerprint string             `json:"fingerprint,omitempty"`
-	Presence    transport.Presence `json:"presence"`
-	Checked     *time.Time         `json:"checked,omitempty"`
-}
-
-// PeerList lists pinned peers and addresses typed this session.
-func (d *Node) PeerList() []PeerView {
-	out := []PeerView{}
-	for _, e := range d.probeTargets() {
-		v := PeerView{Email: e, Presence: transport.Unknown}
-		if p, ok := d.Peers.Get(e); ok {
-			v.Pinned, v.Verified, v.FirstSeen, v.KeyChanged = true, p.Verified, p.FirstSeen, p.KeyChanged != nil
-			if k := p.Key(); k != nil {
-				v.Code = identity.Code(d.pub, k)
-				v.Fingerprint = peerid.Display(peerid.Fingerprint(k))
-			}
-		}
-		d.mu.Lock()
-		if pr, ok := d.presence[e]; ok {
-			v.Presence = pr.State
-			t := pr.Checked.UTC()
-			v.Checked = &t
-		}
-		d.mu.Unlock()
-		out = append(out, v)
-	}
-	return out
-}
-
 // Status is the daemon's state for `/api/status`.
 type Status struct {
-	Email     string `json:"email"`
-	PeerID    string `json:"peer_id"`
-	KeyPeerID string `json:"key_peer_id"`
+	Email string `json:"email"`
+	// PeerID is the key id this node registers (spec 9.2).
+	PeerID string `json:"peer_id"`
 	// Fingerprint of the local identity key, grouped for reading aloud.
 	Fingerprint string `json:"fingerprint"`
-	// KeyOnline: the key id is registered; KeyError says why not.
-	KeyOnline  bool   `json:"key_online"`
-	KeyError   string `json:"key_error,omitempty"`
-	Rendezvous string `json:"rendezvous"`
-	Folder     string `json:"folder"`
-	Online     bool   `json:"online"`
-	Paused     bool   `json:"paused"`
-	Error      string `json:"error,omitempty"`
+	Rendezvous  string `json:"rendezvous"`
+	Folder      string `json:"folder"`
+	Online      bool   `json:"online"`
+	Paused      bool   `json:"paused"`
+	Error       string `json:"error,omitempty"`
 	// Notice is the permanent public-cloud warning (spec 9.7).
 	Notice string `json:"notice,omitempty"`
 }
 
 // CloudNotice is shown permanently in peerjs-cloud mode (spec 9.7).
 const CloudNotice = "Public PeerJS cloud: a community-run demo service with no availability guarantee. " +
-	"Peer ids can be claimed by anyone who knows an email or a public key, which keeps their owner offline; " +
-	"only the pinned keys and the team log protect the exchange. Not for sensitive blueprints."
+	"A peer id can be claimed by anyone who knows the public key, which keeps its owner offline; " +
+	"only the team logs protect the exchange. Not for sensitive blueprints."
 
 // State reports the daemon's status.
 func (d *Node) State() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	s := Status{Email: d.self.Email, PeerID: d.peerID, KeyPeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
-		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, KeyOnline: d.kep != nil, KeyError: d.keyErr,
-		Paused: d.Paused()}
+	s := Status{Email: d.self.Email, PeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
+		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online, Error: d.sigErr, Paused: d.Paused()}
 	if d.cloud {
 		s.Notice = CloudNotice
 	}

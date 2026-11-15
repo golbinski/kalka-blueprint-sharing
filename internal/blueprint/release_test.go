@@ -57,14 +57,6 @@ func TestEntrySignatureV2(t *testing.T) {
 	}
 }
 
-func TestNewHandoffSigned(t *testing.T) {
-	k := testKey("dana")
-	h, _ := NewHandoff("4be1c0ffee01", "dana@example.org", "erin@example.org", time.Now(), "0123abcd", signerOf(k))
-	if h.Verify("4be1c0ffee01", k.Public().(ed25519.PublicKey)) != SigOK {
-		t.Fatal("new handoff is not signed")
-	}
-}
-
 func TestReleaseEntry(t *testing.T) {
 	k := testKey("dana")
 	d := mustParse(t, relDoc)

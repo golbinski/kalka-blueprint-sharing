@@ -107,11 +107,9 @@ func withPlan(t *testing.T, d *bp.Document, owner, body string) *bp.Document {
 	return reparse(t, out)
 }
 
-func noKeys(string) (ed25519.PublicKey, bool) { return nil, false }
-
 func mustTeam(t *testing.T, local, in *bp.Document, team Team) Result {
 	t.Helper()
-	r := DocsTeam(local, in, "carol@example.org", noKeys, team)
+	r := Docs(local, in, team)
 	if r.Outcome == Rejected {
 		t.Fatalf("rejected: %s %s", r.Reason, r.Detail)
 	}
@@ -286,25 +284,17 @@ func TestEntryFilterAndRestoredSignature(t *testing.T) {
 			t.Fatal("signature not restored")
 		}
 	}
-	// Private documents: the pinned key decides the same way.
-	keys := func(e string) (ed25519.PublicKey, bool) {
-		return tkey(e).Public().(ed25519.PublicKey), true
-	}
-	r := Docs(sd, signed, "carol@example.org", keys)
-	if got := find(r.Doc, c.ID); got == nil || got.Sig != c.Sig {
-		t.Fatal("classic merge: signature not restored")
-	}
 }
 
 func TestNewDocumentNeedsRelease(t *testing.T) {
 	team := newFakeTeam()
 	draft := planDoc(t, "dana@example.org", "Never released.")
-	if r := DocsTeam(nil, draft, "dana@example.org", noKeys, team); r.Outcome != Rejected {
+	if r := Docs(nil, draft, team); r.Outcome != Rejected {
 		t.Fatal("unreleased document accepted")
 	}
 	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
 	v1, _ = tcomment(t, v1, "erin@example.org", "Unsigned.", tt0.Add(time.Minute), false)
-	r := DocsTeam(nil, v1, "carol@example.org", noKeys, team)
+	r := Docs(nil, v1, team)
 	if r.Outcome != New || r.Doc.PlanHash() != v1.PlanHash() || len(r.Doc.Items()) != 1 {
 		t.Fatalf("new: %v items=%d", r.Outcome, len(r.Doc.Items()))
 	}

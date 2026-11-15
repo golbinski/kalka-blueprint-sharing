@@ -121,7 +121,6 @@ describe('canvas layout', () => {
 
 describe('note text', () => {
   it('reads special entries in words', () => {
-    expect(noteText(entry('x', undefined, { kind: 'handoff', handoff_target: 'desk@library.example' }))).toBe('Ownership passed to desk@library.example')
     expect(noteText(entry('x', undefined, { kind: 'budded', budded_seed: 'id', budded_title: 'Holds queue' }))).toBe('Split off a seed: Holds queue')
     expect(noteText(entry('x', undefined, { kind: 'release', body: `v3 · plan:${'a'.repeat(64)} · owner:desk@library.example` }))).toBe(
       'Released version 3, owner desk@library.example',

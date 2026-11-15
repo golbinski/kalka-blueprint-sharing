@@ -92,7 +92,7 @@ func TestSingleDaemon(t *testing.T) {
 	})
 
 	// The first daemon.
-	first := kalkaCmd("daemon", "--no-popups")
+	first := kalkaCmd("daemon", "--no-notifications")
 	var firstOut bytes.Buffer
 	first.Stdout, first.Stderr = &firstOut, &firstOut
 	if err := first.Start(); err != nil {
@@ -107,7 +107,7 @@ func TestSingleDaemon(t *testing.T) {
 	// A second start says so and exits 0; the first still serves.
 	second := func() {
 		t.Helper()
-		out, err := kalkaCmd("daemon", "--no-popups").CombinedOutput()
+		out, err := kalkaCmd("daemon", "--no-notifications").CombinedOutput()
 		want := "already running (pid " + strconv.Itoa(first.Process.Pid) + ")"
 		if err != nil || !strings.Contains(string(out), want) {
 			t.Fatalf("second start: %v %q", err, out)
@@ -129,7 +129,7 @@ func TestSingleDaemon(t *testing.T) {
 	if answering(context.Background(), dir) != nil {
 		t.Fatal("killed daemon still answers")
 	}
-	third := kalkaCmd("daemon", "--no-popups")
+	third := kalkaCmd("daemon", "--no-notifications")
 	if err := third.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -283,20 +283,17 @@ func TestCLIClasses(t *testing.T) {
 	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || st.Daemon || st.Online != nil || st.Email != "alice@corp.com" {
 		t.Fatalf("status: %d %s", code, out)
 	}
-	if code, out, _ = w.kalka("peers"); code != 0 || !strings.Contains(out, "no peers yet") {
-		t.Fatalf("peers: %d %s", code, out)
-	}
 	if w.running() {
 		t.Fatal("a view started a daemon")
 	}
 
 	// A daemon command with --no-start, or KALKA_NO_START=1: not-running.
-	code, out, _ = w.kalka("verify", "bob@corp.com", "--json", "--no-start")
+	code, out, _ = w.kalka("team", "create", "lending", "--json", "--no-start")
 	if code != 1 || !strings.Contains(out, `"kind": "not-running"`) {
 		t.Fatalf("--no-start: %d %s", code, out)
 	}
 	t.Setenv(NoStartEnv, "1")
-	if code, out, _ = w.kalka("verify", "bob@corp.com", "--json"); code != 1 || !strings.Contains(out, `"kind": "not-running"`) {
+	if code, out, _ = w.kalka("team", "create", "lending", "--json"); code != 1 || !strings.Contains(out, `"kind": "not-running"`) {
 		t.Fatalf("%s: %d %s", NoStartEnv, code, out)
 	}
 	os.Unsetenv(NoStartEnv)
@@ -311,16 +308,16 @@ func TestCLIClasses(t *testing.T) {
 		out, errs string
 	}
 	results := make(chan res, 2)
-	for range 2 {
+	for _, team := range []string{"lending", "returns"} {
 		go func() {
-			c, o, e := w.kalka("peers", "add", "bob@corp.com", "--json")
+			c, o, e := w.kalka("team", "create", team, "--json")
 			results <- res{c, o, e}
 		}()
 	}
 	for range 2 {
 		r := <-results
-		if r.code != 0 || !strings.Contains(r.out, `"daemon": true`) || !strings.Contains(r.out, "bob@corp.com") {
-			t.Fatalf("peers add with auto-start: %d %s %s", r.code, r.out, r.errs)
+		if r.code != 0 || !strings.Contains(r.out, `"name"`) {
+			t.Fatalf("team create with auto-start: %d %s %s", r.code, r.out, r.errs)
 		}
 	}
 	if !w.running() {
@@ -372,16 +369,16 @@ func TestCLIClasses(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Pause and resume: kept in state.yaml, seen by status, and a sync
-	// while paused fails with kind "paused".
+	// Pause and resume: kept in state.yaml, seen by status, and a join
+	// while paused fails.
 	if code, out, errs := w.kalka("pause", "--json"); code != 0 || !strings.Contains(out, `"paused": true`) {
 		t.Fatalf("pause: %d %s %s", code, out, errs)
 	}
 	if code, out, _ := w.kalka("status", "--json"); code != 0 || !strings.Contains(out, `"paused": true`) {
 		t.Fatalf("status paused: %s", out)
 	}
-	if code, out, _ := w.kalka("send", plan, "bob@corp.com", "--json"); code == 0 || !strings.Contains(out, `"kind": "paused"`) {
-		t.Fatalf("send while paused: %d %s", code, out)
+	if code, out, errs := w.kalka("join", "kalka-invite-x", "--json"); code == 0 || !strings.Contains(errs, "paused") {
+		t.Fatalf("join while paused: %d %s %s", code, out, errs)
 	}
 	if code, out, _ := w.kalka("resume"); code != 0 || !strings.Contains(out, "syncing again") {
 		t.Fatalf("resume: %d %s", code, out)
@@ -393,7 +390,7 @@ func TestCLIClasses(t *testing.T) {
 	// No configuration: a daemon command says so and starts nothing.
 	other := filepath.Join(t.TempDir(), "empty-cfg")
 	t.Setenv("KALKA_CONFIG_DIR", other)
-	code, out, _ = w.kalka("send", plan, "bob@corp.com", "--json")
+	code, out, _ = w.kalka("team", "create", "lending", "--json")
 	if code != 1 || !strings.Contains(out, `"kind": "not-set-up"`) {
 		t.Fatalf("no config: %d %s", code, out)
 	}

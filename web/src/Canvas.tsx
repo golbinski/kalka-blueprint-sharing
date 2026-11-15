@@ -50,7 +50,7 @@ function Section({ doc, c }: { doc: Doc; c: SecCard }) {
 
 function Note({ doc, n }: { doc: Doc; n: NoteCard }) {
   const e = n.entry
-  const flags = [e.orphaned && 'orphaned', e.outdated && !e.orphaned && e.kind !== 'handoff' && 'outdated', !e.valid && 'damaged', e.valid && e.sig === 'invalid' && 'signature invalid']
+  const flags = [e.orphaned && 'orphaned', e.outdated && !e.orphaned && 'outdated', !e.valid && 'damaged', e.valid && e.sig === 'invalid' && 'signature invalid']
     .filter(Boolean)
     .join(' · ')
   return (

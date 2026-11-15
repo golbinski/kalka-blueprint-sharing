@@ -1,5 +1,5 @@
 // Package transport carries kalka's protocol over a WebRTC data channel
-// (spec 8.4, 9.4, 9.5): PeerJS signaling to set up the connection, framed
+// (spec 8.3, 9.4, 9.5): PeerJS signaling to set up the connection, framed
 // JSON messages on one reliable ordered channel, and channel binding that
 // ties the DTLS session to the peers' identity keys.
 package transport

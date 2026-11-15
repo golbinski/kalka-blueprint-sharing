@@ -30,7 +30,7 @@ func TestIndexFindDuplicate(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ".hidden"), 0o755)
 	os.WriteFile(filepath.Join(dir, "sub", "a.md"), []byte(doc1), 0o644)
 	os.WriteFile(filepath.Join(dir, ".hidden", "b.md"), []byte(doc1), 0o644)
-	os.WriteFile(filepath.Join(dir, "a.conflict-20261112T100000Z.md"), []byte(doc1), 0o644)
+	os.WriteFile(filepath.Join(dir, "a@v2.md"), []byte(doc1), 0o644)
 	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(doc1), 0o644)
 	s, err := Open(dir)
 	if err != nil {
@@ -85,16 +85,11 @@ func TestCreateNames(t *testing.T) {
 		t.Fatal(p1, p2)
 	}
 	for in, want := range map[string]string{
-		"CON.md": "blueprint-CON", "": "blueprint", "a.conflict-1.md": "a", `C:\x\y z.md`: "y z", "...": "blueprint",
+		"CON.md": "blueprint-CON", "": "blueprint", "a.b.md": "a.b", `C:\x\y z.md`: "y z", "...": "blueprint",
 	} {
 		if got := SafeName(in); got != want {
 			t.Errorf("SafeName(%q) = %q, want %q", in, got, want)
 		}
-	}
-	f, _ := s.Load(p1)
-	c, err := s.SaveConflict(f, time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC))
-	if err != nil || !strings.HasSuffix(c, "Plan- v2.conflict-20261112T100000Z.md") {
-		t.Fatal(c, err)
 	}
 }
 
@@ -139,27 +134,5 @@ func TestWatchSuppressesOwnWrites(t *testing.T) {
 		case <-deadline:
 			t.Fatal("no event for a file in a new subfolder")
 		}
-	}
-}
-
-func TestOwnerEditedByHand(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.md"), []byte(doc1), 0o644)
-	s, _ := Open(dir)
-	p := filepath.Join(s.Dir(), "a.md")
-	os.WriteFile(p, []byte(strings.Replace(doc1, "owner: alice", "owner: bob", 1)), 0o644)
-	s.refresh(p)
-	if i, _ := s.Info(p); !i.OwnerEdited {
-		t.Fatal("manual owner change not flagged")
-	}
-	os.WriteFile(p, []byte(strings.Replace(doc1, "owner: alice", "owner: bob", 1)+"more\n"), 0o644)
-	s.refresh(p)
-	if i, _ := s.Info(p); !i.OwnerEdited {
-		t.Fatal("flag lost on a later edit")
-	}
-	f, _ := s.Load(p)
-	s.Update(f, parse(t, doc1))
-	if i, _ := s.Info(p); i.OwnerEdited {
-		t.Fatal("flag survived kalka's own write")
 	}
 }

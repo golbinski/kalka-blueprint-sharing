@@ -27,7 +27,6 @@ type Config struct {
 	Email      string      `yaml:"email"`
 	Rendezvous string      `yaml:"rendezvous"`
 	Folder     string      `yaml:"folder"`
-	Team       string      `yaml:"team,omitempty"`
 	UIPort     int         `yaml:"ui_port,omitempty"`
 	ICEServers []ICEServer `yaml:"ice_servers,omitempty"`
 	// RelayOnly forces TURN relay candidates (testing on restricted

@@ -176,22 +176,18 @@ func Releases(entries []*bp.Entry, kalkaID string, team Team) ReleaseChain {
 	return c
 }
 
-// MergeTeam is Merge for a document published to a team whose log the
-// local peer holds (spec 20.4).
-func MergeTeam(local *bp.Document, incoming []byte, sender string, keys Keys, team Team) Result {
+// Merge merges incoming bytes into local, the copy held of a team
+// document; local is nil when none is held (spec 20.4).
+func Merge(local *bp.Document, incoming []byte, team Team) Result {
 	in, err := bp.Parse(incoming)
 	if err != nil {
 		return reject(Malformed, err.Error())
 	}
-	return DocsTeam(local, in, sender, keys, team)
+	return Docs(local, in, team)
 }
 
-// DocsTeam is MergeTeam for a parsed document. With a nil team, or for a
-// document without `team:`, it is Docs.
-func DocsTeam(local, in *bp.Document, sender string, keys Keys, team Team) Result {
-	if team == nil || (in.Team() == "" && (local == nil || local.Team() == "")) {
-		return Docs(local, in, sender, keys)
-	}
+// Docs is Merge for a parsed document.
+func Docs(local, in *bp.Document, team Team) Result {
 	if msg := malformed(in); msg != "" {
 		return reject(Malformed, msg)
 	}
@@ -203,7 +199,7 @@ func DocsTeam(local, in *bp.Document, sender string, keys Keys, team Team) Resul
 		if _, ok := ch.VersionOf(in.PlanHash()); !ok {
 			return reject(NotOwner, "the document has no valid release of its plan")
 		}
-		res := DocsTeam(emptyLike(in), in, sender, keys, team)
+		res := Docs(emptyLike(in), in, team)
 		if res.Outcome != Rejected {
 			res.Outcome = New
 		}

@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,4 +77,50 @@ func imports(t *testing.T, dir string) []string {
 		}
 	}
 	return out
+}
+
+// TestNoOneToOneLeft (spec 16, T1): nothing in the code or the page refers
+// to the deleted one-to-one sharing: its messages, endpoints, files,
+// prompts, flags or handoff entries.
+func TestNoOneToOneLeft(t *testing.T) {
+	gone := []string{
+		`"sync_offer"`, `"sync_reply"`, `"sync_ack"`, `"verify-code"`, `"accept-handoff"`,
+		"/api/peers", "/api/prompts", "/api/sync", "/api/verify",
+		"peers.yaml", "KindHandoff", "IntentHandoff", "PinVerified", "SaveConflict",
+		"owner_edited", "no-popups", "syncproto.Prompt", "syncproto.Session",
+	}
+	root := filepath.Join("..", "..")
+	self, _ := filepath.Abs("imports_test.go")
+	walk := func(dir string, exts ...string) {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && (d.Name() == "node_modules" || d.Name() == "dist" || d.Name() == "testdata") {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !slices.Contains(exts, filepath.Ext(p)) {
+				return nil
+			}
+			if abs, _ := filepath.Abs(p); abs == self {
+				return nil
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			for _, g := range gone {
+				if strings.Contains(string(b), g) {
+					t.Errorf("%s still refers to %s", p, g)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	walk("internal", ".go")
+	walk("cmd", ".go")
+	walk(filepath.Join("web", "src"), ".ts", ".tsx")
 }

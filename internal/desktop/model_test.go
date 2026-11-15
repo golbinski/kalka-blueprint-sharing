@@ -22,9 +22,9 @@ func TestTrayModel(t *testing.T) {
 		hash                 string
 	}{
 		{core.Summary{Online: true, PeersOnline: 4, PeersKnown: 6, LastSync: last}, TrayOnline,
-			"Online · 4 of 6 peers reachable · last sync 14:02", "", "Pause sync", ""},
-		{core.Summary{Online: true}, TrayOnline, "Online · no peers yet", "", "Pause sync", ""},
-		{core.Summary{Paused: true, Prompts: 1, Joins: 1}, TrayPaused, "Paused", "2 waiting for you", "Resume sync", ""},
+			"Online · 4 of 6 members reachable · last sync 14:02", "", "Pause sync", ""},
+		{core.Summary{Online: true}, TrayOnline, "Online · no team members yet", "", "Pause sync", ""},
+		{core.Summary{Paused: true, Joins: 2}, TrayPaused, "Paused", "2 waiting for you", "Resume sync", "#/team"},
 		{core.Summary{Error: "rendezvous refused the key"}, TrayOffline, "Offline: rendezvous refused the key", "", "Pause sync", ""},
 		{core.Summary{Joins: 1, Pushes: 3}, TrayOffline, "Offline: rendezvous not reachable", "1 waiting for you", "Pause sync", "#/team"},
 	}

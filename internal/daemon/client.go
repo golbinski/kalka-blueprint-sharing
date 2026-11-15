@@ -10,7 +10,6 @@ import (
 	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,70 +90,6 @@ func (c *Client) Status(ctx context.Context) (core.Status, error) {
 	return s, c.do(ctx, http.MethodGet, "/api/status", nil, &s)
 }
 
-// Peers lists peers.
-func (c *Client) Peers(ctx context.Context) ([]core.PeerView, error) {
-	var p []core.PeerView
-	return p, c.do(ctx, http.MethodGet, "/api/peers", nil, &p)
-}
-
-// AddPeer adds an address for this session and probes it.
-func (c *Client) AddPeer(ctx context.Context, email string) (core.PeerView, error) {
-	var p core.PeerView
-	return p, c.do(ctx, http.MethodPost, "/api/peers", map[string]string{"email": email}, &p)
-}
-
-// Forget removes a pinned key.
-func (c *Client) Forget(ctx context.Context, email string) error {
-	return c.do(ctx, http.MethodDelete, "/api/peers/"+url.PathEscape(email), nil, nil)
-}
-
-// Code returns the verification code for a peer.
-func (c *Client) Code(ctx context.Context, email string) (CodeView, error) {
-	var v CodeView
-	return v, c.do(ctx, http.MethodGet, "/api/verify/"+url.PathEscape(email), nil, &v)
-}
-
-// Confirm marks a peer verified.
-func (c *Client) Confirm(ctx context.Context, email string) (CodeView, error) {
-	var v CodeView
-	return v, c.do(ctx, http.MethodPost, "/api/verify/"+url.PathEscape(email), struct{}{}, &v)
-}
-
-// Answer answers a prompt.
-func (c *Client) Answer(ctx context.Context, id string, accept bool) error {
-	return c.do(ctx, http.MethodPost, "/api/prompts/"+url.PathEscape(id), map[string]bool{"accept": accept}, nil)
-}
-
-// Sync starts a sync and calls on for each event until the stream ends.
-func (c *Client) Sync(ctx context.Context, req core.SyncRequest, on func(Event)) error {
-	b, _ := json.Marshal(req)
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/sync", bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	hr.Header.Set("Authorization", "Bearer "+c.token)
-	hr.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(hr)
-	if err != nil {
-		return ErrNotRunning
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		var e APIError
-		_ = json.NewDecoder(resp.Body).Decode(&e)
-		return &RemoteError{APIError: e}
-	}
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 64<<10), 8<<20)
-	for sc.Scan() {
-		var ev Event
-		if json.Unmarshal(sc.Bytes(), &ev) == nil {
-			on(ev)
-		}
-	}
-	return sc.Err()
-}
-
 // Shutdown asks the daemon to stop and returns its PID. The daemon
 // finishes running rounds first; use Wait to see it gone.
 func (c *Client) Shutdown(ctx context.Context) (int, error) {
@@ -162,12 +97,6 @@ func (c *Client) Shutdown(ctx context.Context) (int, error) {
 		PID int `json:"pid"`
 	}
 	return r.PID, c.do(ctx, http.MethodPost, "/api/shutdown", struct{}{}, &r)
-}
-
-// Prompts lists the open prompts.
-func (c *Client) Prompts(ctx context.Context) ([]*core.Pending, error) {
-	var ps []*core.Pending
-	return ps, c.do(ctx, http.MethodGet, "/api/prompts", nil, &ps)
 }
 
 // Summary fetches the tray's one-line state.

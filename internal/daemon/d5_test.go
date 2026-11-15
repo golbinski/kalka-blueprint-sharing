@@ -38,7 +38,7 @@ func teamPair(t *testing.T, opts ...func(*Options)) (*node, *node) {
 	fast(t)
 	w := newWorld(t)
 	depot, courier := w.node("depot@parcels.example", opts...), w.node("courier@parcels.example", opts...)
-	waitFor(t, "key ids", func() bool { return depot.d.State().KeyOnline && courier.d.State().KeyOnline })
+	waitFor(t, "registrations", func() bool { return depot.d.State().Online && courier.d.State().Online })
 	if _, err := depot.d.CreateTeam("parcels"); err != nil {
 		t.Fatal(err)
 	}

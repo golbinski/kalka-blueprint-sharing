@@ -40,13 +40,11 @@ export function SettingsPage({ tick }: { tick: number }) {
               ? "Online"
               : "Offline" + (sum.error ? `: ${sum.error}` : "")}
           {" · "}
-          {sum.peers_online} of {sum.peers_known} peers reachable
+          {sum.peers_online} of {sum.peers_known} members reachable
           {" · "}
           last sync{" "}
           {sum.last_sync ? localTime(sum.last_sync) : "none since start"}
-          {sum.prompts + sum.joins > 0 && (
-            <> · {sum.prompts + sum.joins} waiting for you</>
-          )}
+          {sum.joins > 0 && <> · {sum.joins} waiting for you</>}
           {sum.pushes > 0 && (
             <>
               {" "}

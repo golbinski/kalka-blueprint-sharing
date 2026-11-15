@@ -18,7 +18,6 @@ import (
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/name"
-	"github.com/golbinski/kalka/internal/syncproto"
 )
 
 // TrayState picks the tray icon.
@@ -37,8 +36,8 @@ type TrayModel struct {
 	Status string // the status line
 	// Waiting is "N waiting for you", empty when nothing waits.
 	Waiting string
-	// WaitingHash is where "N waiting" opens the window: prompts show on
-	// any page, joins on the Team page.
+	// WaitingHash is where "N waiting" opens the window: the Team page,
+	// where joins show.
 	WaitingHash string
 	Paused      bool
 	PauseLabel  string
@@ -59,9 +58,9 @@ func Tray(sum core.Summary, set daemon.Settings, loc *time.Location) TrayModel {
 		m.State, m.Status, m.PauseLabel = TrayPaused, "Paused", "Resume sync"
 	case sum.Online:
 		m.State = TrayOnline
-		m.Status = fmt.Sprintf("Online · %d of %d peers reachable", sum.PeersOnline, sum.PeersKnown)
+		m.Status = fmt.Sprintf("Online · %d of %d members reachable", sum.PeersOnline, sum.PeersKnown)
 		if sum.PeersKnown == 0 {
-			m.Status = "Online · no peers yet"
+			m.Status = "Online · no team members yet"
 		}
 		if !sum.LastSync.IsZero() {
 			m.Status += " · last sync " + sum.LastSync.In(loc).Format("15:04")
@@ -76,9 +75,7 @@ func Tray(sum core.Summary, set daemon.Settings, loc *time.Location) TrayModel {
 	}
 	if n := sum.Waiting(); n > 0 {
 		m.Waiting = fmt.Sprintf("%d waiting for you", n)
-		if sum.Prompts == 0 {
-			m.WaitingHash = "#/team"
-		}
+		m.WaitingHash = "#/team"
 	}
 	m.Tooltip = name.Product + ": " + m.Status
 	return m
@@ -178,18 +175,4 @@ func NoticeHash(n core.Notice) string {
 		return "#/team"
 	}
 	return ""
-}
-
-// PromptText says what waits, without the question the window asks; the
-// page's promptSummary says the same.
-func PromptText(p syncproto.Prompt) (title, body string) {
-	switch p.Kind {
-	case syncproto.PromptVerify:
-		return p.Peer + " is syncing with you", "First sync: compare the verification code with them."
-	case syncproto.PromptNew:
-		return "New blueprint from " + p.Peer, "“" + p.Title + "” is waiting for your answer."
-	case syncproto.PromptHandoff:
-		return "Handoff from " + p.Peer, p.Peer + " wants to hand “" + p.Title + "” over to you."
-	}
-	return p.Peer + " is waiting", p.Message
 }

@@ -2,10 +2,9 @@ package core
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
-	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -41,9 +40,8 @@ type DocView struct {
 	Problems []bp.Problem `json:"problems"`
 	// Hints are the soft suggestions of the blueprint reference (spec
 	// 6.13), kept apart from Problems: they never block a sync.
-	Hints       []bp.Problem `json:"hints"`
-	OwnerEdited bool         `json:"owner_edited,omitempty"`
-	Duplicate   bool         `json:"duplicate,omitempty"`
+	Hints     []bp.Problem `json:"hints"`
+	Duplicate bool         `json:"duplicate,omitempty"`
 	// Traces are the body's trace blocks; Refs the references in them, as
 	// the reader's plugins resolved them.
 	Traces []TraceView        `json:"traces"`
@@ -87,11 +85,6 @@ type EntryView struct {
 	// Sig is "unsigned", "invalid", "unknown" (no key held for the author
 	// yet) or "verified" (spec 6.5).
 	Sig string `json:"sig"`
-	// Handoff is set for handoff entries: "verified" when it is a link of
-	// the ownership chain with a good signature, otherwise "unverified".
-	Handoff       string `json:"handoff,omitempty"`
-	HandoffTarget string `json:"handoff_target,omitempty"`
-	HandoffNote   string `json:"handoff_note,omitempty"`
 	// BuddedSeed is the seed a budded entry names, and its path if held.
 	BuddedSeed  string `json:"budded_seed,omitempty"`
 	BuddedTitle string `json:"budded_title,omitempty"`
@@ -157,9 +150,6 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	default:
 		v.Role = RoleReviewer
 	}
-	if info, ok := d.Store.Info(path); ok {
-		v.OwnerEdited = info.OwnerEdited
-	}
 	if v.KalkaID != "" {
 		var dup *store.ErrDuplicate
 		if _, err := d.Store.Find(v.KalkaID); errors.As(err, &dup) {
@@ -198,7 +188,7 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		ev.IncorporatedIn = incorp[e.ID]
-		ev.Sig = d.sigState(v.KalkaID, e)
+		ev.Sig = d.sigState(v.KalkaID, e, th)
 		if th != nil {
 			ev.TeamState = d.entryTeamState(th, v.KalkaID, e)
 			if ev.TeamState != "local-only" {
@@ -213,7 +203,6 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		}
 		v.Entries = append(v.Entries, ev)
 	}
-	d.handoffStates(v.KalkaID, doc, v.Entries)
 	if doc.IsSeed() {
 		si := &SeedInfo{Parent: doc.Parent()}
 		if si.Parent != "" {
@@ -232,14 +221,20 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	return v, nil
 }
 
-// sigState checks an entry's signature against the key held for its
-// author. Team keys (spec 20.4) take over once the team log is held (R7).
-func (d *Node) sigState(kalkaID string, e *bp.Entry) string {
+// sigState checks an entry's signature against the key the team log
+// binds to its author (spec 6.5, 8.2), or the local user's own key.
+func (d *Node) sigState(kalkaID string, e *bp.Entry, th *held) string {
 	if e.Sig == "" {
 		return "unsigned"
 	}
-	key, ok := d.keys(e.Author)
-	if !ok {
+	var key ed25519.PublicKey
+	switch {
+	case th != nil:
+		key, _ = th.memberKey(e.Author)
+	case bp.SameEmail(e.Author, d.self.Email):
+		key = d.pub
+	}
+	if key == nil {
 		return "unknown"
 	}
 	if e.Verify(kalkaID, key) == bp.SigBad {
@@ -254,52 +249,6 @@ func displayBody(e *bp.Entry) string {
 		_, b, _ = strings.Cut(b, "\n")
 	}
 	return strings.TrimLeft(b, "\n")
-}
-
-// handoffStates marks each handoff entry as a verified link of the
-// ownership chain or not (spec 7.2). The first handoff's author is taken as
-// the original owner; each later link must be signed by the owner the
-// chain has reached.
-func (d *Node) handoffStates(kalkaID string, doc *bp.Document, views []EntryView) {
-	var hs []*bp.Entry
-	for _, it := range doc.Items() {
-		if it.Entry != nil && it.Entry.Kind == bp.KindHandoff {
-			hs = append(hs, it.Entry)
-		}
-	}
-	slices.SortStableFunc(hs, func(a, b *bp.Entry) int {
-		if a.Less(b) {
-			return -1
-		}
-		if b.Less(a) {
-			return 1
-		}
-		return 0
-	})
-	state := map[string][3]string{}
-	current := ""
-	for _, e := range hs {
-		target, ok := e.HandoffTarget()
-		key, known := d.keys(e.Author)
-		switch {
-		case !ok:
-			state[e.ID] = [3]string{"unverified", "", "the entry does not name a new owner"}
-		case !known:
-			state[e.ID] = [3]string{"unverified", target, fmt.Sprintf("no key pinned for %s: sync with them to check this handoff", e.Author)}
-		case !e.VerifySig(kalkaID, key):
-			state[e.ID] = [3]string{"unverified", target, "the signature does not match " + e.Author + "'s key"}
-		case current != "" && !bp.SameEmail(e.Author, current):
-			state[e.ID] = [3]string{"unverified", target, fmt.Sprintf("%s was not the owner at this point (%s was)", e.Author, current)}
-		default:
-			state[e.ID] = [3]string{"verified", target, ""}
-			current = target
-		}
-	}
-	for i := range views {
-		if s, ok := state[views[i].ID]; ok {
-			views[i].Handoff, views[i].HandoffTarget, views[i].HandoffNote = s[0], s[1], s[2]
-		}
-	}
 }
 
 // EntryRequest adds an entry from the UI.

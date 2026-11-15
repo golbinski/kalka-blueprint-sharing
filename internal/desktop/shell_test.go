@@ -278,7 +278,7 @@ func TestShellAttach(t *testing.T) {
 	done := make(chan int, 1)
 	as := &fakeAutostart{}
 	go func() {
-		done <- cli.ServeDaemon(ctx, cli.DaemonOptions{Dir: dir, NoPopups: true, Autostart: as, Stdout: io.Discard, Stderr: io.Discard})
+		done <- cli.ServeDaemon(ctx, cli.DaemonOptions{Dir: dir, NoNotifications: true, Autostart: as, Stdout: io.Discard, Stderr: io.Discard})
 	}()
 	eventually(t, "the headless daemon", func() bool { return answering(ctx, dir) != nil })
 
@@ -337,31 +337,18 @@ func TestShellAttach(t *testing.T) {
 }
 
 // TestPresentWhenHidden (spec 22.4): with the window hidden the shell
-// shows prompts and notices as notifications; with it visible the page
-// shows them; a prompt of a CLI-started sync is never shown; with
-// notifications off prompts wait in the window.
+// shows notices as notifications; with it visible the page shows them.
 func TestPresentWhenHidden(t *testing.T) {
 	ui := newFakeUI()
 	s := &Shell{UI: ui, kick: make(chan struct{}, 1)}
-	prompt := `{"id":"p1","kind":"accept-handoff","peer":"bob@corp.com","title":"Parcel routing","message":"?"}`
-	s.onEvent("prompt", json.RawMessage(prompt))
 	s.onEvent("notice", json.RawMessage(`{"kind":"joined","title":"Joined","message":"carol joined","team":"lending"}`))
-	s.onEvent("prompt", json.RawMessage(`{"id":"p2","scope":"cli-1","kind":"accept-new","peer":"bob@corp.com","message":"?"}`))
-	if got := strings.Join(ui.notices, " "); got != "prompt-p1 notice-joined-lending" {
+	if got := strings.Join(ui.notices, " "); got != "notice-joined-lending" {
 		t.Fatalf("hidden: %q", got)
 	}
 	ui.ShowWindow("")
-	s.onEvent("prompt", json.RawMessage(prompt))
 	s.onEvent("notice", json.RawMessage(`{"kind":"joined","title":"Joined","message":"x"}`))
-	if len(ui.notices) != 2 {
+	if len(ui.notices) != 1 {
 		t.Fatalf("visible: %q", ui.notices)
-	}
-	ui.HideWindow()
-	off := false
-	s.set.Notifications = &off
-	s.onEvent("prompt", json.RawMessage(prompt))
-	if len(ui.notices) != 2 {
-		t.Fatalf("notifications off: %q", ui.notices)
 	}
 	// ui-show opens the document.
 	s.onEvent("ui-show", json.RawMessage(`{"path":"a b.md"}`))

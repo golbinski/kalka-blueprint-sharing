@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"flag"
 	"os"
@@ -20,9 +21,9 @@ var (
 
 const goldenDir = "../../testdata/golden"
 
-// TestGolden runs every fixture through check and a full review round trip:
-// Alice sends (first send adds kalka_id and owner if missing), Bob accepts,
-// comments and syncs back. It compares the check report and Alice's final
+// TestGolden runs every fixture through check and a team round trip:
+// Alice publishes (adding kalka_id and owner if missing), Bob receives,
+// comments, and both merge each other's replica. It compares the check report and Alice's final
 // file with stored outputs and asserts the sync invariants.
 func TestGolden(t *testing.T) {
 	inputs, _ := filepath.Glob(filepath.Join(goldenDir, "*.md"))
@@ -60,18 +61,25 @@ func golden(t *testing.T, path string) {
 	}
 	compare(t, base+".out.check.json", checkReport(orig))
 
-	// Alice: first send.
+	// Alice: publish to the team (a missing kalka_id and owner are added,
+	// and a signed release v1).
 	alices := parse(t, src)
 	if alices.KalkaID() == "" {
 		alices.SetFrontmatter("kalka_id", "9c3b2a7d-8e0f-4c9b-8a1d-5b7c8d9e0f1a")
 	}
 	if alices.Owner() == "" {
-		alices.SetFrontmatter("owner", "alice@corp.com")
+		alices.SetFrontmatter("owner", "alice@example.org")
 	}
-	sent := string(alices.Bytes())
+	alices.SetFrontmatter("team", "parcels")
+	gt := newFakeTeam()
+	for _, m := range []string{alices.Owner(), "bob@example.org"} {
+		gt.keys[strings.ToLower(m)] = []ed25519.PublicKey{tkey(strings.ToLower(m)).Public().(ed25519.PublicKey)}
+	}
+	alices = reparse(t, alices)
+	sent := string(release(t, alices, alices.Owner(), 1, false, time.Date(2026, 11, 12, 11, 0, 0, 0, time.UTC)).Bytes())
 
-	// Bob: new blueprint, accepted, one comment on the first section.
-	r := Merge(nil, []byte(sent), "alice@corp.com", allKeys)
+	// Bob: receives the new document and comments on the first section.
+	r := Merge(nil, []byte(sent), gt)
 	if r.Outcome != New {
 		t.Fatalf("Bob: %v %s %s", r.Outcome, r.Reason, r.Detail)
 	}
@@ -80,24 +88,26 @@ func golden(t *testing.T, path string) {
 	if hs := bobs.Headings(); len(hs) > 1 {
 		anchor = hs[1].Slug
 	}
-	e, err := bp.NewEntry(bp.KindComment, "bob@corp.com", time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), anchor, bobs.Rev(), "Golden comment.")
+	e, err := bp.Append(bobs, bp.KindComment, "bob@example.org", time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), anchor, "", "", "Golden comment.", sgn("bob@example.org"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bobs.AddEntry(e); err != nil {
-		t.Fatal(err)
-	}
+	bobs = reparse(t, bobs)
 
-	// Alice merges Bob's file; Bob merges her reply.
-	toAlice := mustMerge(t, sent, string(bobs.Bytes()), "bob@corp.com")
+	// Alice merges Bob's replica; Bob merges hers.
+	toAlice := mustTeam(t, parse(t, sent), bobs, gt)
 	final := string(toAlice.Doc.Bytes())
 	compare(t, base+".out.synced.md", final)
-	toBob := mustMerge(t, string(bobs.Bytes()), final, "alice@corp.com")
-	if bp.Normalize(string(toBob.Doc.Bytes())) != bp.Normalize(final) {
-		t.Error("Alice and Bob end with different files")
+	toBob := mustTeam(t, bobs, parse(t, final), gt)
+	// Both hold the same replica; unsigned entries of the fixture stay
+	// in Alice's file only (20.4).
+	ra, err1 := Replica(toAlice.Doc, gt)
+	rb, err2 := Replica(toBob.Doc, gt)
+	if err1 != nil || err2 != nil || bp.Normalize(string(ra.Bytes())) != bp.Normalize(string(rb.Bytes())) {
+		t.Error("Alice and Bob end with different replicas", err1, err2)
 	}
-	if again := mustMerge(t, final, string(bobs.Bytes()), "bob@corp.com"); again.Outcome != Unchanged {
-		t.Errorf("repeating the sync changed the file: %v", again.Outcome)
+	if again := mustTeam(t, parse(t, final), bobs, gt); again.Outcome != Unchanged {
+		t.Errorf("repeating the round changed the file: %v", again.Outcome)
 	}
 
 	// The plan and every frontmatter line kalka does not manage survive.
@@ -135,7 +145,7 @@ func unmanaged(d *bp.Document) string {
 	var keep []string
 	if f := d.Frontmatter(); f != nil {
 		for _, l := range f.Lines[1 : len(f.Lines)-1] {
-			if !strings.HasPrefix(l, "kalka_id:") && !strings.HasPrefix(l, "owner:") {
+			if !strings.HasPrefix(l, "kalka_id:") && !strings.HasPrefix(l, "owner:") && !strings.HasPrefix(l, "team:") {
 				keep = append(keep, l)
 			}
 		}

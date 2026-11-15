@@ -392,3 +392,19 @@ func entryByID(doc *bp.Document, id string) *bp.Entry {
 	}
 	return nil
 }
+
+// prepare gives a document its kalka_id and owner.
+func (d *Node) prepare(f *store.File) (*store.File, error) {
+	doc, err := bp.Parse(f.Raw)
+	if err != nil {
+		return nil, err
+	}
+	doc.SetFrontmatter(name.FrontmatterID, newUUID())
+	if doc.Owner() == "" {
+		doc.SetFrontmatter(name.FrontmatterOwner, d.self.Email)
+	}
+	if err := d.Store.Update(f, doc); err != nil {
+		return nil, err
+	}
+	return d.Store.Load(f.Path)
+}

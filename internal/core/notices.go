@@ -2,8 +2,7 @@ package core
 
 // Notices (spec 22.4): the core decides what is worth a notification and
 // publishes it on the bus as a "notice" event; the desktop shell or the
-// headless daemon shows it. Prompts (handoffs, new blueprints, codes) are
-// not notices: they stay on the prompt hub.
+// headless daemon shows it.
 
 import (
 	"fmt"
@@ -13,8 +12,6 @@ import (
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/merge"
-	"github.com/golbinski/kalka/internal/store"
-	"github.com/golbinski/kalka/internal/syncproto"
 )
 
 // Notice kinds.
@@ -82,7 +79,7 @@ func (d *Node) commentNotice(before, after *bp.Document, path string) {
 			continue
 		}
 		switch e.Kind {
-		case bp.KindRelease, bp.KindHandoff, bp.KindBudded:
+		case bp.KindRelease, bp.KindBudded:
 			continue
 		}
 		n++
@@ -141,20 +138,4 @@ func (d *Node) domainNotice(h *held, doc *bp.Document) {
 			Message: fmt.Sprintf("%s/%s has version %d; “%s” references version %d", h.dir.Name, dom, v, f.Doc.Title(), ref.Version)})
 		return
 	}
-}
-
-// noticeStore wraps the store of a one-to-one sync to see what a merge
-// changed.
-type noticeStore struct {
-	syncproto.Store
-	d *Node
-}
-
-func (s noticeStore) Update(f *store.File, doc *bp.Document) error {
-	before := f.Doc
-	if err := s.Store.Update(f, doc); err != nil {
-		return err
-	}
-	s.d.commentNotice(before, doc, f.Path)
-	return nil
 }

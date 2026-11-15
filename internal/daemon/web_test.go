@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 )
 
@@ -102,13 +101,14 @@ func TestUIServingAndTokenCookie(t *testing.T) {
 
 func TestDocumentModelAndEntries(t *testing.T) {
 	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
-	review(t, alice, bob)
-	bob.comment("plan.md", "plan", "first")
-	bob.mustSync("plan.md", alice, core.IntentSync)
-	alice.mustSync("plan.md", bob, core.IntentHandoff)
+	alice := w.node("alice@library.example")
+	alice.write("plan.md", "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nowner: alice@library.example\n---\n"+plan)
+	alice.comment("plan.md", "plan", "first")
+	for i := 0; i < 100 && len(alice.d.Store.List()) == 0; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
 
-	v, err := bob.d.Document(context.Background(), "plan.md")
+	v, err := alice.d.Document(context.Background(), "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,18 +117,6 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	}
 	if v.Sections[2].Heading.Slug != "plan" || !strings.HasPrefix(v.Sections[2].Markdown, "## Plan") {
 		t.Fatalf("sections %+v", v.Sections)
-	}
-	var handoff *core.EntryView
-	for i := range v.Entries {
-		if v.Entries[i].Kind == bp.KindHandoff {
-			handoff = &v.Entries[i]
-		}
-	}
-	if handoff == nil || handoff.Handoff != "verified" || handoff.HandoffTarget != bob.email {
-		t.Fatalf("handoff %+v", handoff)
-	}
-	if v2, _ := alice.d.Document(context.Background(), "plan.md"); v2.Role != core.RoleReviewer {
-		t.Fatalf("alice role %s", v2.Role)
 	}
 
 	// Through the API: add a quoted reply, then read it back.
@@ -153,11 +141,6 @@ func TestDocumentModelAndEntries(t *testing.T) {
 	if reply == nil || reply.ReplyTo != first.ID || reply.Kind != "deviation" || !strings.HasPrefix(reply.Body, "> Stream rows.") || !strings.Contains(reply.Body, "#### Heading") || reply.Outdated {
 		t.Fatalf("reply %+v", reply)
 	}
-	// The UI names files relative to the folder, for syncs too.
-	if _, err := alice.d.Sync(ctx, core.SyncRequest{Path: "plan.md", To: bob.email}, "", nil); err != nil {
-		t.Fatalf("sync by relative path: %v", err)
-	}
-	equalFiles(t, "plan.md", alice, bob)
 	// Errors are reported, not written.
 	if err := c.do(ctx, http.MethodPost, "/api/entries", core.EntryRequest{Path: "plan.md", Anchor: "nope", Body: "x"}, nil); err == nil {
 		t.Fatal("unknown anchor accepted")

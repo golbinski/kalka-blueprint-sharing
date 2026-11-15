@@ -191,7 +191,7 @@ func staticHandler() http.Handler {
 
 // serveEvents streams bus events as server-sent events. A page counts as
 // a connected UI; a desktop shell's control stream (?shell=1) counts as an
-// attached shell instead, which then presents prompts and notices.
+// attached shell instead, which then presents notices.
 func serveEvents(b *core.Bus, w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -249,7 +249,7 @@ func SetupHandler(token string, port func() string, done chan<- *config.Config) 
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		cfg := &config.Config{Email: strings.TrimSpace(c.Email), Rendezvous: strings.TrimSpace(c.Rendezvous), Folder: strings.TrimSpace(c.Folder), Team: c.Team}
+		cfg := &config.Config{Email: strings.TrimSpace(c.Email), Rendezvous: strings.TrimSpace(c.Rendezvous), Folder: strings.TrimSpace(c.Folder)}
 		if err := SaveSetup(cfg); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return

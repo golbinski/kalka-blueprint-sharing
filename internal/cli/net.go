@@ -4,7 +4,6 @@ package cli
 // to the running daemon through the local API (spec 12, 13).
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -22,13 +21,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/golbinski/kalka/internal/autostart"
-	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/identity"
@@ -42,15 +38,14 @@ import (
 // cmdDaemon is `kalka daemon`: run the daemon until stopped (spec 4.1,
 // 12). It takes the single-daemon lock first, before the setup form; when
 // another daemon holds it, it says so and exits 0. Without a config it
-// first serves the setup form. In the foreground, prompts for incoming
-// syncs are asked in the terminal too; with no UI page open, a native
-// popup or notification offers to open the UI.
+// first serves the setup form. With no UI page open, notices show as OS
+// notifications (spec 22.4).
 func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	background := fs.Bool("background", false, "run as at logon: prompts as notifications, output to <config>/kalka.log")
-	noPopups := fs.Bool("no-popups", false, "show no popups or notifications; prompts wait in the UI (and the terminal)")
-	noUI := fs.Bool("no-ui", false, "serve the local API for the CLI but not the web UI; implies --no-popups")
+	background := fs.Bool("background", false, "run as at logon: output to <config>/kalka.log")
+	noNotes := fs.Bool("no-notifications", false, "show no OS notifications; notices show only in the UI")
+	noUI := fs.Bool("no-ui", false, "serve the local API for the CLI but not the web UI; implies --no-notifications")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -65,25 +60,24 @@ func cmdDaemon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return ServeDaemon(ctx, DaemonOptions{Dir: dir, Background: *background, NoPopups: *noPopups, NoUI: *noUI,
-		Stdin: stdin, Stdout: stdout, Stderr: stderr})
+	return ServeDaemon(ctx, DaemonOptions{Dir: dir, Background: *background, NoNotifications: *noNotes, NoUI: *noUI,
+		Stdout: stdout, Stderr: stderr})
 }
 
 // DaemonOptions are how `kalka daemon` and the desktop shell run the
 // daemon in their own process.
 type DaemonOptions struct {
-	Dir                        string // config directory
-	Background, NoPopups, NoUI bool
-	Stdin                      io.Reader
-	Stdout, Stderr             io.Writer
+	Dir                               string // config directory
+	Background, NoNotifications, NoUI bool
+	Stdout, Stderr                    io.Writer
 	// Lock is the single-daemon lock, already taken by the caller; nil
 	// takes it here.
 	Lock *lockfile.Lock
-	// OpenUI shows the UI at a URL (the setup form, a popup's "Open
-	// kalka"); nil opens the browser. The shell shows its window.
+	// OpenUI shows the UI at a URL (the setup form, a notification's
+	// click); nil opens the browser. The shell shows its window.
 	OpenUI func(url string)
-	// Shell: the desktop shell presents prompts and notices itself, so the
-	// daemon shows no popups or toasts of its own.
+	// Shell: the desktop shell presents notices itself, so the daemon
+	// shows no toasts of its own.
 	Shell bool
 	// Started is called once the daemon exists, before it runs.
 	Started func(*daemon.Daemon)
@@ -95,10 +89,10 @@ type DaemonOptions struct {
 // setup form when there is no config, then the daemon itself. It returns
 // an exit code; another daemon holding the lock is exit 0.
 func ServeDaemon(ctx context.Context, o DaemonOptions) int {
-	dir, stdin, stdout, stderr := o.Dir, o.Stdin, o.Stdout, o.Stderr
-	background, noPopups, noUI := &o.Background, &o.NoPopups, &o.NoUI
+	dir, stdout, stderr := o.Dir, o.Stdout, o.Stderr
+	background, noNotes, noUI := &o.Background, &o.NoNotifications, &o.NoUI
 	if o.Shell {
-		*noPopups = true
+		*noNotes = true
 	}
 	if o.Autostart == nil {
 		o.Autostart = daemon.SystemAutostart{}
@@ -111,7 +105,6 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 		}
 		defer logf.Close()
 		stdout, stderr = logf, logf
-		stdin = nil
 		fmt.Fprintf(logf, "\n%s %s %s starting in the background\n", time.Now().Format(time.RFC3339), name.Binary, version)
 	}
 	lock := o.Lock
@@ -130,8 +123,7 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 	tok := make([]byte, 32)
 	_, _ = rand.Read(tok)
 	token := hex.EncodeToString(tok)
-	// openUI opens the browser on request: the setup form, or a popup's
-	// "Open kalka".
+	// openUI opens the browser on request: the setup form.
 	openUI := func(url string) {
 		if err := openBrowser(url); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser (%v); open %s\n", err, url)
@@ -169,20 +161,10 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 		NoUI: *noUI, OpenExternal: openBrowser, Autostart: o.Autostart,
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: stderr}}
 	var d *daemon.Daemon
-	if !*noPopups && !*noUI {
-		// A notification-centre toast where the system has one for kalka
-		// (Windows, after `kalka autostart on`), else a popup.
-		opts.Popup = func(ctx context.Context, title, msg string) (bool, error) {
-			err := notify.Toast(ctx, title, msg, d.URL())
-			if errors.Is(err, notify.ErrUnavailable) {
-				return notify.Ask(ctx, title, msg)
-			}
-			return false, err
-		}
-	} else if o.OpenUI == nil {
+	if (*noNotes || *noUI) && o.OpenUI == nil {
 		opts.OpenUI = nil
 	}
-	if !*noPopups && !*noUI {
+	if !*noNotes && !*noUI {
 		// Notices as notification-centre toasts where the system has
 		// them for kalka; elsewhere only the page shows them (spec 22.4).
 		opts.Notify = func(n core.Notice) {
@@ -201,9 +183,6 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 	}
 	if o.Started != nil {
 		o.Started(d)
-	}
-	if isTerminal(stdin) {
-		go terminalPrompts(ctx, d.Prompts, stdin, stderr)
 	}
 	go func() {
 		select {
@@ -494,70 +473,12 @@ func cmdOpen(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// terminalPrompts shows prompts for incoming syncs and reads y/n answers;
-// an answer applies to the oldest open prompt.
-func terminalPrompts(ctx context.Context, hub *core.Hub, stdin io.Reader, out io.Writer) {
-	notices, cancel := hub.Subscribe("")
-	defer cancel()
-	lines := readLines(stdin)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case n := <-notices:
-			if !n.Closed && n.Prompt.Scope == "" {
-				fmt.Fprintf(out, "\n>>> %s\n    answer y or n: ", n.Prompt.Message)
-			}
-		case line, ok := <-lines:
-			if !ok {
-				lines = nil
-				continue
-			}
-			open := hub.List()
-			if len(open) == 0 {
-				continue
-			}
-			p := open[0]
-			_ = hub.Answer(p.ID, yes(line))
-		}
-	}
-}
-
-// isTerminal reports whether r is an interactive terminal. At logon kalka
-// runs with no terminal, and there is no one to read answers from.
-func isTerminal(r io.Reader) bool {
-	f, ok := r.(*os.File)
-	if !ok {
-		return false
-	}
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
-}
-
-func readLines(r io.Reader) chan string {
-	ch := make(chan string)
-	go func() {
-		defer close(ch)
-		sc := bufio.NewScanner(r)
-		for sc.Scan() {
-			ch <- sc.Text()
-		}
-	}()
-	return ch
-}
-
-func yes(s string) bool {
-	s = strings.ToLower(strings.TrimSpace(s))
-	return s == "y" || s == "yes"
-}
-
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	email := fs.String("email", "", "who you are (required)")
 	rdv := fs.String("rendezvous", "", "rendezvous server URL, or peerjs-cloud (required)")
 	folder := fs.String("folder", "", "where blueprints live (required)")
-	team := fs.String("team", "", "optional team string mixed into peer ids")
 	port := fs.Int("ui-port", 0, "optional localhost port of the UI and API (default 7717)")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return exitUsage
@@ -567,7 +488,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			*folder = abs
 		}
 	}
-	cfg := &config.Config{Email: strings.TrimSpace(*email), Rendezvous: strings.TrimSpace(*rdv), Folder: *folder, Team: *team, UIPort: *port}
+	cfg := &config.Config{Email: strings.TrimSpace(*email), Rendezvous: strings.TrimSpace(*rdv), Folder: *folder, UIPort: *port}
 	if err := daemon.Validate(cfg); err != nil {
 		fmt.Fprintln(stderr, "setup:", err)
 		return exitUsage
@@ -594,219 +515,6 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// cmdSync implements `kalka send` and `kalka handoff`.
-func cmdSync(cmd string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	asJSON := fs.Bool("json", false, "print events and the result as JSON lines")
-	pos, err := parseInterspersed(fs, args)
-	if err != nil {
-		return exitUsage
-	}
-	if len(pos) != 2 {
-		fmt.Fprintf(stderr, "usage: %s %s <file> <email> [--json]\n", name.Binary, cmd)
-		return exitUsage
-	}
-	file, to := pos[0], pos[1]
-	if abs, err := filepath.Abs(file); err == nil {
-		file = abs
-	}
-	intent := core.IntentSync
-	if cmd == "handoff" {
-		intent = core.IntentHandoff
-	}
-	c, code := daemonFor(*asJSON, stdout, stderr)
-	if c == nil {
-		return code
-	}
-	ctx := context.Background()
-	lines := readLines(stdin)
-	var mu sync.Mutex
-	closed := map[string]chan struct{}{}
-	code = exitProblems
-	err = c.Sync(ctx, core.SyncRequest{Path: file, To: to, Intent: intent}, func(ev daemon.Event) {
-		if *asJSON {
-			writeJSON(stdout, ev)
-		}
-		switch ev.Type {
-		case "progress":
-			if !*asJSON {
-				fmt.Fprintln(stderr, "· "+ev.Message)
-			}
-		case "prompt":
-			done := make(chan struct{})
-			mu.Lock()
-			closed[ev.Prompt.ID] = done
-			mu.Unlock()
-			if !*asJSON {
-				fmt.Fprintf(stderr, "%s [y/N] ", ev.Prompt.Message)
-			}
-			go func(id string) {
-				select {
-				case line, ok := <-lines:
-					_ = c.Answer(ctx, id, ok && yes(line))
-				case <-done:
-				}
-			}(ev.Prompt.ID)
-		case "prompt-closed":
-			mu.Lock()
-			if ch := closed[ev.Prompt.ID]; ch != nil {
-				close(ch)
-				delete(closed, ev.Prompt.ID)
-			}
-			mu.Unlock()
-		case "result":
-			code = exitOK
-			if !*asJSON {
-				r := ev.Result
-				if intent == core.IntentHandoff {
-					fmt.Fprintf(stdout, "handed off %q to %s: they are the owner now\n", r.Title, r.Peer)
-				} else {
-					fmt.Fprintf(stdout, "synced %q with %s: %s\n", r.Title, r.Peer, r.Status)
-				}
-				if r.Conflict != "" {
-					fmt.Fprintf(stdout, "your previous copy was saved as %s\n", r.Conflict)
-				}
-				for _, n := range r.Notes {
-					fmt.Fprintln(stdout, "note: "+n)
-				}
-			}
-		case "error":
-			if !*asJSON {
-				fmt.Fprintln(stderr, "error: "+ev.Error)
-			}
-		}
-	})
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
-	}
-	return code
-}
-
-func cmdPeers(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("peers", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	asJSON := fs.Bool("json", false, "print JSON")
-	pos, err := parseInterspersed(fs, args)
-	if err != nil {
-		return exitUsage
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	change := len(pos) == 2 && (pos[0] == "forget" || pos[0] == "add")
-	if !change && len(pos) != 0 {
-		fmt.Fprintf(stderr, "usage: %[1]s peers [--json] | %[1]s peers add <email> | %[1]s peers forget <email>\n", name.Binary)
-		return exitUsage
-	}
-	if change && pos[0] == "add" && !bp.ValidEmail(pos[1]) {
-		fmt.Fprintf(stderr, "%q is not an email address\n", pos[1])
-		return exitUsage
-	}
-	var vs *views
-	if change {
-		c, code := daemonFor(*asJSON, stdout, stderr)
-		if c == nil {
-			return code
-		}
-		vs = &views{c: c}
-	} else {
-		var code int
-		if vs, code = openViews(*asJSON, stdout, stderr); vs == nil {
-			return code
-		}
-	}
-	c := vs.c
-	if change && pos[0] == "forget" {
-		if err := c.Forget(ctx, pos[1]); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitProblems
-		}
-		fmt.Fprintf(stdout, "removed the pinned key for %s; the next contact pins their key again and asks for the code\n", pos[1])
-		return exitOK
-	}
-	if change && pos[0] == "add" {
-		if _, err := c.AddPeer(ctx, pos[1]); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitProblems
-		}
-	}
-	peers, err := vs.peers(ctx)
-	if err != nil {
-		return report(*asJSON, stdout, stderr, "daemon", err.Error())
-	}
-	if *asJSON {
-		writeJSON(stdout, map[string]any{"daemon": vs.live(), "peers": peers})
-		return exitOK
-	}
-	if len(peers) == 0 {
-		fmt.Fprintln(stdout, "no peers yet")
-		return exitOK
-	}
-	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "EMAIL\tPRESENCE\tKEY\tCODE\tFINGERPRINT")
-	for _, p := range peers {
-		key := "not pinned"
-		switch {
-		case p.KeyChanged:
-			key = "KEY CHANGED: syncs blocked"
-		case p.Verified:
-			key = "verified"
-		case p.Pinned:
-			key = "pinned, not verified"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Email, p.Presence, key, p.Code, p.Fingerprint)
-	}
-	tw.Flush()
-	if !vs.live() {
-		notRunningNote(stdout)
-	}
-	return exitOK
-}
-
-func cmdVerify(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	asJSON := fs.Bool("json", false, "print JSON")
-	confirm := fs.Bool("confirm", false, "mark the peer verified after comparing the code with them")
-	pos, err := parseInterspersed(fs, args)
-	if err != nil {
-		return exitUsage
-	}
-	if len(pos) != 1 {
-		fmt.Fprintf(stderr, "usage: %s verify <email> [--confirm] [--json]\n", name.Binary)
-		return exitUsage
-	}
-	c, code := daemonFor(*asJSON, stdout, stderr)
-	if c == nil {
-		return code
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	v, err := c.Code(ctx, pos[0])
-	if err == nil && *confirm {
-		v, err = c.Confirm(ctx, pos[0])
-	}
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitProblems
-	}
-	if *asJSON {
-		writeJSON(stdout, v)
-		return exitOK
-	}
-	state := "not verified: compare it with them, then run with --confirm"
-	switch {
-	case v.KeyChanged:
-		state = "KEY CHANGED: syncs are blocked; see `" + name.Binary + " peers`"
-	case v.Verified:
-		state = "verified"
-	}
-	fmt.Fprintf(stdout, "verification code for %s: %s (%s)\n", v.Email, v.Code, state)
-	return exitOK
-}
-
-// exeDir is the folder of the running kalka, symlinks resolved.
 func exeDir() string {
 	exe, err := autostart.Executable()
 	if err != nil {

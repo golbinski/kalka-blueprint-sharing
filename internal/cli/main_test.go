@@ -108,13 +108,13 @@ func TestSetupWritesConfig(t *testing.T) {
 	// A view without a daemon reads the local files (setup made the key).
 	errb.Reset()
 	out.Reset()
-	if code := run([]string{"peers"}, nil, &out, &errb, time.Now); code != exitOK || !strings.Contains(out.String(), "no peers yet") {
-		t.Fatalf("peers without daemon: %d %q %q", code, out.String(), errb.String())
+	if code := run([]string{"status"}, nil, &out, &errb, time.Now); code != exitOK || !strings.Contains(out.String(), "bob@corp.com") {
+		t.Fatalf("status without daemon: %d %q %q", code, out.String(), errb.String())
 	}
 	// A daemon command with --no-start fails with not-running.
 	out.Reset()
-	if code := run([]string{"verify", "alice@corp.com", "--json", "--no-start"}, nil, &out, &errb, time.Now); code != exitProblems || !strings.Contains(out.String(), `"kind": "not-running"`) {
-		t.Fatalf("verify --no-start: %d %q", code, out.String())
+	if code := run([]string{"team", "create", "lending", "--json", "--no-start"}, nil, &out, &errb, time.Now); code != exitProblems || !strings.Contains(out.String(), `"kind": "not-running"`) {
+		t.Fatalf("team create --no-start: %d %q", code, out.String())
 	}
 }
 

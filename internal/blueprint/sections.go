@@ -69,9 +69,6 @@ var ErrNoAnchor = errors.New("no heading with that slug")
 // UI): the anchor must name a heading, re must name an entry, and a quote
 // becomes a leading block quote (spec 6.5). The caller writes d.Bytes().
 func Append(d *Document, kind, author string, at time.Time, anchor, re, quote, body string, sign Signer) (*Entry, error) {
-	if kind == KindHandoff {
-		return nil, errors.New("handoff entries are created by handing the blueprint off, not written by hand")
-	}
 	if kind == KindRelease {
 		return nil, errors.New("release entries are created by releasing the document, not written by hand")
 	}

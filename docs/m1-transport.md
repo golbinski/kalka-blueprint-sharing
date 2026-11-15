@@ -59,4 +59,4 @@ ice_servers:
     credential: <p>
 ```
 
-then run `kalka` on both machines and `kalka send plan.md bob@corp.com` on one. TURN over TLS is wired in `rendezvous.TLSListener` but not yet covered by a test.
+then run `kalka` on both machines, create a team on one and join it from the other (`kalka team create`, `kalka team invite`, `kalka join`), and publish a document (`kalka publish plan.md`). TURN over TLS is wired in `rendezvous.TLSListener` but not yet covered by a test.

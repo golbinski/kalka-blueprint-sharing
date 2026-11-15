@@ -16,9 +16,6 @@ import (
 // Proto is the data channel protocol version.
 const Proto = 1
 
-// PeerID derives the email peer id (spec 9.2).
-func PeerID(team, email string) string { return peerid.Email(team, email) }
-
 // KeyPeerID derives the key peer id (spec 9.2).
 func KeyPeerID(pub ed25519.PublicKey) string { return peerid.Key(pub) }
 
@@ -32,8 +29,6 @@ type Identity struct {
 type Peer struct {
 	Email string
 	Key   ed25519.PublicKey
-	// ViaKey is set when the connection runs between key ids.
-	ViaKey bool
 	// Invite is the join proof the peer sent in hello, if any (spec 19.7).
 	Invite *InviteClaim
 }
@@ -46,8 +41,9 @@ type InviteClaim struct {
 	Proof string `json:"proof"`
 }
 
-// Verifier decides whether a claimed key is acceptable for an email: it
-// implements pinning (spec 8.2). It returns an error to refuse.
+// Verifier decides whether a claimed key is acceptable for an email: the
+// initiator checks it against the key the team log or the invite named
+// (spec 8.2, 8.3). It returns an error to refuse.
 type Verifier func(email string, key ed25519.PublicKey) error
 
 type helloMsg struct {
@@ -69,7 +65,7 @@ type authMsg struct {
 const HandshakeTimeout = 30 * time.Second
 
 // authMessage is what each side signs: context, own DTLS fingerprint, the
-// peer's DTLS fingerprint and the peer's nonce (spec 8.4).
+// peer's DTLS fingerprint and the peer's nonce (spec 8.3).
 func authMessage(own, peer [sha256.Size]byte, peerNonce []byte) []byte {
 	m := []byte(name.Product + "-auth-v1")
 	m = append(m, own[:]...)
@@ -80,14 +76,14 @@ func authMessage(own, peer [sha256.Size]byte, peerNonce []byte) []byte {
 // Handshake runs hello/auth on a freshly opened connection before any
 // blueprint data flows. It fails, and the caller must close the
 // connection, if the protocol version differs, the peer's signature does
-// not cover the DTLS fingerprints this side actually sees, the peer id does
-// not belong to the claimed email, or verify refuses the key.
-func Handshake(c *Conn, self Identity, team string, verify Verifier) (Peer, error) {
-	return HandshakeInvite(c, self, team, verify, nil)
+// not cover the DTLS fingerprints this side actually sees, the peer id is
+// not the key id of the presented key, or verify refuses the key.
+func Handshake(c *Conn, self Identity, verify Verifier) (Peer, error) {
+	return HandshakeInvite(c, self, verify, nil)
 }
 
 // HandshakeInvite is Handshake for a joiner: hello also carries inv.
-func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *InviteClaim) (Peer, error) {
+func HandshakeInvite(c *Conn, self Identity, verify Verifier, inv *InviteClaim) (Peer, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return Peer{}, err
@@ -133,16 +129,10 @@ func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *
 	if !ed25519.Verify(peerKey, authMessage(remote, local, nonce), peerSig) {
 		return Peer{}, errors.New("channel binding failed: the peer's signature does not match this connection; the rendezvous server may be intercepting it")
 	}
-	// The peer id must belong to the claimed identity (spec 8.4 step 4),
-	// and this comes before pinning: a squatter on someone's key id fails
-	// here, without leaving a changed-key record.
-	viaKey := peerid.IsKey(c.RemoteID())
-	if viaKey {
-		if c.RemoteID() != peerid.Key(peerKey) {
-			return Peer{}, fmt.Errorf("the peer at key id %s presented another key: someone else holds that id on the rendezvous server", c.RemoteID())
-		}
-	} else if want := PeerID(team, h.Email); c.RemoteID() != want {
-		return Peer{}, fmt.Errorf("peer claims to be %s but is connected as %s", h.Email, c.RemoteID())
+	// The peer id must be the key id of the presented key (spec 8.3 step
+	// 4): a squatter on someone's key id fails here.
+	if c.RemoteID() != peerid.Key(peerKey) {
+		return Peer{}, fmt.Errorf("the peer at %s presented another key: someone else holds that id on the rendezvous server", c.RemoteID())
 	}
 	if verify != nil {
 		if err := verify(h.Email, peerKey); err != nil {
@@ -153,7 +143,7 @@ func HandshakeInvite(c *Conn, self Identity, team string, verify Verifier, inv *
 	if iv := h.Invite; iv != nil && len(iv.ID) <= 64 && len(iv.Team) <= 64 && len(iv.Proof) <= 128 {
 		claim = iv
 	}
-	return Peer{Email: h.Email, Key: peerKey, ViaKey: viaKey, Invite: claim}, nil
+	return Peer{Email: h.Email, Key: peerKey, Invite: claim}, nil
 }
 
 func expect(c *Conn, typ string, v any) error {

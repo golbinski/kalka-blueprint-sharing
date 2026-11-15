@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Notice, type Peer, type Prompt, type Status, type SyncResult } from './api'
-import { PromptCard, PublishDialog, SeedDialog, SyncDialog } from './Dialogs'
-import { closePrompt, notifyNotice, notifyPrompt, permission, requestPermission } from './notify'
+import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Notice, type Status } from './api'
+import { PublishDialog, SeedDialog } from './Dialogs'
+import { notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
 import { CanvasPage } from './Canvas'
 import { Review } from './Review'
-import { Blueprints, Peers, PreBacklog, Setup } from './Views'
+import { Blueprints, PreBacklog, Setup } from './Views'
 import { TracePage } from './Trace'
 import { DomainsPage, TeamPage } from './Team'
 import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
@@ -17,11 +17,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [fatal, setFatal] = useState<ApiError | null>(null)
   const [list, setList] = useState<BlueprintInfo[]>([])
-  const [peers, setPeers] = useState<Peer[]>([])
   const [doc, setDoc] = useState<Doc | null>(null)
   const [docErr, setDocErr] = useState('')
-  const [prompts, setPrompts] = useState<Prompt[]>([])
-  const [dialog, setDialog] = useState<'sync' | 'handoff' | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [seedFor, setSeedFor] = useState<{ from?: Entry } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -59,7 +56,6 @@ export function App() {
     }
   }, [])
   const loadList = useCallback(() => api.blueprints().then(setList, () => {}), [])
-  const loadPeers = useCallback(() => api.peers().then(setPeers, () => {}), [])
   const loadDoc = useCallback(async () => {
     const p = docPathRef.current
     const v = docVersionRef.current
@@ -83,8 +79,6 @@ export function App() {
   useEffect(() => {
     if (!ready) return
     loadList()
-    loadPeers()
-    api.prompts().then((ps) => setPrompts(ps.filter((p) => !p.scope)), () => {})
     const stop = events(
       (type, data) => {
         switch (type) {
@@ -105,10 +99,6 @@ export function App() {
             if (n && !notifyNotice(n)) toast(n.message)
             break
           }
-          case 'peers':
-            loadPeers()
-            setTeamTick((n) => n + 1)
-            break
           case 'teams':
             setTeamTick((n) => n + 1)
             break
@@ -116,26 +106,6 @@ export function App() {
             // Background resolution finished for a blueprint.
             const p = (data as { path?: string } | undefined)?.path
             if (p && p === docPathRef.current) loadDoc()
-            break
-          }
-          case 'prompt': {
-            const p = data as Prompt
-            if (!p.scope) {
-              setPrompts((ps) => (ps.some((x) => x.id === p.id) ? ps : [...ps, p]))
-              notifyPrompt(p)
-            }
-            break
-          }
-          case 'prompt-closed': {
-            const p = data as Prompt
-            setPrompts((ps) => ps.filter((x) => x.id !== p.id))
-            closePrompt(p.id)
-            break
-          }
-          case 'sync': {
-            const r = data as SyncResult
-            const what = r.outcome === 'rejected' ? `rejected (${r.reason})` : r.outcome
-            toast(`${r.peer} synced “${r.title ?? r.kalka_id}”: ${what}`)
             break
           }
         }
@@ -152,12 +122,8 @@ export function App() {
         }
       },
     )
-    const t = setInterval(loadPeers, 30000)
-    return () => {
-      stop()
-      clearInterval(t)
-    }
-  }, [ready, loadList, loadPeers, loadDoc, loadStatus])
+    return stop
+  }, [ready, loadList, loadDoc, loadStatus])
 
   useEffect(() => {
     setDoc(null)
@@ -189,7 +155,6 @@ export function App() {
   if (!status) return <div className="page muted">Loading…</div>
   if (status.setup) return <Setup status={status} />
 
-  const changedKeys = peers.filter((p) => p.key_changed)
   const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas'
 
   return (
@@ -217,9 +182,6 @@ export function App() {
             </a>
             <a href="#/team" className={route.view === 'team' ? 'active' : ''}>
               Team
-            </a>
-            <a href="#/peers" className={route.view === 'peers' ? 'active' : ''}>
-              Peers
             </a>
             <a href="#/settings" className={route.view === 'settings' ? 'active' : ''}>
               Settings
@@ -256,16 +218,6 @@ export function App() {
                 Publish to team…
               </button>
             )}
-            {doc.role === 'owner' && !doc.domain && (
-              <button type="button" onClick={() => setDialog('handoff')}>
-                Hand off to…
-              </button>
-            )}
-            {!doc.domain?.viewing && (
-              <button type="button" className="primary" onClick={() => setDialog('sync')}>
-                Sync with…
-              </button>
-            )}
           </>
         )}
         {inDoc && (
@@ -288,13 +240,13 @@ export function App() {
         )}
         {!status.online && !status.paused && (
           <div className="banner danger">
-            Not connected to the rendezvous server{status.error ? `: ${status.error}` : ''}. Syncs cannot start until it is back;
-            kalka keeps retrying.
+            Not connected to the rendezvous server{status.error ? `: ${status.error}` : ''}. Nothing reaches your teams until it is
+            back; kalka keeps retrying.
           </div>
         )}
         {notifyPerm === 'default' && !notifyAsked && (
           <div className="banner notice">
-            Turn on desktop notifications so you see a teammate's sync while this tab is in the background.{' '}
+            Turn on desktop notifications so you hear of comments and team changes while this tab is in the background.{' '}
             <button type="button" className="link" onClick={() => requestPermission().then(setNotifyPerm)}>
               Turn on
             </button>{' '}
@@ -316,25 +268,12 @@ export function App() {
           </div>
         )}
         {!live && <div className="banner danger">Lost the connection to kalka. Live updates resume when it is back.</div>}
-        {changedKeys.map((p) => (
-          <div className="banner danger loud" key={p.email}>
-            <b>{p.email} presented a different identity key.</b> This happens after a reinstall, or when someone else is using
-            that email. Syncs with {p.email} are blocked. Confirm with them in person or by phone, then remove the old pin on the{' '}
-            <a href="#/peers">Peers</a> page and verify the new code.
-          </div>
-        ))}
-        {inDoc && doc?.owner_edited && (
-          <div className="banner warn">
-            <code>owner:</code> was changed by hand in this file. That works, but without a handoff entry and without the
-            protection of a handoff: use “Hand off to…” instead.
-          </div>
-        )}
         {inDoc && doc?.duplicate && (
-          <div className="banner warn">Another file in the folder has the same kalka_id. Syncing is refused until one is removed.</div>
+          <div className="banner warn">Another file in the folder has the same kalka_id. Publishing is refused until one is removed.</div>
         )}
         {inDoc && doc && doc.problems.some((p) => p.severity === 'error') && (
           <div className="banner warn">
-            This file has format errors and cannot be synced:
+            This file has format errors and cannot be published:
             <ul>
               {doc.problems
                 .filter((p) => p.severity === 'error')
@@ -351,7 +290,6 @@ export function App() {
 
       <main>
         {route.view === 'list' && <Blueprints list={list} status={status} />}
-        {route.view === 'peers' && <Peers peers={peers} reload={loadPeers} status={status} />}
         {inDoc && docErr && (
           <div className="page">
             <div className="error-box">{docErr}</div>
@@ -366,30 +304,6 @@ export function App() {
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 
-      {prompts.length > 0 && (
-        <div className="modal-back">
-          <div className="modal" role="dialog" aria-label="Questions from kalka">
-            <h2>{prompts.length === 1 ? 'A teammate is syncing with you' : `${prompts.length} questions`}</h2>
-            {prompts.map((p) => (
-              <PromptCard key={p.id} prompt={p} onDone={() => setPrompts((ps) => ps.filter((x) => x.id !== p.id))} />
-            ))}
-          </div>
-        </div>
-      )}
-      {dialog && doc && (
-        <SyncDialog
-          path={doc.rel}
-          title={doc.title}
-          intent={dialog}
-          peers={peers}
-          self={status.email}
-          onClose={() => {
-            setDialog(null)
-            loadDoc()
-            loadPeers()
-          }}
-        />
-      )}
       {publishing && doc && (
         <PublishDialog
           doc={doc}

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
-	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/syncproto"
 	"github.com/golbinski/kalka/internal/teamlog"
 	"github.com/golbinski/kalka/internal/transport"
@@ -235,14 +234,9 @@ var byeText = map[string]string{
 // once the handshake succeeded.
 func (d *Node) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, error) {
 	ownerKey, _ := teamlog.DecodeKey(iv.Owner)
-	d.mu.Lock()
-	ep := d.kep
-	if ep == nil {
-		ep = d.ep
-	}
-	d.mu.Unlock()
-	if ep == nil {
-		return "", errors.New("not connected to the rendezvous server")
+	ep, err := d.endpoint()
+	if err != nil {
+		return "", err
 	}
 	dctx, cancel := context.WithTimeout(ctx, DialTimeout)
 	c, err := ep.Dial(dctx, transport.KeyPeerID(ownerKey))
@@ -262,11 +256,10 @@ func (d *Node) attemptJoin(ctx context.Context, iv teamlog.Invite) (string, erro
 		}
 		return nil
 	}
-	peer, err := transport.HandshakeInvite(c, d.self, d.cfg.Team, verify, claim)
+	peer, err := transport.HandshakeInvite(c, d.self, verify, claim)
 	if err != nil {
 		return "", err
 	}
-	d.pinFromTeam(peer.Email, peer.Key)
 	for {
 		env, err := c.Receive(syncproto.Silence)
 		if err != nil {
@@ -352,15 +345,6 @@ func (d *Node) acceptJoinLog(iv teamlog.Invite, m syncproto.TeamLog) error {
 	if _, err := teamlog.AppendFile(t.Log, ops); err != nil {
 		return err
 	}
-	for email, mb := range st.Members {
-		if k, err := teamlog.DecodeKey(mb.PubKey); err == nil && !bp.SameEmail(email, d.self.Email) {
-			// Pins the team's keys where nothing is pinned yet; a clash is
-			// shown in the Team and Peers views (spec 8.2).
-			if _, pinned := d.Peers.Get(email); !pinned {
-				d.pinFromTeam(email, k)
-			}
-		}
-	}
 	d.bus.Publish(BusEvent{Type: "teams"})
 	d.kickTeam(iv.Team)
 	return nil
@@ -373,18 +357,6 @@ func opByHash(ops []teamlog.Op, h string) *teamlog.Op {
 		}
 	}
 	return nil
-}
-
-// pinFromTeam pins a key an invite or team log vouches for. A different
-// pinned key is left alone and only logged: the views show the clash.
-func (d *Node) pinFromTeam(email string, key ed25519.PublicKey) {
-	var clash *identity.ErrPinClash
-	if err := d.Peers.PinVerified(email, key); errors.As(err, &clash) {
-		d.logf("%v", err)
-	} else if err != nil {
-		d.logf("pinning %s: %v", email, err)
-	}
-	d.bus.Publish(BusEvent{Type: "peers"})
 }
 
 // redeem is the owner's side, for an incoming connection whose hello
@@ -499,7 +471,6 @@ func (d *Node) admit(peer transport.Peer) ([]teamlog.Op, string, string) {
 		}
 		return l, true
 	})
-	d.pinFromTeam(peer.Email, peer.Key)
 	_, ops, _, _, err := d.load(t)
 	if err != nil {
 		return nil, "error", err.Error()

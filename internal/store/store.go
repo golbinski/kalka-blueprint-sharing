@@ -57,16 +57,11 @@ type Info struct {
 	ParseError string    `json:"parse_error,omitempty"`
 	Duplicate  bool      `json:"duplicate,omitempty"`
 	Modified   time.Time `json:"modified"`
-	// OwnerEdited means owner: changed in an edit outside kalka with no new
-	// handoff entry, so it is a manual change without the protection of a
-	// handoff (spec 7.4). It clears on kalka's next write.
-	OwnerEdited bool `json:"owner_edited,omitempty"`
 	// Team, and for a domain document (spec 6.12) its domain and version.
 	Team          string `json:"team,omitempty"`
 	Domain        string `json:"domain,omitempty"`
 	DomainVersion int64  `json:"domain_version,omitempty"`
 	hash          [32]byte
-	handoffs    int
 }
 
 // Event reports a change in the folder.
@@ -120,10 +115,8 @@ func ignored(name string, isDir bool) bool {
 	if isDir {
 		return false
 	}
-	return !strings.EqualFold(filepath.Ext(name), ".md") || conflictName.MatchString(name) || bp.IsSnapshotName(name)
+	return !strings.EqualFold(filepath.Ext(name), ".md") || bp.IsSnapshotName(name)
 }
-
-var conflictName = regexp.MustCompile(`(?i)\.conflict-[^.]*\.md$`)
 
 // scan indexes every blueprint under root; dirs, if not nil, collects the
 // folders seen so the watcher can add them.
@@ -184,9 +177,6 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		for _, it := range d.Items() {
 			if it.Entry != nil {
 				info.Entries++
-				if it.Entry.Kind == bp.KindHandoff {
-					info.handoffs++
-				}
 			}
 		}
 		for _, pr := range d.Problems() {
@@ -196,10 +186,6 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		}
 	}
 	external = !(wasOwn && own == h)
-	if external && old != nil && old.KalkaID != "" && old.KalkaID == info.KalkaID {
-		edited := !bp.SameEmail(old.Owner, info.Owner) && info.handoffs <= old.handoffs
-		info.OwnerEdited = edited || (old.OwnerEdited && bp.SameEmail(old.Owner, info.Owner))
-	}
 	s.index[p] = info
 	return true, external
 }
@@ -371,21 +357,6 @@ func (s *Store) CreateIn(dir string, doc *bp.Document, suggested string) (string
 	return path, s.write(path, doc.Bytes(), nil)
 }
 
-// SaveConflict copies f's content to <name>.conflict-<timestamp>.md beside
-// it (spec 7.5).
-func (s *Store) SaveConflict(f *File, at time.Time) (string, error) {
-	base := strings.TrimSuffix(f.Path, filepath.Ext(f.Path))
-	stamp := at.UTC().Format("20060102T150405Z")
-	path := base + ".conflict-" + stamp + ".md"
-	for i := 1; ; i++ {
-		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			break
-		}
-		path = fmt.Sprintf("%s.conflict-%s-%d.md", base, stamp, i)
-	}
-	return path, fsutil.WriteAtomic(path, f.Raw, nil)
-}
-
 var reserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])$`)
 
 // SafeName turns a suggested file name into a base name (without .md)
@@ -410,8 +381,6 @@ func SafeName(suggested string) string {
 		}
 	}
 	n = strings.Trim(b.String(), " .-")
-	n = conflictName.ReplaceAllString(n+".md", "")
-	n = strings.TrimSuffix(n, ".md")
 	if len(n) > 100 {
 		n = strings.TrimRight(n[:100], " .")
 	}

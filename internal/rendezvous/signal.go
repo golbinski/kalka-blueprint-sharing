@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -337,4 +338,17 @@ func (s *Server) sweep() {
 // Mount registers the handler on mux under path (e.g. "/").
 func (s *Server) Mount(mux *http.ServeMux, path string) {
 	mux.Handle(strings.TrimSuffix(path, "/")+"/peerjs", s.Handler())
+}
+
+// IDs lists the peer ids connected now.
+func (s *Server) IDs() []string {
+	s.init()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.clients))
+	for id := range s.clients {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }

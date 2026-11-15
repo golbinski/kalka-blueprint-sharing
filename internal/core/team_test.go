@@ -123,18 +123,6 @@ func TestInviteFlow(t *testing.T) {
 	if v := teamOf(t, desk); v.Me != "owner" || v.Invites[0].State != "used" {
 		t.Fatalf("desk is %q, invite %+v", v.Me, v.Invites)
 	}
-	// No prompt on either side, and both pins are verified by the invite.
-	if len(desk.seen) != 0 || len(reader.seen) != 0 {
-		t.Fatalf("prompts: desk %v, reader %v", desk.seen, reader.seen)
-	}
-	for _, c := range [][2]*node{{desk, reader}, {reader, desk}} {
-		if p, ok := c[0].d.Peers.Get(c[1].email); !ok || !p.Verified {
-			t.Fatalf("%s's pin of %s: %+v", c[0].email, c[1].email, p)
-		}
-		if m, _ := member(teamOf(t, c[0]), c[1].email); m.Pin != "match" {
-			t.Fatalf("%s sees pin %q for %s", c[0].email, m.Pin, c[1].email)
-		}
-	}
 	if runtime.GOOS != "windows" {
 		for _, f := range []string{filepath.Join(desk.cfgDir, InvitesFile), filepath.Join(reader.cfgDir, JoinsFile)} {
 			if st, err := os.Stat(f); err != nil || st.Mode().Perm() != 0o600 {
@@ -142,16 +130,6 @@ func TestInviteFlow(t *testing.T) {
 			}
 		}
 	}
-	// A one-to-one sync afterwards raises no code prompt: the pins are
-	// verified.
-	reader.write("loans.md", plan)
-	if _, err := reader.d.Sync(context.Background(), SyncRequest{Path: reader.path("loans.md"), To: desk.email}, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(reader.prompts("verify-code")) != 0 || len(desk.prompts("verify-code")) != 0 {
-		t.Fatal("code prompt after a join")
-	}
-
 	// The reader is a member: joining again is refused locally.
 	if _, err := reader.d.Join(context.Background(), inv.Token); err == nil || !strings.Contains(err.Error(), "already a member") {
 		t.Fatalf("second join: %v", err)

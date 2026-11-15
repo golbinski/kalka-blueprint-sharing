@@ -275,20 +275,6 @@ func (s *Shell) onEvent(typ string, data json.RawMessage) {
 		if json.Unmarshal(data, &n) == nil && !s.UI.WindowVisible() {
 			s.notify("notice-"+n.Kind+"-"+n.Path+n.Team, n.Title, n.Message, NoticeHash(n))
 		}
-	case "prompt":
-		var p core.Pending
-		if json.Unmarshal(data, &p) == nil && p.Scope == "" && !s.UI.WindowVisible() && s.notificationsOn() {
-			title, body := PromptText(p.Prompt)
-			if err := s.UI.Notify("prompt-"+p.ID, title, body, ""); err != nil {
-				// No notification centre (an unsigned macOS build): a
-				// dialog, since the prompt needs an answer in minutes.
-				go func() {
-					if s.UI.Ask(title, body, "Open "+name.Product, "Later") {
-						s.UI.ShowWindow("")
-					}
-				}()
-			}
-		}
 	case "ui-show":
 		var q struct {
 			Path string `json:"path"`

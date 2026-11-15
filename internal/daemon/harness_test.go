@@ -18,7 +18,6 @@ import (
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/rendezvous"
-	"github.com/golbinski/kalka/internal/syncproto"
 )
 
 type world struct {
@@ -51,16 +50,13 @@ type node struct {
 	d      *Daemon
 	stop   func()
 
-	opts    []func(*Options)
-	mu      sync.Mutex
-	answers map[string]bool // by prompt kind; missing means yes
-	seen    []syncproto.Prompt
+	opts []func(*Options)
 }
 
 func (w *world) node(email string, opts ...func(*Options)) *node {
 	w.t.Helper()
 	root := w.t.TempDir()
-	n := &node{w: w, email: email, opts: opts, cfgDir: filepath.Join(root, "config"), folder: filepath.Join(root, "blueprints"), answers: map[string]bool{}}
+	n := &node{w: w, email: email, opts: opts, cfgDir: filepath.Join(root, "config"), folder: filepath.Join(root, "blueprints")}
 	os.MkdirAll(n.folder, 0o755)
 	n.start()
 	return n
@@ -71,7 +67,7 @@ func (n *node) start() {
 	t.Helper()
 	o := Options{Options: core.Options{
 		Config:    &config.Config{Email: n.email, Rendezvous: n.w.url, Folder: n.folder, UIPort: 1},
-		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true, Prompter: n.prompt,
+		ConfigDir: n.cfgDir, Now: n.w.now, Loopback: true,
 	}, APIAddr: "127.0.0.1:0"}
 	for _, f := range n.opts {
 		f(&o)
@@ -92,32 +88,6 @@ func (n *node) start() {
 	var once sync.Once
 	n.stop = func() { once.Do(func() { cancel(); <-done }) }
 	t.Cleanup(n.stop)
-}
-
-func (n *node) prompt(_ context.Context, _ string, p syncproto.Prompt) (bool, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.seen = append(n.seen, p)
-	ok, set := n.answers[p.Kind]
-	return ok || !set, nil
-}
-
-func (n *node) answer(kind string, ok bool) {
-	n.mu.Lock()
-	n.answers[kind] = ok
-	n.mu.Unlock()
-}
-
-func (n *node) prompts(kind string) []syncproto.Prompt {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	var out []syncproto.Prompt
-	for _, p := range n.seen {
-		if p.Kind == kind {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 func (n *node) path(name string) string { return filepath.Join(n.folder, name) }
@@ -147,7 +117,7 @@ func (n *node) doc(name string) *bp.Document {
 	return d
 }
 
-// comment adds an entry the way `kalka comment` does.
+// comment adds an unsigned entry, as typed by hand.
 func (n *node) comment(name, anchor, body string) *bp.Entry {
 	n.w.t.Helper()
 	d := n.doc(name)
@@ -160,34 +130,6 @@ func (n *node) comment(name, anchor, body string) *bp.Entry {
 	}
 	n.write(name, string(d.Bytes()))
 	return e
-}
-
-func (n *node) sync(name string, to *node, intent string) (syncproto.Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return n.d.Sync(ctx, core.SyncRequest{Path: n.path(name), To: to.email, Intent: intent}, "", nil)
-}
-
-func (n *node) mustSync(name string, to *node, intent string) syncproto.Result {
-	n.w.t.Helper()
-	r, err := n.sync(name, to, intent)
-	if err != nil {
-		n.w.t.Fatalf("%s syncs %s with %s: %v", n.email, name, to.email, err)
-	}
-	return r
-}
-
-// only returns the single blueprint file in the node's folder.
-func (n *node) only() string {
-	n.w.t.Helper()
-	var names []string
-	for _, i := range n.d.Store.List() {
-		names = append(names, i.Rel)
-	}
-	if len(names) != 1 {
-		n.w.t.Fatalf("%s has %v", n.email, names)
-	}
-	return names[0]
 }
 
 const plan = `# Import pipeline refactor
@@ -205,25 +147,3 @@ The importer is slow.
 
 Behind a flag.
 `
-
-func equalFiles(t *testing.T, name string, nodes ...*node) {
-	t.Helper()
-	first := nodes[0].read(name)
-	for _, n := range nodes[1:] {
-		if got := n.read(name); bp.Normalize(got) != bp.Normalize(first) {
-			t.Fatalf("%s and %s differ:\n%s\n----\n%s", nodes[0].email, n.email, first, got)
-		}
-	}
-}
-
-// review sets up alice's plan reviewed by the given nodes.
-func review(t *testing.T, alice *node, reviewers ...*node) {
-	t.Helper()
-	alice.write("plan.md", plan)
-	for _, r := range reviewers {
-		alice.mustSync("plan.md", r, core.IntentSync)
-		if r.only() != "plan.md" {
-			t.Fatalf("%s stored the plan as %s", r.email, r.only())
-		}
-	}
-}

@@ -28,19 +28,20 @@ func findEntry(v *DocView, anchor string) *EntryView {
 	return nil
 }
 
-// A comment on a trace node round-trips through a sync and becomes
+// A comment on a trace node round-trips through replication and becomes
 // orphaned when the owner removes the node (M7 acceptance).
 func TestNodeCommentRoundTrip(t *testing.T) {
-	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
+	_, ns := teamOfN(t, "alice@library.example", "bob@library.example")
+	alice, bob := ns[0], ns[1]
 	alice.write("plan.md", tracePlan)
-	alice.mustSync("plan.md", bob, IntentSync)
-	bob.comment("plan.md", "plan#C2", "Why 20 MB?")
-	bob.mustSync("plan.md", alice, IntentSync)
-	equalFiles(t, "plan.md", alice, bob)
+	waitIndexed(t, alice, 1)
+	id := alice.share("plan.md", bob)
+	bob.comment(bob.rel(id), "plan#C2", "Why 20 MB?")
+	bob.replicate(alice)
 
 	ctx := context.Background()
-	v, err := alice.d.Document(ctx, "plan.md")
+	name := alice.rel(id)
+	v, err := alice.d.Document(ctx, name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,13 +53,14 @@ func TestNodeCommentRoundTrip(t *testing.T) {
 		t.Fatalf("traces %+v", v.Traces)
 	}
 
-	// The owner renames the node and sends the revision.
-	src := alice.read("plan.md")
+	// The owner renames the node and releases the revision.
+	src := alice.read(name)
 	src = strings.Replace(src, "{id: C2,", "{id: C9,", 1)
 	src = strings.Replace(src, "next: [C2]", "next: [C9]", 1)
-	alice.write("plan.md", src)
-	alice.mustSync("plan.md", bob, IntentSync)
-	v, _ = bob.d.Document(ctx, "plan.md")
+	alice.write(name, src)
+	waitStored(t, alice, alice.path(name), "{id: C9,")
+	alice.share(name, bob)
+	v, _ = bob.d.Document(ctx, bob.rel(id))
 	if e := findEntry(v, "plan#C2"); e == nil || !e.Orphaned {
 		t.Fatalf("not orphaned: %+v", e)
 	}

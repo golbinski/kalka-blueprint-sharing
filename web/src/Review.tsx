@@ -494,7 +494,7 @@ function Badges({ e }: { e: Entry }) {
           orphaned
         </span>
       )}
-      {e.outdated && !e.orphaned && e.kind !== 'handoff' && (
+      {e.outdated && !e.orphaned && (
         <span className="badge" title={`written against rev ${e.rev}; the plan has changed since`}>
           outdated
         </span>
@@ -512,11 +512,6 @@ function Badges({ e }: { e: Entry }) {
       {e.valid && e.sig === 'invalid' && (
         <span className="badge warn" title={`the signature does not match the key held for ${e.author}; the entry has no effect`}>
           signature invalid
-        </span>
-      )}
-      {e.handoff === 'unverified' && (
-        <span className="badge warn" title={e.handoff_note}>
-          unverified handoff
         </span>
       )}
       {e.valid && e.team_state === 'local-only' && e.sig !== 'unsigned' && e.sig !== 'invalid' && (
@@ -593,12 +588,6 @@ export function EntryCard({
         </div>
       ) : e.kind === 'release' ? (
         <ReleaseBody body={e.body} />
-      ) : e.kind === 'handoff' ? (
-        <div className="entry-body">
-          Ownership passed to <b>{e.handoff_target ?? '?'}</b>
-          {e.handoff === 'verified' ? <span className="muted"> · signature verified</span> : null}
-          {e.handoff_note && <div className="muted small">{e.handoff_note}</div>}
-        </div>
       ) : (
         <Markdown src={e.body} className="entry-body" />
       )}

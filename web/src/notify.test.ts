@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Prompt } from './api'
-import { closePrompt, notifyPrompt, promptSummary } from './notify'
+import type { Notice } from './api'
+import { notifyNotice } from './notify'
 
-const prompt = (id: string, kind: Prompt['kind'] = 'accept-new'): Prompt => ({
-  id,
-  created: '',
-  kind,
-  peer: 'alice@corp.com',
-  title: 'Import pipeline refactor',
-  message: 'alice@corp.com sends you a new blueprint. Accept it?',
-})
+const notice: Notice = { kind: 'comments', title: 'Parcel lockers', message: 'new comment on “Parcel lockers” from courier@parcels.example' } as Notice
 
 class FakeNotification {
   static permission = 'granted'
@@ -39,32 +32,23 @@ describe('page notifications', () => {
     vi.unstubAllGlobals()
   })
 
-  it('says what waits without asking the question', () => {
-    const s = promptSummary(prompt('1', 'accept-handoff'))
-    expect(s.title).toContain('alice@corp.com')
-    expect(s.body).toContain('“Import pipeline refactor”')
-    expect(s.body).not.toContain('?')
-  })
-
-  it('notifies only while the page is hidden, once per prompt, and closes with the prompt', () => {
+  it('notifies only while the page is hidden; the page shows it otherwise', () => {
     vi.stubGlobal('Notification', FakeNotification)
     hidden(false)
-    notifyPrompt(prompt('a'))
+    expect(notifyNotice(notice)).toBe(false)
     expect(FakeNotification.made).toHaveLength(0)
 
     hidden(true)
-    notifyPrompt(prompt('a'))
-    notifyPrompt(prompt('a'))
+    expect(notifyNotice(notice)).toBe(true)
     expect(FakeNotification.made).toHaveLength(1)
-    closePrompt('a')
-    expect(FakeNotification.made[0].closed).toBe(true)
+    expect(FakeNotification.made[0].title).toBe('kalka · Parcel lockers')
   })
 
   it('does nothing without permission', () => {
     FakeNotification.permission = 'denied'
     vi.stubGlobal('Notification', FakeNotification)
     hidden(true)
-    notifyPrompt(prompt('b'))
+    expect(notifyNotice(notice)).toBe(false)
     expect(FakeNotification.made).toHaveLength(0)
     FakeNotification.permission = 'granted'
   })

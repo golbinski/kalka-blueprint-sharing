@@ -588,9 +588,6 @@ type MemberView struct {
 	Fingerprint string `json:"fingerprint"`
 	Since       string `json:"since,omitempty"` // the signer's clock at add-member
 	You         bool   `json:"you,omitempty"`
-	// Pin compares peers.yaml with the log (spec 8.2): match, none, or
-	// clash when another key is pinned.
-	Pin string `json:"pin"`
 }
 
 // DomainView is an effective domain assignment.
@@ -641,19 +638,14 @@ func (d *Node) teamView(t teamDir) TeamView {
 	v.Owners = append(v.Owners, st.Owners...)
 	self := teamlog.EncodeKey(d.pub)
 	for _, m := range st.Members {
-		mv := MemberView{Email: m.Email, Owner: m.Owner, Pin: "none"}
+		mv := MemberView{Email: m.Email, Owner: m.Owner}
 		if k, err := teamlog.DecodeKey(m.PubKey); err == nil {
 			mv.Fingerprint = peerid.Display(peerid.Fingerprint(k))
 			if bp.SameEmail(m.Email, d.self.Email) && m.PubKey == self {
-				mv.You, mv.Pin = true, "match"
+				mv.You = true
 				v.Me = "member"
 				if m.Owner {
 					v.Me = "owner"
-				}
-			} else if p, ok := d.Peers.Get(m.Email); ok {
-				mv.Pin = "match"
-				if pk := p.Key(); pk == nil || !pk.Equal(k) || p.KeyChanged != nil {
-					mv.Pin = "clash"
 				}
 			}
 		}

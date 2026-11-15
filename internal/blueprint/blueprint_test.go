@@ -124,16 +124,14 @@ func TestPrepareBody(t *testing.T) {
 	}
 }
 
-func TestHandoffSignature(t *testing.T) {
+func TestEntrySignature(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	id := "6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa"
-	e, err := NewHandoff(id, "alice@corp.com", "bob@corp.com", t0, "3fa9c1d2", func(m []byte) []byte { return ed25519.Sign(priv, m) })
+	e, err := NewEntry(KindComment, "alice@corp.com", t0, "", "3fa9c1d2", "Looks right.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if to, ok := e.HandoffTarget(); !ok || to != "bob@corp.com" {
-		t.Fatalf("target = %q, %v", to, ok)
-	}
+	e.Sign(id, func(m []byte) []byte { return ed25519.Sign(priv, m) })
 	if !e.VerifySig(id, pub) {
 		t.Fatal("signature does not verify")
 	}

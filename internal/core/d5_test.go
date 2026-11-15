@@ -39,8 +39,8 @@ func kinds(ns []Notice) string {
 	return strings.Join(k, ",")
 }
 
-// TestPause: paused, kalka is offline (both registrations closed, a
-// peer's probe says offline, no round, no sync, no join); local work goes
+// TestPause: paused, kalka is offline (its registration closed, a
+// member's probe says offline, no round, no join); local work goes
 // on and reaches the peer after the resume.
 func TestPause(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
@@ -50,7 +50,7 @@ func TestPause(t *testing.T) {
 	depot.d.SetPaused(true)
 	for i := 0; ; i++ {
 		st := depot.d.State()
-		if !st.Online && !st.KeyOnline && st.Paused {
+		if !st.Online && st.Paused {
 			break
 		}
 		if i == 200 {
@@ -66,9 +66,6 @@ func TestPause(t *testing.T) {
 	}
 	depot.write("lockers.md", lockers)
 	waitIndexed(t, depot, 1)
-	if _, err := depot.sync("lockers.md", courier, IntentSync); !errors.Is(err, ErrPaused) {
-		t.Fatalf("sync while paused: %v", err)
-	}
 	if _, err := depot.d.Join(ctx, "x"); !errors.Is(err, ErrPaused) {
 		t.Fatalf("join while paused: %v", err)
 	}
@@ -92,44 +89,40 @@ func TestPause(t *testing.T) {
 }
 
 // TestCommentNotices: the owner hears of comments by others, once per
-// sync; nobody hears of their own entries or of a first copy; nothing
+// round; nobody hears of their own entries or of a first copy; nothing
 // when notifications are off.
 func TestCommentNotices(t *testing.T) {
-	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
-	alice.write("plan.md", plan)
-	aliceN, bobN := noticesOf(t, alice), noticesOf(t, bob)
-	if _, err := alice.sync("plan.md", bob, IntentSync); err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(append(aliceN(), bobN()...)); got != "" {
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	depot, courier := ns[0], ns[1]
+	depot.write("lockers.md", lockers)
+	waitIndexed(t, depot, 1)
+	depot.publish("lockers.md")
+	id := mustID(t, depot, "lockers.md")
+	depotN, courierN := noticesOf(t, depot), noticesOf(t, courier)
+	depot.replicate(courier)
+	if got := kinds(append(depotN(), courierN()...)); got != "" {
 		t.Fatalf("first copy raised %q", got)
 	}
-	bob.comment("plan.md", "plan", "Missing retry.")
-	bob.comment("plan.md", "plan", "And a timeout.")
-	if _, err := bob.sync("plan.md", alice, IntentSync); err != nil {
-		t.Fatal(err)
+	name := courier.rel(id)
+	courier.comment(name, "plan", "Missing a weekend slot.")
+	courier.comment(name, "plan", "And a key for the night shift.")
+	courier.replicate(depot)
+	got := depotN()
+	if len(got) != 1 || got[0].Kind != NoticeComments || !strings.Contains(got[0].Message, "2 new comments") || !strings.Contains(got[0].Message, courier.email) {
+		t.Fatalf("owner's notices: %+v", got)
 	}
-	ns := aliceN()
-	if len(ns) != 1 || ns[0].Kind != NoticeComments || !strings.Contains(ns[0].Message, "2 new comments") || !strings.Contains(ns[0].Message, bob.email) {
-		t.Fatalf("owner's notices: %+v", ns)
-	}
-	if got := kinds(bobN()); got != "" {
+	if got := kinds(courierN()); got != "" {
 		t.Fatalf("commenter heard %q", got)
 	}
-	alice.comment("plan.md", "plan", "Added both.")
-	if _, err := alice.sync("plan.md", bob, IntentSync); err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(append(aliceN(), bobN()...)); got != "" {
+	depot.comment(depot.rel(id), "plan", "Added both.")
+	depot.replicate(courier)
+	if got := kinds(append(depotN(), courierN()...)); got != "" {
 		t.Fatalf("own comment raised %q", got)
 	}
-	alice.d.SetNotifications(false)
-	bob.comment("plan.md", "plan", "One more.")
-	if _, err := bob.sync("plan.md", alice, IntentSync); err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(aliceN()); got != "" {
+	depot.d.SetNotifications(false)
+	courier.comment(name, "plan", "One more.")
+	courier.replicate(depot)
+	if got := kinds(depotN()); got != "" {
 		t.Fatalf("notifications off, heard %q", got)
 	}
 }

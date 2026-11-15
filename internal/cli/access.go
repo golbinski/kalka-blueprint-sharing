@@ -117,13 +117,6 @@ func (v *views) status(ctx context.Context) (core.Status, error) {
 	return v.n.State(), nil
 }
 
-func (v *views) peers(ctx context.Context) ([]core.PeerView, error) {
-	if v.c != nil {
-		return v.c.Peers(ctx)
-	}
-	return v.n.PeerList(), nil
-}
-
 func (v *views) team(ctx context.Context, ref string) (core.TeamView, error) {
 	if v.c != nil {
 		return v.c.Team(ctx, ref)
@@ -154,7 +147,6 @@ type statusView struct {
 	PeersKnown  int        `json:"peers_known"`
 	PeersOnline *int       `json:"peers_online"`
 	LastSync    *time.Time `json:"last_sync"`
-	Prompts     *int       `json:"prompts"`
 	Joins       int        `json:"joins"`
 	Pushes      *int       `json:"pushes"`
 	// Shell is "desktop" while the desktop window is attached.
@@ -184,7 +176,7 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return report(asJSON, stdout, stderr, "daemon", err.Error())
 		}
-		out.Online, out.PeersOnline, out.Prompts, out.Pushes = &sum.Online, &sum.PeersOnline, &sum.Prompts, &sum.Pushes
+		out.Online, out.PeersOnline, out.Pushes = &sum.Online, &sum.PeersOnline, &sum.Pushes
 		out.PeersKnown, out.Joins, out.Paused, out.Shell = sum.PeersKnown, sum.Joins, sum.Paused, sum.Shell
 		if !sum.LastSync.IsZero() {
 			out.LastSync = &sum.LastSync
@@ -231,18 +223,18 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	row("folder", st.Folder)
 	row("rendezvous", st.Rendezvous)
 	if v.live() {
-		row("peers", fmt.Sprintf("%d reachable of %d", *out.PeersOnline, out.PeersKnown))
+		row("members", fmt.Sprintf("%d reachable of %d", *out.PeersOnline, out.PeersKnown))
 		last := "none since start"
 		if out.LastSync != nil {
 			last = out.LastSync.Local().Format("2006-01-02 15:04")
 		}
 		row("last sync", last)
-		row("waiting", fmt.Sprintf("%d prompt(s), %d join(s) in progress, %d team push(es) queued", *out.Prompts, out.Joins, *out.Pushes))
+		row("waiting", fmt.Sprintf("%d join(s) in progress, %d team push(es) queued", out.Joins, *out.Pushes))
 		if out.Shell != "" {
 			row("window", "the desktop app is attached")
 		}
 	} else {
-		row("peers", fmt.Sprintf("%d known", out.PeersKnown))
+		row("members", fmt.Sprintf("%d known", out.PeersKnown))
 		if out.Joins > 0 {
 			row("waiting", fmt.Sprintf("%d join(s) in progress", out.Joins))
 		}

@@ -53,9 +53,9 @@ The tray icon uses StatusNotifierItem. Stock GNOME shows it only with an extensi
 
 **Uninstall:** *Quit kalka* from its menu, `kalka autostart off`, then delete the files above and `~/.config/kalka`.
 
-## How prompts reach you
+## How notices reach you
 
-A teammate's sync that needs your answer (a handoff, a new blueprint, the first-sync code) shows as a notification while the window is hidden; clicking it opens the window on the prompt. Answer within 5 minutes; after that the teammate gets "no answer" and can send again. The other notices (new comments on your documents, someone joined with your invite, your join completed, a newer domain version) can be turned off in *Settings*.
+While the window is hidden, notices show as notifications: new comments on your documents, someone joined with your invite, your join completed, a newer domain version. Clicking one opens the window on its subject. They can be turned off in *Settings*, or with `kalka daemon --no-notifications`.
 
 ## Notes
 

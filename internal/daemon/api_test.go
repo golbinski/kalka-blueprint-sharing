@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/golbinski/kalka/internal/core"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/golbinski/kalka/internal/syncproto"
 )
 
 func TestAPIGuards(t *testing.T) {
@@ -65,7 +61,7 @@ func TestAPIGuards(t *testing.T) {
 	local := "127.0.0.1:" + port
 	own := "http://" + local
 	bearer := "Bearer " + tok
-	const st, pe = "/api/status", "/api/peers"
+	const st, pe = "/api/status", "/api/resume"
 	cases := []req{
 		{"bearer", "GET", st, local, bearer, "", "", "", 200},
 		{"localhost name", "GET", st, "localhost:" + port, bearer, "", "", "", 200},
@@ -161,85 +157,5 @@ func TestOpenExternal(t *testing.T) {
 	}
 	if u := <-opened; u != "https://example.org/docs?a=1#b" {
 		t.Fatalf("opened %q", u)
-	}
-}
-
-// TestCLISyncThroughAPI drives a first send the way `kalka send` does:
-// prompts stream to the initiating client, the recipient answers from its
-// own front end through /api/prompts.
-func TestCLISyncThroughAPI(t *testing.T) {
-	w := newWorld(t)
-	hub := func(o *Options) { o.Prompter = nil } // prompts go to the hub and the API
-	alice, bob := w.node("alice@corp.com", hub), w.node("bob@corp.com", hub)
-	alice.write("plan.md", plan)
-	ca, err := Connect(alice.cfgDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cb, _ := Connect(bob.cfgDir)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Bob's front end: answer every prompt, remember the code shown.
-	bobCode := make(chan string, 1)
-	go func() {
-		for ctx.Err() == nil {
-			var ps []*core.Pending
-			_ = cb.do(ctx, http.MethodGet, "/api/prompts", nil, &ps)
-			for _, p := range ps {
-				if p.Kind == syncproto.PromptVerify {
-					select {
-					case bobCode <- p.Code:
-					default:
-					}
-				}
-				_ = cb.Answer(ctx, p.ID, true)
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}()
-
-	var kinds []string
-	var result *syncproto.Result
-	var aliceCode string
-	err = ca.Sync(ctx, core.SyncRequest{Path: alice.path("plan.md"), To: bob.email}, func(ev Event) {
-		kinds = append(kinds, ev.Type)
-		switch ev.Type {
-		case "prompt":
-			aliceCode = ev.Prompt.Code
-			if err := ca.Answer(ctx, ev.Prompt.ID, true); err != nil {
-				t.Error(err)
-			}
-		case "result":
-			result = ev.Result
-		case "error":
-			t.Errorf("sync error: %s (%s)", ev.Error, ev.Kind)
-		}
-	})
-	if err != nil || result == nil {
-		t.Fatalf("stream: %v %v", err, kinds)
-	}
-	if c := <-bobCode; c != aliceCode || c == "" {
-		t.Fatalf("codes differ: %q %q", aliceCode, c)
-	}
-	equalFiles(t, "plan.md", alice, bob)
-
-	v, err := ca.Code(ctx, bob.email)
-	if err != nil || !v.Verified || v.Code != aliceCode {
-		t.Fatalf("code view %+v %v", v, err)
-	}
-	peers, err := ca.Peers(ctx)
-	if err != nil || len(peers) != 1 || peers[0].Presence != "online" || !peers[0].Verified {
-		t.Fatalf("peers %+v %v", peers, err)
-	}
-	// An error reaches the stream with its kind.
-	var kind string
-	_ = ca.Sync(ctx, core.SyncRequest{Path: alice.path("plan.md"), To: "dave@corp.com"}, func(ev Event) {
-		if ev.Type == "error" {
-			kind = ev.Kind
-		}
-	})
-	if kind != "offline" {
-		t.Fatalf("offline kind %q", kind)
 	}
 }

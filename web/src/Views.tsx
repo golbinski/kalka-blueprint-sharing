@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type BlueprintInfo, type Peer, type SeedRow, type Status } from './api'
+import { api, type BlueprintInfo, type SeedRow, type Status } from './api'
 import { docHref, plural } from './util'
 
 // Setup asks for the three required settings (spec 5).
@@ -87,7 +87,7 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
         <div className="empty">
           <p>No blueprints yet.</p>
           <p className="muted">
-            Put a Markdown file into <code>{status.folder}</code>, or wait for a teammate to send you one.
+            Put a Markdown file into <code>{status.folder}</code>, or join a team to receive its documents.
           </p>
         </div>
       </div>
@@ -125,11 +125,10 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
                     {b.parse_error && <span className="badge warn">{b.parse_error}</span>}
                     {b.errors > 0 && <span className="badge warn">{plural(b.errors, 'error')}</span>}
                     {b.duplicate && (
-                      <span className="badge warn" title="Two files have the same kalka_id; syncing is refused until one is removed">
+                      <span className="badge warn" title="Two files have the same kalka_id; publishing is refused until one is removed">
                         duplicate id
                       </span>
                     )}
-                    {b.owner_edited && <span className="badge warn">owner edited by hand</span>}
                   </td>
                   <td className="mono muted">{b.rel}</td>
                 </tr>
@@ -138,143 +137,6 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
           </tbody>
         </table>
       </div>
-    </div>
-  )
-}
-
-function PeerRow({ p, reload }: { p: Peer; reload: () => void }) {
-  const [confirm, setConfirm] = useState<'' | 'verify' | 'forget'>('')
-  const [err, setErr] = useState('')
-  const run = async (f: () => Promise<unknown>) => {
-    setErr('')
-    try {
-      await f()
-      setConfirm('')
-      reload()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }
-  let key = <span className="muted">not pinned yet</span>
-  if (p.key_changed) key = <span className="badge danger">key changed: syncs blocked</span>
-  else if (p.verified) key = <span className="badge ok">verified</span>
-  else if (p.pinned) key = <span className="badge">pinned, not verified</span>
-  return (
-    <tr>
-      <td>{p.email}</td>
-      <td>
-        <span className={'dot ' + p.presence} /> {p.presence}
-      </td>
-      <td>
-        {key}
-        {p.fingerprint && (
-          <div className="mono small muted" title="Fingerprint of the pinned key">
-            {p.fingerprint}
-          </div>
-        )}
-      </td>
-      <td className="mono">{p.code ?? ''}</td>
-      <td className="actions">
-        {confirm === '' && (
-          <>
-            {p.pinned && !p.verified && !p.key_changed && (
-              <button type="button" onClick={() => setConfirm('verify')}>
-                Mark verified…
-              </button>
-            )}
-            {p.pinned && (
-              <button type="button" onClick={() => setConfirm('forget')}>
-                Remove pin…
-              </button>
-            )}
-          </>
-        )}
-        {confirm === 'verify' && (
-          <span className="confirm">
-            Only if {p.email} sees <b className="mono">{p.code}</b> too.{' '}
-            <button type="button" className="primary" onClick={() => run(() => api.confirm(p.email))}>
-              Codes match
-            </button>
-            <button type="button" onClick={() => setConfirm('')}>
-              Cancel
-            </button>
-          </span>
-        )}
-        {confirm === 'forget' && (
-          <span className="confirm">
-            The next contact pins whatever key {p.email} presents and asks for the code again.{' '}
-            <button type="button" className="danger" onClick={() => run(() => api.forget(p.email))}>
-              Remove pin
-            </button>
-            <button type="button" onClick={() => setConfirm('')}>
-              Cancel
-            </button>
-          </span>
-        )}
-        {err && <div className="error-text">{err}</div>}
-      </td>
-    </tr>
-  )
-}
-
-export function Peers({ peers, reload, status }: { peers: Peer[]; reload: () => void; status: Status }) {
-  const [email, setEmail] = useState('')
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setErr('')
-    try {
-      await api.addPeer(email.trim())
-      setEmail('')
-      reload()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-    setBusy(false)
-  }
-  return (
-    <div className="page">
-      <h1>Peers</h1>
-      <p className="muted">
-        A peer's key is pinned at first contact. Compare the verification code with them once, on a call or in person.
-      </p>
-      <p className="small">
-        Your key fingerprint: <span className="mono">{status.fingerprint}</span>{' '}
-        <span className="muted">
-          {status.key_online ? '· reachable by key id' : `· key id not registered${status.key_error ? ': ' + status.key_error : ''}`}
-        </span>
-      </p>
-      <form className="row" onSubmit={add}>
-        <input type="email" placeholder="teammate@corp.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Peer email" />
-        <button type="submit" disabled={busy || !email.trim()}>
-          {busy ? 'Checking…' : 'Add and check presence'}
-        </button>
-      </form>
-      {err && <div className="error-box">{err}</div>}
-      {peers.length === 0 ? (
-        <p className="muted">No peers yet. They appear here after the first sync, or when you add an address.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Presence</th>
-                <th>Key</th>
-                <th>Code</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {peers.map((p) => (
-                <PeerRow key={p.email} p={p} reload={reload} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   )
 }

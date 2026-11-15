@@ -2,80 +2,131 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golbinski/kalka/internal/syncproto"
 	"github.com/golbinski/kalka/internal/transport"
 )
 
-// syncSteps syncs and returns the progress lines.
-func (n *node) syncSteps(name string, to *node) []string {
-	n.w.t.Helper()
-	var steps []string
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if _, err := n.d.Sync(ctx, SyncRequest{Path: n.path(name), To: to.email}, "", func(s string) { steps = append(steps, s) }); err != nil {
-		n.w.t.Fatalf("%s syncs with %s: %v", n.email, to.email, err)
-	}
-	return steps
-}
-
-func dialledBy(steps []string) string {
-	for _, s := range steps {
-		if strings.HasPrefix(s, "connecting to ") {
-			return s[strings.LastIndex(s, " by ")+4:]
-		}
-	}
-	return ""
-}
-
-// Spec 9.2: the email id for first contact, the key id once the peer's
-// key is pinned, and the email id again when the key id does not answer.
-func TestPeerIDChoice(t *testing.T) {
+// Spec 9.2: one signaling registration per node, on the key id of its
+// identity key; no email id is ever registered.
+func TestOneRegistration(t *testing.T) {
 	w := newWorld(t)
 	desk := w.node("desk@library.example")
 	stacks := w.node("stacks@library.example")
 	waitKeyOnline(t, desk)
 	waitKeyOnline(t, stacks)
-	desk.write("plan.md", plan)
+	want := []string{desk.d.State().PeerID, stacks.d.State().PeerID}
+	slices.Sort(want)
+	if got := w.srv.IDs(); !slices.Equal(got, want) {
+		t.Fatalf("registrations %v, want %v", got, want)
+	}
+	for _, n := range []*node{desk, stacks} {
+		s := n.d.State()
+		if !strings.HasPrefix(s.PeerID, "kalka-k") || s.PeerID != transport.KeyPeerID(n.d.PublicKey()) || s.Fingerprint == "" {
+			t.Fatalf("status: %+v", s)
+		}
+	}
+}
 
-	if got := dialledBy(desk.syncSteps("plan.md", stacks)); got != "its email id" {
-		t.Fatalf("first contact by %q", got)
-	}
-	if got := dialledBy(desk.syncSteps("plan.md", stacks)); got != "its key id" {
-		t.Fatalf("known peer reached by %q", got)
-	}
-	// Both ways: stacks pinned desk's key in the first sync.
-	if got := dialledBy(stacks.syncSteps("plan.md", desk)); got != "its key id" {
-		t.Fatalf("desk reached by %q", got)
-	}
-	if v := desk.d.PeerList(); len(v) != 1 || v[0].Fingerprint == "" {
-		t.Fatalf("peer view: %+v", v)
-	}
-	if s := desk.d.State(); !s.KeyOnline || !strings.HasPrefix(s.KeyPeerID, "kalka-k") || s.Fingerprint == "" {
-		t.Fatalf("status: %+v", s)
-	}
+// Spec 8.2: a peer sharing no team is told not-member before any file is
+// read, and its document request never reaches the store.
+func TestStrangerIsNotMember(t *testing.T) {
+	_, ns := teamOfN(t, "desk@library.example", "reader@library.example")
+	desk := ns[0]
+	desk.write("loans.md", lockers)
+	desk.publish("loans.md")
+	stranger := desk.w.node("stranger@library.example")
+	waitKeyOnline(t, stranger)
 
-	// The peer's key id is not registered (as when someone squats it on a
-	// server without proofs): dialing falls back to the email id.
-	stacks.stop()
-	stacks.noKeyID = true
-	stacks.start()
-	steps := desk.syncSteps("plan.md", stacks)
-	if got := dialledBy(steps); got != "its key id" || !strings.Contains(strings.Join(steps, "\n"), "by its email id") {
-		t.Fatalf("fallback steps: %v", steps)
+	var sent []string
+	rec := &recorder{sent: &sent}
+	desk.d.wrapChan = func(ch syncproto.Channel) syncproto.Channel { rec.Channel = ch; return rec }
+	if bye := outsiderSession(t, stranger, desk, desk.team()); bye != syncproto.ByeNotMember {
+		t.Fatalf("bye %q, want not-member", bye)
 	}
-	if desk.d.Probe(context.Background(), stacks.email) != transport.Online {
-		t.Fatal("probe did not fall back to the email id")
+	// The answer carried the log heads only: no digest, inventory or
+	// document, so nothing about the files was read.
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for _, m := range sent {
+		var head struct{ Type, Digest string }
+		_ = json.Unmarshal([]byte(m), &head)
+		if (head.Type != "team_sync" && head.Type != "bye") || head.Digest != "" || strings.Contains(m, "Parcel lockers") {
+			t.Fatalf("sent to a stranger: %s", m)
+		}
 	}
-	equalFiles(t, "plan.md", desk, stacks)
+}
+
+// A member's email with another key than the log binds is refused like a
+// stranger (spec 8.2); the initiator side refuses a key the log does not
+// bind in the handshake.
+func TestMemberWithOtherKeyRefused(t *testing.T) {
+	w, ns := teamOfN(t, "desk@library.example", "reader@library.example")
+	desk, reader := ns[0], ns[1]
+	impostor := w.node(reader.email)
+	waitKeyOnline(t, impostor)
+	if bye := outsiderSession(t, impostor, desk, desk.team()); bye != syncproto.ByeNotMember {
+		t.Fatalf("bye %q, want not-member", bye)
+	}
+	h, err := desk.d.heldTeam(desk.team())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := desk.d.replicateWith(context.Background(), h, reader.email, impostor.d.PublicKey()); err == nil {
+		t.Fatalf("session with the impostor's key: %v", err)
+	}
+	desk.replicate(reader) // the bound key still works
+}
+
+// outsiderSession dials to from n, opens a replication session for team
+// as an initiator bringing no log operations, and returns the bye reason
+// it gets.
+func outsiderSession(t *testing.T, n, to *node, team string) string {
+	t.Helper()
+	ep, err := n.d.endpoint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	c, err := ep.Dial(ctx, transport.KeyPeerID(to.d.PublicKey()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := transport.Handshake(c, n.d.self, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Send(syncproto.TeamSync{Type: "team_sync", Team: team})
+	for {
+		env, err := c.Receive(5 * time.Second)
+		if err != nil {
+			return "closed: " + err.Error()
+		}
+		if env.Type == "bye" {
+			var b syncproto.Bye
+			_ = env.Decode(&b)
+			return b.Reason
+		}
+		switch env.Type {
+		case "keepalive":
+		case "team_sync": // the heads: bring no operations
+			_ = c.Send(syncproto.TeamLog{Type: "team_log", Team: team})
+		default:
+			return "got " + env.Type
+		}
+	}
 }
 
 func waitKeyOnline(t *testing.T, n *node) {
 	t.Helper()
 	for i := 0; i < 100; i++ {
-		if n.d.State().KeyOnline {
+		if n.d.State().Online {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)

@@ -7,10 +7,10 @@ import (
 )
 
 // The document view carries reference hints apart from problems (spec
-// 6.13), and hints do not stop a sync.
+// 6.13), and hints do not stop a publish.
 func TestDocumentHints(t *testing.T) {
-	w := newWorld(t)
-	alice, bob := w.node("alice@corp.com"), w.node("bob@corp.com")
+	_, ns := teamOfN(t, "alice@library.example", "bob@library.example")
+	alice, bob := ns[0], ns[1]
 	alice.write("plan.md", "---\nreference: kalka-blueprint@v1\n---\n# Locker pickup\n\n## Scope\nThe pickup module.\n")
 	alice.write("plain.md", "# Locker pickup\n\n## Plan\nNo opt-in.\n")
 
@@ -30,6 +30,8 @@ func TestDocumentHints(t *testing.T) {
 	if v, _ := alice.d.Document(ctx, "plain.md"); v == nil || v.Hints == nil || len(v.Hints) != 0 {
 		t.Fatalf("no opt-in: %+v", v)
 	}
-	alice.mustSync("plan.md", bob, IntentSync)
-	equalFiles(t, "plan.md", alice, bob)
+	waitIndexed(t, alice, 2)
+	if _, doc := bob.teamFile(alice.share("plan.md", bob)); doc == nil {
+		t.Fatal("the document with hints did not replicate")
+	}
 }
