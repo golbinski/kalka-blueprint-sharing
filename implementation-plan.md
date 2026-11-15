@@ -574,6 +574,17 @@ D7 done (builds, packaging, signing configuration, documentation; no CI, per the
 - Fixed a race in `kalka stop` (seen once as a `TestSingleDaemon` failure under the full `-race` run): an idle daemon's `Run` returned and `hs.Close()` dropped the `POST /api/shutdown` answer before it was sent, so the client reported "not running". The handler now flushes before shutting down, and the server shuts down gracefully for at most a second, with request contexts cancelled at shutdown so event streams end at once.
 - Not done: no Windows or Linux desktop run; webview differences not yet recorded (the window not looked at by eye).
 
+## 6u. T-series status: kalka around teams
+
+The request (teams only, several teams and Personal, two roles, take-over by team owners, transfers between teams, join links, the app as the primary interface, a separate rendezvous binary) was triaged in `docs/plan-teams-only.md`. The product owner took every default of its section 10 on 2026-11-15.
+
+**T0, spec v0.6.** Done 2026-11-15.
+
+- `specification.md` v0.6. Deleted rather than marked: one-to-one sync and its merge rules (old §7.1, §7.2 rules 2, 4, 5, §7.4, §7.5, the private half of §7.6), pinning and the verification code (old §8.2, §8.3), email IDs and the config `team` salt, `verify` and the `sync`/`handoff` intents, `sync_reply` and `sync_ack`, the Peers view, prompts, `.conflict-` files, the domain-owner role and `assign-domain`.
+- Rewritten: §7 Ownership (owner, immediate handoff, reassignment and the race, take-over, displaced edits); §8 Identity and trust (team logs only; channel binding is now §8.3, so code comments citing "8.4" are updated in T1); §9.2 key IDs only, §9.3 presence per team, §9.5 messages with `team_doc`, §9.6 `kalka-rendezvous`; §11 with the switcher, join screen, waiting list (new §11.3); §12 with the command table, the parity rule (§12.2) and the error kinds (§12.3); §13 scoped endpoints; §14 the folder layout; §16 the T milestones and fifteen team scenarios; §18.4 the v0.6 decisions; §19.1 rule version 2 with `accept-transfer` and `decline-transfer`; §19.3 two roles; §19.4 rules 8 and 9; §19.5 reassignment and removal; §19.6 transfer decisions (was domain assignment); §19.7 links and parsing; §20.4 the release chain with anchors; new §20.7 transfers with the attestation scheme; §21; §22 tray and notices; new §23.1a the URL scheme.
+- `docs/teamlog.md` rewritten for rule version 2: signature domain `kalka-teamlog-v2`, the new argument tables, rules 8 to 10, the harness invariants for reassignments and transfer decisions, `inviter` and `ParseJoin` for invites.
+- One choice T0 made that the plan left to T1: documents travel in a session as `team_doc {team, kalka_id, filename, content}`. Replication already sent only `sync_offer` with intent `replicate` and never used `sync_reply` or `sync_ack`, so those two are deleted.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |
