@@ -14,17 +14,16 @@ type Team interface {
 	// Keys lists every key the log has ever bound to email, so entries by
 	// removed members still verify (20.4).
 	Keys(email string) []ed25519.PublicKey
-	// Override returns the effective reassignment of a document (or the
-	// domain assignment of a domain document): from version after+1, owner
-	// is the one who may release (19.5, 19.6).
-	Override(kalkaID string) (owner string, after int64, ok bool)
+	// Anchors returns the document's effective reassignments, ordered by
+	// cut-off, one per cut-off (19.5, docs/teamlog.md rule 8).
+	Anchors(kalkaID string) []Anchor
 }
 
-// DomainRule is implemented by a Team given for a domain document (spec
-// 6.12, 19.6): the domain owner a team owner assigned releases every
-// version above after. With no assignment (owner ""), nobody releases.
-type DomainRule interface {
-	DomainOwner() (owner string, after int64, isDomain bool)
+// Anchor is an effective reassignment: Owner is the only valid signer of
+// version After+1, and the chain restarts there (20.4).
+type Anchor struct {
+	Owner string
+	After int64
 }
 
 // VerifiedBy reports whether e carries a v2 signature by a key the team
@@ -43,13 +42,19 @@ func VerifiedBy(team Team, kalkaID string, e *bp.Entry) bool {
 
 // ReleaseChain is the sequence of valid releases of a published document.
 type ReleaseChain struct {
-	// Releases holds the valid release of each version, from 1 up.
+	// Releases holds the valid releases in version order. Below an anchor
+	// it can have gaps: a gap or a dispute ends the chain only up to the
+	// next anchor.
 	Releases []Link
 	// Void lists release entries that do not count, with the reason.
 	Void map[string]string
-	// Disputed is set when one version has two valid releases with
-	// different content: an owner signed two versions of history.
+	// Disputed is set when, above the last anchor, one version has two
+	// valid releases with different content (spec 7). A team owner ends it
+	// with a reassignment.
 	Disputed bool
+	// Pending is set when the last anchor's owner has not released yet:
+	// the document is "reassigned to Owner, pending".
+	Pending *Anchor
 }
 
 // Link is one valid release.
@@ -76,17 +81,34 @@ func (c ReleaseChain) VersionOf(h string) (int64, bool) {
 	return 0, false
 }
 
+// NextSigner is who may sign the next release: the head's owner, or the
+// last anchor's when it is pending; "" when nobody may (a dispute above
+// the last anchor, a tombstone, no release yet).
+func (c ReleaseChain) NextSigner() string {
+	if c.Pending != nil {
+		return c.Pending.Owner
+	}
+	head, ok := c.Head()
+	if !ok || head.Release.Deleted || c.Disputed {
+		return ""
+	}
+	return head.Release.Owner
+}
+
 // Releases computes the release chain over entries (spec 20.4, 19.5):
 //
 //   - version 1 is valid if signed by the owner it names (the publisher);
-//   - version n+1 is valid if signed by the owner version n names, or, if
-//     n is the cut-off of the document's reassignment, by its new owner;
+//   - version n+1 is valid if signed by the owner version n names;
+//   - at an anchor with cut-off n, only its owner may sign n+1, and the
+//     chain restarts there whatever stands below;
 //   - every release needs a v2 signature by a key the team bound to its
 //     author;
-//   - nothing above a tombstone, or above a gap, is valid.
+//   - nothing above a tombstone is valid, and nothing above a gap or a
+//     dispute until the next anchor.
 func Releases(entries []*bp.Entry, kalkaID string, team Team) ReleaseChain {
 	c := ReleaseChain{Void: map[string]string{}}
 	byVersion := map[int64][]Link{}
+	var top int64
 	for _, e := range entries {
 		r, ok := e.Release()
 		if e.Kind != bp.KindRelease {
@@ -101,77 +123,77 @@ func Releases(entries []*bp.Entry, kalkaID string, team Team) ReleaseChain {
 			c.Void[e.ID] = "no valid signature by a key the team bound to " + e.Author
 		default:
 			byVersion[r.Version] = append(byVersion[r.Version], Link{e, r})
+			top = max(top, r.Version)
 		}
 	}
-	over, after, hasOver := team.Override(kalkaID)
-	var dOwner string
-	var dAfter int64
-	isDomain := false
-	if r, ok := team.(DomainRule); ok {
-		dOwner, dAfter, isDomain = r.DomainOwner()
+	anchors := map[int64]Anchor{}
+	var last *Anchor
+	for _, a := range team.Anchors(kalkaID) {
+		anchors[a.After] = a
+		top = max(top, a.After+1)
 	}
 	prevOwner := ""
-	for v := int64(1); ; v++ {
-		want := prevOwner
-		if hasOver && v == after+1 {
-			want = over
+	// broken says why the chain stands still until the next anchor.
+	broken := ""
+	deleted := false
+	for v := int64(1); v <= top; v++ {
+		want, anchored := prevOwner, false
+		if a, ok := anchors[v-1]; ok && !deleted {
+			want, anchored, broken = a.Owner, true, ""
+			c.Disputed = false
+			last = &a
 		}
-		unassigned := false
-		if isDomain && v > dAfter {
-			want, unassigned = dOwner, dOwner == ""
+		if deleted {
+			broken = "the document was deleted at an earlier version"
 		}
 		var ok []Link
 		for _, l := range byVersion[v] {
 			switch {
-			case unassigned:
-				c.Void[l.Entry.ID] = "no domain owner is assigned for this domain; a team owner assigns one"
-			case v == 1 && !bp.SameEmail(l.Entry.Author, l.Release.Owner):
+			case broken != "":
+				c.Void[l.Entry.ID] = broken
+			case v == 1 && !anchored && !bp.SameEmail(l.Entry.Author, l.Release.Owner):
 				c.Void[l.Entry.ID] = "version 1 must be released by the owner it names"
-			case want != "" && !bp.SameEmail(l.Entry.Author, want):
+			case anchored && !bp.SameEmail(l.Entry.Author, want):
+				c.Void[l.Entry.ID] = fmt.Sprintf("reassigned to %s from version %d", want, v)
+			case !anchored && want != "" && !bp.SameEmail(l.Entry.Author, want):
 				c.Void[l.Entry.ID] = fmt.Sprintf("only %s may release version %d", want, v)
 			default:
 				ok = append(ok, l)
 			}
 		}
+		if broken != "" {
+			continue
+		}
 		if len(ok) == 0 {
-			break
+			broken = fmt.Sprintf("version %d is missing or void", v)
+			continue
 		}
 		sort.Slice(ok, func(i, j int) bool { return ok[i].Entry.ID < ok[j].Entry.ID })
 		// Two different releases of one version: neither counts, nor
-		// anything above. Picking one would let whoever signed the second
-		// (any member, for version 1) win by searching for a lower id. A
-		// team owner settles it by reassigning the document (19.5).
+		// anything above until an anchor. Picking one would let whoever
+		// signed the second (any member, for version 1) win by searching
+		// for a lower id. A team owner settles it by reassigning (19.5).
 		split := false
 		for _, l := range ok[1:] {
 			split = split || l.Release.Plan != ok[0].Release.Plan || !bp.SameEmail(l.Release.Owner, ok[0].Release.Owner) || l.Release.Deleted != ok[0].Release.Deleted
 		}
 		if split {
 			c.Disputed = true
+			broken = fmt.Sprintf("ownership disputed: version %d has two different releases", v)
 			for _, l := range ok {
-				c.Void[l.Entry.ID] = fmt.Sprintf("ownership disputed: version %d has two different releases", v)
+				c.Void[l.Entry.ID] = broken
 			}
-			break
+			continue
 		}
 		c.Releases = append(c.Releases, ok[0])
 		prevOwner = ok[0].Release.Owner
-		if ok[0].Release.Deleted {
-			break
+		deleted = ok[0].Release.Deleted
+		if last != nil && v == last.After+1 {
+			last = nil // the anchor's owner has released
 		}
 	}
-	top := int64(len(c.Releases))
-	for v, ls := range byVersion {
-		if v <= top {
-			continue
-		}
-		for _, l := range ls {
-			if _, done := c.Void[l.Entry.ID]; !done {
-				if head, ok := c.Head(); ok && head.Release.Deleted {
-					c.Void[l.Entry.ID] = "the document was deleted at an earlier version"
-				} else {
-					c.Void[l.Entry.ID] = fmt.Sprintf("version %d is missing or void", top+1)
-				}
-			}
-		}
+	if last != nil && !deleted {
+		c.Pending = last
 	}
 	return c
 }

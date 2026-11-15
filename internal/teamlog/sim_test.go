@@ -198,18 +198,34 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 		return best(func(t time.Time) []Op { return []Op{sg.RemoveOwner(prev, e, t)} })
 	case 4:
 		e := pick(func(m Member, ok bool) bool { return ok && m.Email != a.email })
-		docs := []Owned{{"doc" + short(e)[:3], int64(r.Intn(4))}}
+		after := int64(r.Intn(4))
+		docs := []Owned{{"doc" + short(e)[:3], after, simPlan(after)}}
 		return best(func(t time.Time) []Op { return sg.Remove(prev, e, docs, a.email, t) })
 	case 5:
+		// A present member's document, to anyone, at a random cut-off:
+		// concurrent with removals of the signer and with each other.
+		from := pick(func(m Member, ok bool) bool { return ok })
 		e := pick(func(m Member, ok bool) bool { return ok })
+		after := int64(r.Intn(5))
 		return best(func(t time.Time) []Op {
-			return []Op{sg.AssignDomain(prev, []string{"delivery", "lockers"}[r.Intn(2)], e, int64(r.Intn(5)), t)}
+			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, simPlan(after), t)}
 		})
 	default:
-		from := pick(func(m Member, ok bool) bool { return !ok })
+		from := simEmails[r.Intn(len(simEmails))]
 		e := pick(func(m Member, ok bool) bool { return ok })
-		return best(func(t time.Time) []Op { return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, 1, t)} })
+		after := int64(r.Intn(5))
+		return best(func(t time.Time) []Op {
+			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, simPlan(after), t)}
+		})
 	}
+}
+
+// simPlan stands for the plan hash of release after.
+func simPlan(after int64) string {
+	if after == 0 {
+		return ""
+	}
+	return strings.Repeat(strconv.FormatInt(after%10, 10), 64)
 }
 
 // check verifies the invariants on one set of operations.
@@ -237,13 +253,25 @@ func (s *sim) check(ops []Op) error {
 			}
 		}
 		if nd.op.Kind == ReassignDocument {
-			ok := false
+			a := nd.op.Args
+			// The new owner is a member in its view.
+			member := false
+			for _, mt := range e.mterms[a.Owner] {
+				ended := false
+				for _, x := range mt.enders {
+					ended = ended || r.before(x, i)
+				}
+				member = member || (r.before(mt.grant, i) && !ended)
+			}
+			if !member {
+				return fmt.Errorf("reassignment %s to %s, not a member in its view", short(nd.hash), a.Owner)
+			}
+			// No counting cut-off below one it saw.
 			for j := range r.nodes {
 				q := r.nodes[j].op
-				ok = ok || (e.eff[j] && q.Kind == RemoveMember && q.Args.Email == nd.op.Args.From && r.before(j, i))
-			}
-			if !ok {
-				return fmt.Errorf("reassignment %s without an effective removal", short(nd.hash))
+				if e.eff[j] && q.Kind == ReassignDocument && q.Args.Doc == a.Doc && q.Args.After > a.After && r.before(j, i) {
+					return fmt.Errorf("reassignment %s counts with a stale cut-off below %s", short(nd.hash), short(r.nodes[j].hash))
+				}
 			}
 		}
 	}
@@ -304,7 +332,7 @@ func (s *sim) rule5Conflict(r *replayer) bool {
 
 func reasonClass(r string) string {
 	for _, k := range []string{"more senior owner", "removed by", "without an owner", "not an owner", "not a member",
-		"already a member", "concurrently by another", "already bound", "already used", "was not removed", "themselves"} {
+		"already a member", "concurrently by another", "already bound", "already used", "stale cut-off", "themselves"} {
 		if strings.Contains(r, k) {
 			return k
 		}

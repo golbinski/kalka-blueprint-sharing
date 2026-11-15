@@ -32,7 +32,7 @@ const (
 
 	// TeamLogSigContext prefixes the message signed by a team log
 	// operation (spec 19.1).
-	TeamLogSigContext = Product + "-teamlog-v1"
+	TeamLogSigContext = Product + "-teamlog-v2"
 
 	// InviteContext prefixes the invite token and the hashes derived from
 	// its secret (spec 19.7).

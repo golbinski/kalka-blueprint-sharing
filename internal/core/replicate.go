@@ -48,10 +48,6 @@ var (
 // logTeam is a replayed team log as the merge needs it.
 type logTeam struct {
 	st *teamlog.State
-	// isDomain and domain are set for a domain document (spec 6.12): its
-	// releases follow assign-domain, not the reassignments.
-	isDomain bool
-	domain   string
 }
 
 func (t logTeam) Keys(email string) []ed25519.PublicKey {
@@ -69,24 +65,13 @@ func (t logTeam) Keys(email string) []ed25519.PublicKey {
 	return out
 }
 
-func (t logTeam) Override(id string) (string, int64, bool) {
-	if t.isDomain {
-		return "", 0, false
+// Anchors are the document's effective reassignments (spec 20.4).
+func (t logTeam) Anchors(id string) []merge.Anchor {
+	var out []merge.Anchor
+	for _, a := range t.st.Reassigned[strings.ToLower(id)] {
+		out = append(out, merge.Anchor{Owner: a.Owner, After: a.After})
 	}
-	a, ok := t.st.Reassigned[strings.ToLower(id)]
-	return a.Owner, a.After, ok
-}
-
-// DomainOwner implements merge.DomainRule.
-func (t logTeam) DomainOwner() (string, int64, bool) {
-	if !t.isDomain {
-		return "", 0, false
-	}
-	a, ok := t.st.Domains[t.domain]
-	if !ok || t.domain == "" {
-		return "", 0, true
-	}
-	return a.Owner, a.After, true
+	return out
 }
 
 // held is a team log held locally, replayed.
@@ -96,16 +81,8 @@ type held struct {
 	ops []teamlog.Op
 }
 
-// teamFor is the team as the merge sees it for a document: the first of
-// docs that is a domain document makes the rule the domain's (spec 19.6).
-func (h *held) teamFor(docs ...*bp.Document) logTeam {
-	for _, d := range docs {
-		if d != nil && d.IsDomain() {
-			return logTeam{st: h.st, isDomain: true, domain: d.DomainName()}
-		}
-	}
-	return logTeam{st: h.st}
-}
+// team is the team as the merge sees it.
+func (h *held) team() logTeam { return logTeam{st: h.st} }
 
 // memberKey returns the key the log binds to a current member.
 func (h *held) memberKey(email string) (ed25519.PublicKey, bool) {
@@ -187,14 +164,14 @@ func entriesOf(doc *bp.Document) []*bp.Entry {
 // valid release under this log and so does not replicate (spec 20.1).
 func describe(h *held, doc *bp.Document) (syncproto.InvItem, merge.ReleaseChain, bool) {
 	id := doc.KalkaID()
-	ch := merge.Releases(entriesOf(doc), id, h.teamFor(doc))
+	ch := merge.Releases(entriesOf(doc), id, h.team())
 	head, ok := ch.Head()
 	if !ok {
 		return syncproto.InvItem{}, ch, false
 	}
 	var ids []string
 	for _, e := range entriesOf(doc) {
-		if e.Valid() && merge.VerifiedBy(h.teamFor(), id, e) {
+		if e.Valid() && merge.VerifiedBy(h.team(), id, e) {
 			ids = append(ids, e.ID)
 		}
 	}
@@ -549,7 +526,7 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 		for _, id := range tw.IDs {
 			doc := syncproto.TeamDoc{Type: "team_doc", Team: team, KalkaID: id}
 			if td, ok := set[strings.ToLower(id)]; ok {
-				if rep, err := merge.Replica(td.doc, h.teamFor(td.doc)); err == nil {
+				if rep, err := merge.Replica(td.doc, h.team()); err == nil {
 					doc.Filename, doc.Content = filepath.Base(td.path), string(rep.Bytes())
 					res.Sent = append(res.Sent, td.item.ID)
 				}
@@ -642,7 +619,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 		if live != nil {
 			local = live.Doc
 		}
-		team := h.teamFor(local, in)
+		team := h.team()
 		res := merge.Docs(local, in, team)
 		var planRef *Refusal
 		if res.Outcome != merge.Rejected && local != nil {
@@ -670,8 +647,15 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 		var path string
 		if live != nil {
 			path = live.Path
+			var kept string
+			if res.PlanFromIncoming {
+				kept = d.keepDisplaced(h, live.Doc, doc, path)
+			}
 			err = d.Store.Update(live, doc)
 			if errors.Is(err, fsutil.ErrChanged) {
+				if kept != "" {
+					_ = os.Remove(kept) // taken again on the next attempt
+				}
 				continue
 			}
 		} else {
@@ -684,9 +668,12 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 		}
 		d.snapshotHead(h, path, doc)
 		d.notePushed(id)
+		var before *bp.Document
 		if live != nil {
+			before = live.Doc
 			d.commentNotice(live.Doc, doc, path)
 		}
+		d.handoffNotice(h, before, doc, path)
 		d.domainNotice(h, doc)
 		return true, planRef
 	}
@@ -718,7 +705,7 @@ func (d *Node) snapshotHead(h *held, path string, doc *bp.Document) {
 	if !doc.IsDomain() {
 		return
 	}
-	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.teamFor(doc))
+	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.team())
 	if head, ok := ch.Head(); ok && head.Release.Plan == doc.PlanHash() {
 		if _, err := d.Store.SaveSnapshot(path, head.Release.Version, doc); err != nil {
 			d.logf("snapshot of %s v%d: %v", path, head.Release.Version, err)

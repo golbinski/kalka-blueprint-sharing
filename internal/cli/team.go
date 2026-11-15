@@ -21,7 +21,6 @@ const teamUsage = `usage:
   %[1]s team members | log | invites
   %[1]s team remove <email> [--yes]
   %[1]s team add-owner <email> | remove-owner <email>
-  %[1]s team assign-domain <domain> <email>
   every subcommand takes --team <name> when you are in several teams, and --json
 `
 
@@ -41,7 +40,7 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 	if len(pos) == 0 {
 		return bad()
 	}
-	need := map[string]int{"create": 2, "invite": 2, "members": 1, "log": 1, "invites": 1, "remove": 2, "add-owner": 2, "remove-owner": 2, "assign-domain": 3}
+	need := map[string]int{"create": 2, "invite": 2, "members": 1, "log": 1, "invites": 1, "remove": 2, "add-owner": 2, "remove-owner": 2}
 	if n, ok := need[pos[0]]; !ok || len(pos) != n {
 		return bad()
 	}
@@ -134,12 +133,6 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 		v, err = c.SetOwner(ctx, *team, pos[1], true)
 	case "remove-owner":
 		v, err = c.SetOwner(ctx, *team, pos[1], false)
-	case "assign-domain":
-		if !bp.ValidEmail(pos[2]) {
-			fmt.Fprintf(stderr, "%q is not an email address\n", pos[2])
-			return exitUsage
-		}
-		v, err = c.AssignDomain(ctx, *team, pos[1], pos[2])
 	}
 	if err != nil {
 		return fail(err)
@@ -168,9 +161,6 @@ func printMembers(w io.Writer, v core.TeamView) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Email, role, m.Fingerprint, you)
 	}
 	tw.Flush()
-	for _, d := range v.Domains {
-		fmt.Fprintf(w, "domain %s: %s (from version %d)\n", d.Domain, d.Owner, d.After+1)
-	}
 	if n := len(v.BadLines) + v.Rejected; n > 0 {
 		fmt.Fprintf(w, "%d log line(s) do not count: damaged or badly signed; see `%s team log`\n", n, name.Binary)
 	}
@@ -274,7 +264,8 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 }
 
 // cmdPublish implements `kalka publish <file> [--team <t>] [-m <note>]`
-// (spec 20.1): the first publish, or a publish update.
+// (spec 20.1): a Personal document moves into a team with its first
+// release.
 func cmdPublish(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -345,7 +336,7 @@ func absPath(p string) string {
 }
 
 // cmdRelease implements `kalka release <file> [-m <text>] [--incorporates
-// <id>,...]` (spec 6.12).
+// <id>,...]` (spec 20.4): the next version of any team document.
 func cmdRelease(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
 	fs.SetOutput(stderr)

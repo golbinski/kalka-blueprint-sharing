@@ -98,6 +98,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdPublish(rest, stdout, stderr)
 	case "release":
 		return cmdRelease(args[1:], stdout, stderr)
+	case "handoff":
+		return cmdHandoff(rest, stdout, stderr)
+	case "reassign":
+		return cmdReassign(rest, stdout, stderr)
 	case "domains":
 		return cmdDomains(args[1:], stdout, stderr)
 	case "delete":
@@ -130,11 +134,13 @@ func usage(w io.Writer) {
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
   %[1]s seeds [--json]        list the pre-backlog
   %[1]s team create <name> | invite <email> [--expires 72h] | members | log | invites   teams (spec 19)
-  %[1]s team remove|add-owner|remove-owner <email> | assign-domain <domain> <email>  [--team <name>]
+  %[1]s team remove|add-owner|remove-owner <email>  [--team <name>]
   %[1]s join <token> [--wait 20s]   redeem an invite
-  %[1]s publish <file> [--team <name>] [-m <note>]   publish to a team, or publish an update
+  %[1]s publish <file> [--team <name>] [-m <note>]   move a Personal document into a team
+  %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release the next version
+  %[1]s handoff <file> <email> [--json]   make another member the owner
+  %[1]s reassign <file> <email> [--json]  team owners: make any member the owner
   %[1]s delete <file>         delete a published document for the team
-  %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release a domain version
   %[1]s domains [--json]      list the team domain documents held here
   %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents

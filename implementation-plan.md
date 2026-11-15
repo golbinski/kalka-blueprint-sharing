@@ -610,6 +610,50 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - A mutation check confirmed the tests catch a dropped location filter.
   - Test helpers follow moved files (`node.follow`, used by `node.publish`). Domain documents are written in the team's folder. Recording uses a tap switch installed once per node, so swapping recorders does not race the sessions.
 
+**T3, roles and ownership.** Done 2026-11-15.
+
+- **Team log, rule version 2** (`internal/teamlog`):
+  - Signatures now cover `kalka-teamlog-v2`.
+  - `assign-domain` is deleted, along with `State.Domains` and `ValidDomainName`.
+  - `reassign-document` carries `plan`, which must be empty exactly when `after` is 0. It needs no removal, and `from` is not judged (rule 9).
+  - A cut-off below one the signer already saw is discarded as a "stale cut-off" (rule 8).
+  - `State.Reassigned` holds every effective reassignment per document as an anchor, ordered by cut-off, one per cut-off (the later in visiting order). This fixes the defect where a document reassigned twice lost its first cut-off.
+  - The harness generates reassignments of present members' documents at random cut-offs, concurrent with removals and with each other. It checks that the new owner is a member in the operation's view, and that no counting reassignment has a stale cut-off. 100 000 histories pass (22 269 stale cut-offs exercised; 903 s).
+- **Merge** (`internal/merge`):
+  - `Team.Override` became `Team.Anchors(id)`. At an anchor with cut-off n, only its owner may sign n+1, and the chain restarts there: a gap or dispute below does not void what stands above.
+  - `ReleaseChain` gains `Pending` (the last anchor's owner has not released yet) and `NextSigner()`. `DomainRule` is deleted.
+  - A void release above the head no longer blocks the owner. Only a dispute above the last anchor, or a tombstone, does.
+- **Core:**
+  - `Publish` now only takes a Personal file, or an unreleased file in a team's folder, to its first release. For an already-published file it is an error pointing to `kalka release`. `Release` makes every later version.
+  - `Handoff` is a release naming the recipient: no network, works paused. It refuses a non-member (`not-member`) and a Personal file (`in-personal`).
+  - `Reassign` writes the operation with the highest valid release held, and needs `not-team-owner` to pass. When the new owner is the local user, the release follows at once (`takeReassigned`, also run after every log change). The new owner releases the plan they hold.
+  - `TakeOverRelease`/`TakeOverDelete` are the UI's take-over (spec 7.4): a reassignment to the actor, then the action.
+  - `release()` now holds the document lock, so the background release and an explicit one cannot both happen. kalka's own release after a reassignment is skipped when already made.
+  - Notices:
+    - `reassigned`: once per operation, to the previous and the new owner. Seeded at start; operations made locally are never noticed.
+    - `handoff`: when a release someone else signed makes you the owner.
+    - `displaced`: replication replaced a plan no release names. The file is first copied to `<team>/.kalka/trash/<name>.displaced-<time>.md`, which is never indexed.
+  - Domain documents follow their owner like any document. Releasing a second document for a domain the team folder already holds is refused (`domain-exists`). Concurrent ones are both kept, and each shows `domain_clash`. A `domain:` reference to the name is shown as ambiguous.
+  - Removal reassigns the documents whose next signer is the member, from the team's replica set, citing each head's plan.
+  - Stable error kinds (spec 12.3) start in `core/errors.go`. `ownerOf` returns `not-member`/`not-team-owner`, and the API passes kinds through.
+- **CLI and API:**
+  - New commands `kalka handoff <file> <email>` and `kalka reassign <file> <email>`; both put the error kind in `--json`. `team assign-domain` is gone.
+  - Routes: `POST /api/handoff` and `/api/reassign` are new; `/api/release` and `/api/delete` take `take_over`.
+  - The page: *Release* replaces *Publish update*. *Hand off…*, *Reassign…*, and a team owner's *Release…*/*Delete for the team…* say "you will become the owner first". The domain-assignment form and the Team view's Domains list are gone.
+- **Tests:**
+  - Enumerated race (`core/race_test.go`): every order of the reassignment and the two concurrent releases. It runs over the real replay and merge, and ends with one chain; after one settling round, one plan and owner. Two team owners reassigning concurrently converge on one anchor.
+  - Immediate handoff with the recipient offline and the owner paused, then handed back. Refusals for a non-member and a Personal file.
+  - Reassignment without consent: one notice each, none repeated, and `not-team-owner` for a plain member.
+  - Displaced edits land in the trash with a notice.
+  - A domain document released, handed off and reassigned. A second document for the domain is refused, and concurrent ones are flagged.
+  - Merge: reassigned twice, a gap below an anchor, and a dispute ended by a reassignment.
+  - Teamlog: anchors, stale cut-off, plan checks on decode.
+  - Existing tests moved off `assign-domain`, and helpers release after the first publish.
+- **Left for later milestones:**
+  - The settling round in the race test stands for replication offering a document again whose plan differs. Peers do not re-merge held files when only the log changes.
+  - Error kinds beyond handoff/reassign in the CLI's `--json` belong with T6's parity work.
+  - Waiting items for handoffs and disputes (D10) are T6.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

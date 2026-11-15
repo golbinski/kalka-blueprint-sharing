@@ -376,9 +376,13 @@ func TestPublishMoves(t *testing.T) {
 		t.Fatalf("published view: %+v %v", dv, err)
 	}
 
-	// Published again in place, no move.
+	// Publish is for Personal files; the next version is a release, in
+	// place.
 	depot.edit("parcels/lockers.md", "by the loading bay", "by the bay and the gate")
-	r2, err := depot.d.Publish(r.Path, "", "stations")
+	if _, err := depot.d.Publish(r.Path, "", ""); err == nil || !strings.Contains(err.Error(), "already published") {
+		t.Fatalf("published twice: %v", err)
+	}
+	r2, err := depot.d.Release(r.Path, "stations", nil)
 	if err != nil || r2.Path != r.Path || r2.Version != 2 {
 		t.Fatalf("second publish: %+v %v", r2, err)
 	}

@@ -72,19 +72,14 @@ func refusedWith(res SessionResult, want string) bool {
 	return false
 }
 
-// Required (R8): a domain release signed by a member who is not the
-// assigned domain owner is applied by no peer, and each says why.
-func TestDomainReleaseByNonAssignedOwner(t *testing.T) {
+// A domain release signed by a member who is not the document's owner is
+// applied by no peer, and each says why (spec 6.12: its owner releases it
+// like any owner).
+func TestDomainReleaseByNonOwner(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example", "hub@parcels.example")
 	depot, courier, hub := ns[0], ns[1], ns[2]
 	path := depot.writeDomain("parcels-lockers-domain.md")
 
-	if _, err := depot.d.Release(path, "", nil); err == nil || !strings.Contains(err.Error(), "no domain owner is assigned") {
-		t.Fatalf("release without an assignment: %v", err)
-	}
-	if _, err := depot.d.AssignDomain("", "lockers", depot.email); err != nil {
-		t.Fatal(err)
-	}
 	if r := depot.release(path, "first glossary"); r.Version != 1 {
 		t.Fatalf("version %d", r.Version)
 	}
@@ -112,7 +107,7 @@ func TestDomainReleaseByNonAssignedOwner(t *testing.T) {
 		t.Fatalf("courier kept no snapshot of the received v1: %v", err)
 	}
 
-	// The courier is not the domain owner: kalka refuses to release...
+	// The courier is not the owner: kalka refuses to release...
 	editFile(t, courier, cpath, "the lockers at one depot.", "the lockers at one depot, forged.")
 	if _, err := courier.d.Release(cpath, "", nil); err == nil || !strings.Contains(err.Error(), "only depot@parcels.example") {
 		t.Fatalf("courier released: %v", err)
@@ -156,15 +151,12 @@ func TestDomainReleaseByNonAssignedOwner(t *testing.T) {
 func must(path string, _ *bp.Document) string { return path }
 
 // A release reaches a member whose domain owner is offline through a
-// relay; a new assign-domain with a cut-off voids the old owner's later
+// relay; a reassignment with a cut-off voids the old owner's later
 // release, and the new owner takes the document over.
 func TestDomainRelayAndReassignment(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example", "hub@parcels.example")
 	depot, courier, hub := ns[0], ns[1], ns[2]
 	path := depot.writeDomain("parcels-lockers-domain.md")
-	if _, err := depot.d.AssignDomain("", "lockers", depot.email); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := depot.d.SetOwner("", courier.email, true); err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +184,12 @@ func TestDomainRelayAndReassignment(t *testing.T) {
 	}
 
 	// The depot, offline, releases v3. Meanwhile the courier, a team owner,
-	// assigns the domain to the hub from version 3.
+	// reassigns the document to the hub from version 3.
 	depot.start()
 	editFile(t, depot, path, "numbered.", "numbered by bay.")
 	depot.release(path, "by bay")
-	if _, err := courier.d.AssignDomain("", "lockers", hub.email); err != nil {
-		t.Fatal(err)
+	if r, err := courier.d.Reassign(must(courier.teamFile(id)), hub.email); err != nil || r.After != 2 || r.From != depot.email {
+		t.Fatalf("reassign: %+v %v", r, err)
 	}
 	// The hub learns the assignment and takes the document over: owner line
 	// and a release of v3.
@@ -207,7 +199,7 @@ func TestDomainRelayAndReassignment(t *testing.T) {
 		t.Fatalf("hub did not release v3: v%d", hdoc.DomainVersion())
 	}
 	// The depot's v3 is void everywhere, and the depot gets the hub's.
-	if res := hub.replicate(depot); !refusedWith(res, "only hub@parcels.example may release version 3") {
+	if res := hub.replicate(depot); !refusedWith(res, "reassigned to hub@parcels.example from version 3") {
 		t.Fatalf("hub took the old owner's v3: %+v", res.Refused)
 	}
 	waitOwner(t, depot, id, hub.email)
@@ -223,9 +215,6 @@ func TestDomainIncorporatedAndReferences(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
 	depot, courier := ns[0], ns[1]
 	path := depot.writeDomain("parcels-lockers-domain.md")
-	if _, err := depot.d.AssignDomain("", "lockers", depot.email); err != nil {
-		t.Fatal(err)
-	}
 	depot.release(path, "")
 	f, _ := depot.d.Store.Load(path)
 	id := f.Doc.KalkaID()

@@ -253,7 +253,19 @@ export interface TeamDocState {
   owner_not_member?: boolean
   local_only?: number
   void_releases?: number
+  /** You are a team owner: you may reassign, or take the document over (spec 7.4). */
+  team_owner?: boolean
   domain?: string
+  /** Another published document of the team claims the same domain. */
+  domain_clash?: string
+}
+export interface ReassignResult {
+  path: string
+  team: string
+  from: string
+  owner: string
+  after: number
+  version?: number
 }
 export interface PublishResult {
   path: string
@@ -374,7 +386,6 @@ export interface Team {
   error?: string
   members: TeamMember[]
   owners: string[]
-  domains: { domain: string; owner: string; after: number }[]
   invites: TeamInvite[]
   history: TeamHistory[]
   bad_lines?: { line: number; error: string }[]
@@ -427,12 +438,13 @@ export const api = {
     call<Reassigned[] | null>('GET', `/api/teams/${enc(team)}/removal?email=${enc(email)}`).then((l) => l ?? []),
   removeMember: (team: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/remove`, { email }),
   setOwner: (team: string, email: string, owner: boolean) => call<Team>('POST', `/api/teams/${enc(team)}/owners`, { email, owner }),
-  assignDomain: (team: string, domain: string, email: string) => call<Team>('POST', `/api/teams/${enc(team)}/domains`, { domain, email }),
   publish: (path: string, note = '', team = '') => call<PublishResult>('POST', '/api/publish', { path, team, note }),
-  release: (path: string, note: string, incorporates: string[]) =>
-    call<PublishResult>('POST', '/api/release', { path, note, incorporates }),
+  release: (path: string, note: string, incorporates: string[], takeOver = false) =>
+    call<PublishResult>('POST', '/api/release', { path, note, incorporates, take_over: takeOver }),
+  handoff: (path: string, email: string) => call<PublishResult>('POST', '/api/handoff', { path, email }),
+  reassign: (path: string, email: string) => call<ReassignResult>('POST', '/api/reassign', { path, email }),
   domains: () => call<DomainRow[] | null>('GET', '/api/domains').then((l) => l ?? []),
-  deleteForTeam: (path: string) => call<object>('POST', '/api/delete', { path }),
+  deleteForTeam: (path: string, takeOver = false) => call<object>('POST', '/api/delete', { path, take_over: takeOver }),
   replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),

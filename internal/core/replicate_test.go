@@ -126,14 +126,38 @@ func (n *node) share(name string, to ...*node) string {
 	return id
 }
 
+// publish publishes name the first time, and releases the next version
+// after that (spec 20.1, 20.4).
 func (n *node) publish(name string) PublishResult {
 	n.w.t.Helper()
-	r, err := n.d.Publish(n.path(name), "", "")
+	do := func() (PublishResult, error) { return n.d.Publish(n.path(name), "", "") }
+	if _, again := n.moved[name]; again || n.inTeamFolder(name) {
+		do = func() (PublishResult, error) { return n.d.Release(n.path(name), "", nil) }
+	}
+	r, err := do()
 	if err != nil {
 		n.w.t.Fatalf("%s publishing %s: %v", n.email, name, err)
 	}
 	n.follow(name, r.Path)
 	return r
+}
+
+// inTeamFolder reports whether name lies in a team's folder and holds a
+// release already.
+func (n *node) inTeamFolder(name string) bool {
+	f, err := n.d.Store.Load(n.path(name))
+	if err != nil {
+		return false
+	}
+	if _, ok := n.d.teamDirAt(f.Path); !ok {
+		return false
+	}
+	for _, e := range entriesOf(f.Doc) {
+		if e.Kind == bp.KindRelease {
+			return true
+		}
+	}
+	return false
 }
 
 func (n *node) edit(name, from, to string) {
@@ -502,7 +526,7 @@ func TestReplicationRelayAndEntries(t *testing.T) {
 	b, _ := os.ReadFile(cpath)
 	os.WriteFile(cpath, []byte(strings.Replace(string(b), "Install lockers", "Remove lockers", 1)), 0o644)
 	waitStored(t, courier, cpath, "Remove lockers")
-	if _, err := courier.d.Publish(cpath, "", ""); err == nil || !strings.Contains(err.Error(), "only depot@parcels.example") {
+	if _, err := courier.d.Release(cpath, "", nil); err == nil || !strings.Contains(err.Error(), "only depot@parcels.example") || KindOf(err) != KindNotOwner {
 		t.Fatalf("a non-owner published: %v", err)
 	}
 	courier.replicate(hub)

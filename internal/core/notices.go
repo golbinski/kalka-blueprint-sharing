@@ -41,6 +41,9 @@ type notices struct {
 	// domainSaid dedupes "newer domain version": one per domain and
 	// version.
 	domainSaid map[string]bool
+	// opsSeen holds the team log operations already noticed, or made
+	// here (reassignments, spec 7.3).
+	opsSeen map[string]bool
 }
 
 // SetNotifications turns notices on or off (spec 22.2, Notifications).
@@ -107,7 +110,7 @@ func (d *Node) domainNotice(h *held, doc *bp.Document) {
 	if !doc.IsDomain() {
 		return
 	}
-	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.teamFor(doc))
+	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), h.team())
 	head, ok := ch.Head()
 	if !ok {
 		return

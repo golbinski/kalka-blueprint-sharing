@@ -20,6 +20,7 @@ import (
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/merge"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/peerid"
 	"github.com/golbinski/kalka/internal/store"
@@ -271,10 +272,10 @@ func (d *Node) ownerOf(t teamDir) (*teamlog.State, error) {
 	}
 	m, ok := memberOf(st, d.self.Email)
 	if !ok || m.PubKey != teamlog.EncodeKey(d.pub) {
-		return nil, fmt.Errorf("you are not a member of team %s", t.Name)
+		return nil, &Error{Kind: KindNotMember, Msg: fmt.Sprintf("you are not a member of team %s", t.Name)}
 	}
 	if !m.Owner {
-		return nil, fmt.Errorf("only a team owner can do that; the owners of %s are %s", t.Name, strings.Join(st.Owners, ", "))
+		return nil, &Error{Kind: KindNotTeamOwner, Msg: fmt.Sprintf("only a team owner can do that; the owners of %s are %s", t.Name, strings.Join(st.Owners, ", "))}
 	}
 	return st, nil
 }
@@ -290,6 +291,7 @@ func (d *Node) commit(t teamDir, ops []teamlog.Op) (*teamlog.State, error) {
 	if err != nil {
 		return nil, err
 	}
+	d.sawOps(ops) // no notice about what the local user did
 	st, _ := teamlog.Replay(t.Team, all)
 	d.bus.Publish(BusEvent{Type: "teams"})
 	defer d.pushTeam(t.Team)
@@ -405,6 +407,7 @@ type Reassigned struct {
 	Title   string `json:"title"`
 	Path    string `json:"path"`
 	After   int64  `json:"after"`
+	Plan    string `json:"-"`
 }
 
 // RemovalPreview lists the published documents of the team, held here,
@@ -417,33 +420,31 @@ func (d *Node) RemovalPreview(ref, email string) ([]Reassigned, error) {
 	return d.ownedBy(t, email), nil
 }
 
+// ownedBy lists the team documents held here that email owns: the next
+// release is theirs. After and Plan are the highest valid release held.
 func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 	out := []Reassigned{}
-	for _, in := range d.Store.List() {
-		if in.KalkaID == "" || !bp.SameEmail(in.Owner, email) {
+	h, err := d.heldTeam(t.Team)
+	if err != nil {
+		return out
+	}
+	for id, td := range d.replicaSet(h) {
+		if td.tomb {
 			continue
 		}
-		f, err := d.Store.Load(in.Path)
-		if err != nil || !inDir(t.Dir, f.Path) || f.Doc.Team() != t.Name || f.Doc.IsDomain() {
-			continue // a domain document follows assign-domain
+		ch := merge.Releases(entriesOf(td.doc), id, h.team())
+		owner, _ := nextReleaser(ch, td.doc.Owner())
+		if !bp.SameEmail(owner, email) {
+			continue
 		}
-		out = append(out, Reassigned{KalkaID: in.KalkaID, Title: in.Title, Path: in.Path, After: lastRelease(f.Doc)})
+		r := Reassigned{KalkaID: id, Title: td.doc.Title(), Path: td.path}
+		if head, ok := ch.Head(); ok {
+			r.After, r.Plan = head.Release.Version, head.Release.Plan
+		}
+		out = append(out, r)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
-}
-
-// lastRelease is the highest release version a document holds.
-func lastRelease(doc *bp.Document) int64 {
-	var v int64
-	for _, it := range doc.Items() {
-		if it.Entry == nil {
-			continue
-		}
-		if r, ok := it.Entry.Release(); ok && r.Version > v {
-			v = r.Version
-		}
-	}
-	return v
 }
 
 // Remove removes a member; their published documents held here go to the
@@ -468,16 +469,9 @@ func (d *Node) Remove(ref, email string) (TeamView, error) {
 	}
 	var docs []teamlog.Owned
 	for _, r := range d.ownedBy(t, email) {
-		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After})
+		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After, Plan: r.Plan})
 	}
 	ops := d.teamSigner(t).Remove(st.Heads, email, docs, strings.ToLower(d.self.Email), d.now())
-	// Domains the member owned go to the remover too, falling with the
-	// removal like the reassignments (spec 19.5, 19.6).
-	for dom, a := range st.Domains {
-		if bp.SameEmail(a.Owner, email) {
-			ops = append(ops, d.teamSigner(t).AssignDomain([]string{ops[0].Hash()}, dom, strings.ToLower(d.self.Email), d.domainAfter(t, dom), d.now()))
-		}
-	}
 	if _, err := d.commit(t, ops); err != nil {
 		return TeamView{}, err
 	}
@@ -523,33 +517,6 @@ func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 	return d.teamView(t), nil
 }
 
-// AssignDomain appoints a domain owner (spec 19.6). The cut-off is the
-// last release of that domain's document held here.
-func (d *Node) AssignDomain(ref, domain, email string) (TeamView, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	if !teamlog.ValidDomainName(domain) {
-		return TeamView{}, fmt.Errorf("%q cannot name a domain: use lower-case letters, digits and dashes", domain)
-	}
-	d.teams.mu.Lock()
-	defer d.teams.mu.Unlock()
-	t, err := d.findTeam(ref)
-	if err != nil {
-		return TeamView{}, err
-	}
-	st, err := d.ownerOf(t)
-	if err != nil {
-		return TeamView{}, err
-	}
-	if _, ok := memberOf(st, email); !ok {
-		return TeamView{}, fmt.Errorf("%s is not a member of %s", email, t.Name)
-	}
-	op := d.teamSigner(t).AssignDomain(st.Heads, domain, email, d.domainAfter(t, domain), d.now())
-	if _, err := d.commit(t, []teamlog.Op{op}); err != nil {
-		return TeamView{}, err
-	}
-	return d.teamView(t), nil
-}
-
 // TeamView is a team as the Team view and `kalka team` show it.
 type TeamView struct {
 	Team  string `json:"team"`
@@ -561,7 +528,6 @@ type TeamView struct {
 
 	Members []MemberView  `json:"members"`
 	Owners  []string      `json:"owners"`
-	Domains []DomainView  `json:"domains"`
 	Invites []InviteView  `json:"invites"`
 	History []HistoryLine `json:"history"`
 	// BadLines are log lines that do not decode; Rejected have a bad
@@ -596,13 +562,6 @@ type MemberView struct {
 	You         bool   `json:"you,omitempty"`
 }
 
-// DomainView is an effective domain assignment.
-type DomainView struct {
-	Domain string `json:"domain"`
-	Owner  string `json:"owner"`
-	After  int64  `json:"after"`
-}
-
 // InviteView is an invite this installation issued for the team.
 type InviteView struct {
 	ID      string    `json:"id"`
@@ -634,7 +593,7 @@ func (d *Node) Teams() []TeamView {
 
 func (d *Node) teamView(t teamDir) TeamView {
 	v := TeamView{Team: t.Team, Name: t.Name, Dir: t.Dir, Log: t.Log, Me: "none",
-		Members: []MemberView{}, Owners: []string{}, Domains: []DomainView{}, Invites: []InviteView{}, History: []HistoryLine{}}
+		Members: []MemberView{}, Owners: []string{}, Invites: []InviteView{}, History: []HistoryLine{}}
 	st, ops, bad, rej, err := d.load(t)
 	if err != nil {
 		v.Error = err.Error()
@@ -677,10 +636,6 @@ func (d *Node) teamView(t teamDir) TeamView {
 		}
 		return a.Email < b.Email
 	})
-	for dm, a := range st.Domains {
-		v.Domains = append(v.Domains, DomainView{Domain: dm, Owner: a.Owner, After: a.After})
-	}
-	sort.Slice(v.Domains, func(i, j int) bool { return v.Domains[i].Domain < v.Domains[j].Domain })
 	now := d.now()
 	for _, r := range d.teams.invites.list() {
 		if r.Team != t.Team {
@@ -831,8 +786,6 @@ func history(st *teamlog.State, ops []teamlog.Op) []HistoryLine {
 			text = "made " + a.Email + " an owner"
 		case teamlog.RemoveOwner:
 			text = "made " + a.Email + " a plain member"
-		case teamlog.AssignDomain:
-			text = fmt.Sprintf("assigned domain %s to %s from version %d", a.Domain, a.Owner, a.After+1)
 		case teamlog.ReassignDocument:
 			text = fmt.Sprintf("reassigned document %s from %s to %s from version %d", a.Doc, a.From, a.Owner, a.After+1)
 		default:
@@ -869,18 +822,6 @@ func (d *Node) teamKeyFor(team, email string, key []byte) bool {
 	}
 	m, ok := memberOf(st, email)
 	return ok && m.PubKey == teamlog.EncodeKey(key)
-}
-
-// domainAfter is the cut-off of a new domain assignment: the highest
-// release of the domain's documents held here.
-func (d *Node) domainAfter(t teamDir, domain string) int64 {
-	var after int64
-	for _, in := range d.Store.FindDomain(t.Name, domain) {
-		if f, err := d.Store.Load(in.Path); err == nil {
-			after = max(after, lastRelease(f.Doc))
-		}
-	}
-	return after
 }
 
 // Team is the view of one team, by name or hash.

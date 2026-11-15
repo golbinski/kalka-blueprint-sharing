@@ -225,6 +225,7 @@ func (d *Node) Run(ctx context.Context) error {
 	defer abort()
 	d.work, d.stopping = work, ctx
 	d.refs.ctx = ctx // plugin calls end with the daemon
+	d.seedNotices()
 	go d.forward(ctx)
 	var wg, sig sync.WaitGroup
 	wg.Add(1)

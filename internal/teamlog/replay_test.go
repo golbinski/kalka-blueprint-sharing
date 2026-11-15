@@ -230,29 +230,78 @@ func TestAddByConcurrentlyRemovedOwner(t *testing.T) {
 	}
 }
 
+var planA, planB = strings.Repeat("a", 64), strings.Repeat("b", 64)
+
 func TestReassignment(t *testing.T) {
 	tm := setup(t)
+	// A plain member cannot reassign.
+	if h := tm.add(tm.signer("dave@example.org").Reassign(tm.heads(), "c0ffee000000", "bob@example.org", "dave@example.org", 2, planB, t0)); tm.state().Effective[h] {
+		t.Fatal("a plain member reassigned")
+	}
 	ops := tm.signer("bob@example.org").Remove(tm.heads(), "dave@example.org",
-		[]Owned{{"a1b2c3d4e5f6", 3}, {"0f9e8d7c6b5a", 0}}, "bob@example.org", t0)
+		[]Owned{{"a1b2c3d4e5f6", 3, planA}, {"0f9e8d7c6b5a", 0, ""}}, "bob@example.org", t0)
 	tm.add(ops...)
 	s := tm.state()
-	if got := s.Reassigned["a1b2c3d4e5f6"]; got.Owner != "bob@example.org" || got.From != "dave@example.org" || got.After != 3 {
+	if got := s.Reassigned["a1b2c3d4e5f6"]; len(got) != 1 || got[0].Owner != "bob@example.org" || got[0].From != "dave@example.org" || got[0].After != 3 || got[0].Plan != planA {
 		t.Fatalf("reassigned %+v", s.Reassigned)
 	}
-	// A reassignment of a present member's document is refused.
-	h := tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "bob@example.org", 1, t0))
+	// Rule 9: a present member's document can be reassigned, from is not
+	// judged; the new owner must be a member.
+	h := tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "bob@example.org", 1, planA, t0))
+	if s := tm.state(); !s.Effective[h] {
+		t.Fatalf("present member's document: %q", tm.reason(s, h))
+	}
+	h = tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "zed@example.org", 2, planB, t0))
 	if s := tm.state(); s.Effective[h] {
-		t.Fatal("took a present member's document")
+		t.Fatal("reassigned to a non-member")
 	}
 }
 
-// The reassignment falls with its removal when the removal loses (19.5).
+// Rule 8: every effective reassignment is an anchor; a cut-off below one
+// the signer saw is stale; of two with one cut-off, the later counts.
+func TestReassignmentAnchors(t *testing.T) {
+	tm := setup(t)
+	alice, bob := tm.signer("alice@example.org"), tm.signer("bob@example.org")
+	const doc = "a1b2c3d4e5f6"
+	h1 := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "dave@example.org", 2, planA, t0))
+	h2 := tm.add(bob.Reassign(tm.heads(), doc, "dave@example.org", "carol@example.org", 5, planB, t0))
+	stale := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "bob@example.org", 4, planA, t0))
+	s := tm.state()
+	if s.Effective[stale] || !strings.Contains(tm.reason(s, stale), "stale cut-off") {
+		t.Fatalf("stale cut-off: %q", tm.reason(s, stale))
+	}
+	as := s.Reassigned[doc]
+	if len(as) != 2 || as[0].Op != h1 || as[0].After != 2 || as[1].Op != h2 || as[1].After != 5 {
+		t.Fatalf("anchors %+v", as)
+	}
+	// Two concurrent with one cut-off: both count, one anchor, the later
+	// in visiting order.
+	base := tm.heads()
+	c1 := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 7, planA, t0))
+	c2 := tm.add(bob.Reassign(base, doc, "carol@example.org", "bob@example.org", 7, planB, t0))
+	s = tm.state()
+	if !s.Effective[c1] || !s.Effective[c2] {
+		t.Fatal("concurrent same cut-off discarded")
+	}
+	as = s.Reassigned[doc]
+	if len(as) != 3 || as[2].After != 7 {
+		t.Fatalf("anchors %+v", as)
+	}
+	// A concurrent lower cut-off, not seen: it counts, as an anchor.
+	low := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 6, planA, t0))
+	if s := tm.state(); !s.Effective[low] || len(s.Reassigned[doc]) != 4 {
+		t.Fatalf("concurrent lower cut-off: %q %+v", tm.reason(s, low), s.Reassigned[doc])
+	}
+}
+
+// The reassignments of a removal fall with the remover's term when the
+// remover loses a mutual removal (rule 2).
 func TestReassignmentFallsWithRemoval(t *testing.T) {
 	tm := setup(t)
 	base := tm.heads()
 	// carol removes bob and takes his document; concurrently, bob (senior
 	// to carol) removes carol.
-	carolOps := tm.signer("carol@example.org").Remove(base, "bob@example.org", []Owned{{"a1b2c3d4e5f6", 2}}, "carol@example.org", t0)
+	carolOps := tm.signer("carol@example.org").Remove(base, "bob@example.org", []Owned{{"a1b2c3d4e5f6", 2, planA}}, "carol@example.org", t0)
 	tm.add(carolOps...)
 	tm.add(tm.signer("bob@example.org").Remove(base, "carol@example.org", nil, "", t0)...)
 	s := tm.state()
@@ -312,16 +361,6 @@ func TestDuplicateInvite(t *testing.T) {
 	}
 }
 
-func TestDomainAssignment(t *testing.T) {
-	tm := setup(t)
-	tm.add(tm.signer("alice@example.org").AssignDomain(tm.heads(), "delivery", "dave@example.org", 0, t0))
-	tm.add(tm.signer("bob@example.org").AssignDomain(tm.heads(), "delivery", "carol@example.org", 7, t0))
-	s := tm.state()
-	if d := s.Domains["delivery"]; d.Owner != "carol@example.org" || d.After != 7 {
-		t.Fatalf("domain %+v", d)
-	}
-}
-
 func TestPendingAndBadSignature(t *testing.T) {
 	tm := setup(t)
 	missing := strings.Repeat("0", 64)
@@ -359,8 +398,7 @@ func TestReplayIgnoresInputOrder(t *testing.T) {
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	tm := setup(t)
-	tm.add(tm.signer("alice@example.org").AssignDomain(tm.heads(), "delivery", "dave@example.org", 4, t0))
-	tm.add(tm.signer("alice@example.org").Remove(tm.heads(), "dave@example.org", []Owned{{"a1b2c3d4e5f6", 2}}, "alice@example.org", t0)...)
+	tm.add(tm.signer("alice@example.org").Remove(tm.heads(), "dave@example.org", []Owned{{"a1b2c3d4e5f6", 2, planA}, {"0f9e8d7c6b5a", 0, ""}}, "alice@example.org", t0)...)
 	for _, o := range tm.ops {
 		line := o.Encode()
 		d, err := Decode(line)
@@ -374,7 +412,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	// The canonical form is fixed: keys sorted, no spaces.
 	c := string(tm.ops[0].Encode())
 	if !strings.HasPrefix(c, `{"args":{"email":"alice@example.org","name":"parcels"},"at":"2026-11-20T09:00:00Z","op":"create-team","prev":[],"sig":"`) ||
-		!strings.HasSuffix(c, `","team":"","v":1}`) {
+		!strings.HasSuffix(c, `","team":"","v":2}`) {
 		t.Fatalf("canonical %s", c)
 	}
 }
@@ -382,11 +420,11 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 func TestDecodeRefuses(t *testing.T) {
 	good := string(newTeam(t).ops[0].Encode())
 	for name, line := range map[string]string{
-		"unknown field": strings.Replace(good, `"v":1}`, `"v":1,"x":2}`, 1),
+		"unknown field": strings.Replace(good, `"v":2}`, `"v":2,"x":2}`, 1),
 		"unknown kind":  strings.Replace(good, `create-team`, `make-team`, 1),
 		"extra arg":     strings.Replace(good, `"name":"parcels"`, `"name":"parcels","pubkey":"x"`, 1),
 		"bad name":      strings.Replace(good, `"parcels"`, `"Parcels!"`, 1),
-		"float":         strings.Replace(good, `"v":1}`, `"v":1.5}`, 1),
+		"float":         strings.Replace(good, `"v":2}`, `"v":2.5}`, 1),
 		"not json":      good[:20],
 		"trailing":      good + " {}",
 	} {
@@ -394,11 +432,30 @@ func TestDecodeRefuses(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	v2 := strings.Replace(good, `"v":1}`, `"v":2}`, 1)
-	if _, err := Decode([]byte(v2)); !IsUnsupported(err) {
-		t.Errorf("v2: %v", err)
+	for _, v := range []string{"1", "3"} {
+		other := strings.Replace(good, `"v":2}`, `"v":`+v+`}`, 1)
+		if _, err := Decode([]byte(other)); !IsUnsupported(err) {
+			t.Errorf("v%s: %v", v, err)
+		}
 	}
-	unsorted := Op{V: 1, Team: strings.Repeat("a", 64), Kind: AddOwner, Args: Args{Email: "a@b.c"},
+	// assign-domain is gone in rule version 2.
+	dom := strings.Replace(strings.Replace(good, `create-team`, `assign-domain`, 1), `"name":"parcels"`, `"domain":"lockers"`, 1)
+	if _, err := Decode([]byte(dom)); err == nil {
+		t.Error("assign-domain accepted")
+	}
+	// The cut-off and its plan hash go together.
+	tm := setup(t)
+	sg := tm.signer("alice@example.org")
+	for name, o := range map[string]Op{
+		"plan without release": sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 0, planA, t0),
+		"release without plan": sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 3, "", t0),
+		"short plan":           sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 3, "abc", t0),
+	} {
+		if _, err := Decode(o.Encode()); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	unsorted := Op{V: RuleVersion, Team: strings.Repeat("a", 64), Kind: AddOwner, Args: Args{Email: "a@b.c"},
 		Prev: []string{strings.Repeat("b", 64), strings.Repeat("a", 64)}, Signer: EncodeKey(newActor("x").pub)}
 	if _, err := Decode(unsorted.Encode()); err == nil {
 		t.Error("unsorted prev accepted")

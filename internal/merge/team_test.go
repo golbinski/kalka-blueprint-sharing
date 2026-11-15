@@ -13,18 +13,12 @@ import (
 )
 
 type fakeTeam struct {
-	keys map[string][]ed25519.PublicKey
-	over map[string][2]any // kalka_id -> {owner, after}
+	keys    map[string][]ed25519.PublicKey
+	anchors map[string][]Anchor
 }
 
 func (f *fakeTeam) Keys(email string) []ed25519.PublicKey { return f.keys[strings.ToLower(email)] }
-func (f *fakeTeam) Override(id string) (string, int64, bool) {
-	o, ok := f.over[id]
-	if !ok {
-		return "", 0, false
-	}
-	return o[0].(string), o[1].(int64), true
-}
+func (f *fakeTeam) Anchors(id string) []Anchor            { return f.anchors[id] }
 
 func tkey(s string) ed25519.PrivateKey {
 	seed := sha256.Sum256([]byte(s))
@@ -39,7 +33,7 @@ func sgn(email string) bp.Signer {
 var members = []string{"dana@example.org", "bob@example.org", "carol@example.org", "erin@example.org"}
 
 func newFakeTeam() *fakeTeam {
-	f := &fakeTeam{keys: map[string][]ed25519.PublicKey{}, over: map[string][2]any{}}
+	f := &fakeTeam{keys: map[string][]ed25519.PublicKey{}, anchors: map[string][]Anchor{}}
 	for _, m := range members {
 		f.keys[m] = []ed25519.PublicKey{tkey(m).Public().(ed25519.PublicKey)}
 	}
@@ -146,8 +140,7 @@ func TestRelayOfUnreleasedEditRefused(t *testing.T) {
 	}
 }
 
-// A release by someone other than the owner (a domain release by a
-// non-assigned member, a blueprint release by a non-owner) is not applied.
+// A release by someone other than the owner is not applied.
 func TestReleaseByNonOwnerRejected(t *testing.T) {
 	team := newFakeTeam()
 	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
@@ -187,7 +180,7 @@ func TestReassignmentAndCutOff(t *testing.T) {
 	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
 	v2 := release(t, withPlan(t, v1, "dana@example.org", "Second."), "dana@example.org", 2, false, tt0.Add(time.Hour))
 	// dana is removed; bob saw v1 only: cut-off 1.
-	team.over[tkid] = [2]any{"bob@example.org", int64(1)}
+	team.anchors[tkid] = []Anchor{{"bob@example.org", 1}}
 	ch := Releases(entries(v2), tkid, team)
 	if head, _ := ch.Head(); head.Release.Version != 1 {
 		t.Fatalf("release above the cut-off counts: v%d", head.Release.Version)
@@ -198,7 +191,7 @@ func TestReassignmentAndCutOff(t *testing.T) {
 		t.Fatalf("reassigned owner's release refused: %v", Releases(entries(r.Doc), tkid, team).Void)
 	}
 	// The reassignment is discarded: bob's v2 is void, dana's v2 counts again.
-	delete(team.over, tkid)
+	delete(team.anchors, tkid)
 	merged := r.Doc
 	ch = Releases(entries(merged), tkid, team)
 	if head, _ := ch.Head(); head.Release.Plan != v2.PlanHash() || head.Entry.Author != "dana@example.org" {
@@ -404,48 +397,63 @@ func TestForgedFirstReleaseFreezes(t *testing.T) {
 	if r.PlanFromIncoming || r.Doc.PlanHash() != v1.PlanHash() {
 		t.Fatal("forger's plan taken")
 	}
-	team.over[tkid] = [2]any{"dana@example.org", int64(0)}
+	team.anchors[tkid] = []Anchor{{"dana@example.org", 0}}
 	ch = Releases(entries(r.Doc), tkid, team)
 	if head, ok := ch.Head(); !ok || head.Entry.Author != "dana@example.org" || ch.Disputed {
 		t.Fatalf("reassignment did not settle it: %+v", ch)
 	}
 }
 
-type domainTeam struct {
-	*fakeTeam
-	owner string
-	after int64
+// A document reassigned twice keeps a valid chain through both cut-offs:
+// every reassignment is an anchor, not only the last (spec 20.4).
+func TestReassignedTwice(t *testing.T) {
+	team := newFakeTeam()
+	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
+	// bob takes over at cut-off 1, releases 2 and 3; carol at cut-off 3.
+	b2 := release(t, withPlan(t, v1, "bob@example.org", "Bob's."), "bob@example.org", 2, false, tt0.Add(time.Hour))
+	b3 := release(t, withPlan(t, b2, "bob@example.org", "Bob's again."), "bob@example.org", 3, false, tt0.Add(2*time.Hour))
+	c4 := release(t, withPlan(t, b3, "carol@example.org", "Carol's."), "carol@example.org", 4, false, tt0.Add(3*time.Hour))
+	team.anchors[tkid] = []Anchor{{"bob@example.org", 1}, {"carol@example.org", 3}}
+	ch := Releases(entries(c4), tkid, team)
+	if len(ch.Releases) != 4 || ch.Pending != nil || ch.Disputed || len(ch.Void) != 0 {
+		t.Fatalf("chain through two anchors: %d releases, void %v", len(ch.Releases), ch.Void)
+	}
+	if ch.NextSigner() != "carol@example.org" {
+		t.Fatalf("next signer %q", ch.NextSigner())
+	}
+	// Before carol releases, the document is pending for her.
+	ch = Releases(entries(b3), tkid, team)
+	if ch.Pending == nil || ch.Pending.Owner != "carol@example.org" || ch.NextSigner() != "carol@example.org" {
+		t.Fatalf("pending %+v", ch.Pending)
+	}
+	// A gap below an anchor does not void what stands above it.
+	team.anchors[tkid] = []Anchor{{"carol@example.org", 3}}
+	ch = Releases(entries(c4), tkid, team)
+	if head, _ := ch.Head(); head.Release.Version != 4 || len(ch.Releases) != 2 {
+		t.Fatalf("above the gap: %+v void %v", head.Release, ch.Void)
+	}
 }
 
-func (d domainTeam) DomainOwner() (string, int64, bool) { return d.owner, d.after, true }
-
-// Spec 6.12, 19.6: a domain document's releases are the assigned domain
-// owner's, for every version above the cut-off; unassigned, nobody's.
-func TestDomainReleases(t *testing.T) {
-	ft := newFakeTeam()
-	v1 := release(t, planDoc(t, "dana@example.org", "Glossary."), "dana@example.org", 1, false, tt0)
-	if ch := Releases(entries(v1), tkid, domainTeam{ft, "", 0}); len(ch.Releases) != 0 || !strings.Contains(ch.Void[lastID(v1)], "no domain owner") {
-		t.Fatalf("unassigned domain released: %+v", ch)
+// One key signs two different releases of one version: disputed, and a
+// team owner's reassignment ends it.
+func TestDisputeEndedByReassignment(t *testing.T) {
+	team := newFakeTeam()
+	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
+	a2 := release(t, withPlan(t, v1, "dana@example.org", "Laptop copy."), "dana@example.org", 2, false, tt0.Add(time.Hour))
+	b2 := release(t, withPlan(t, v1, "dana@example.org", "Desktop copy."), "dana@example.org", 2, false, tt0.Add(time.Hour))
+	both := mustTeam(t, a2, b2, team).Doc
+	ch := Releases(entries(both), tkid, team)
+	if !ch.Disputed || len(ch.Releases) != 1 || ch.NextSigner() != "" {
+		t.Fatalf("not disputed: %+v", ch)
 	}
-	team := domainTeam{ft, "dana@example.org", 0}
-	if ch := Releases(entries(v1), tkid, team); len(ch.Releases) != 1 {
-		t.Fatalf("assigned owner's v1 refused: %v", ch.Void)
+	team.anchors[tkid] = []Anchor{{"bob@example.org", 1}}
+	ch = Releases(entries(both), tkid, team)
+	if ch.Disputed || ch.Pending == nil || ch.NextSigner() != "bob@example.org" {
+		t.Fatalf("after the reassignment: %+v", ch)
 	}
-	// dana hands the plan's owner line to bob: bob still may not release,
-	// the assignment decides.
-	v2 := release(t, withPlan(t, v1, "bob@example.org", "Glossary."), "dana@example.org", 2, false, tt0.Add(time.Hour))
-	v3 := release(t, withPlan(t, v2, "bob@example.org", "Bob's glossary."), "bob@example.org", 3, false, tt0.Add(2*time.Hour))
-	if ch := Releases(entries(v3), tkid, team); len(ch.Releases) != 2 || !strings.Contains(ch.Void[lastID(v3)], "only dana@example.org") {
-		t.Fatalf("non-assigned release: %+v", ch.Void)
-	}
-	// A new assignment to carol with cut-off 2 voids dana's v3.
-	dana3 := release(t, withPlan(t, v2, "dana@example.org", "Dana's third."), "dana@example.org", 3, false, tt0.Add(3*time.Hour))
-	carol := domainTeam{ft, "carol@example.org", 2}
-	if ch := Releases(entries(dana3), tkid, carol); len(ch.Releases) != 2 {
-		t.Fatalf("old domain owner released above the cut-off: %d", len(ch.Releases))
-	}
-	carol3 := release(t, withPlan(t, v2, "carol@example.org", "Carol's third."), "carol@example.org", 3, false, tt0.Add(4*time.Hour))
-	if r := mustTeam(t, dana3, carol3, carol); !r.PlanFromIncoming {
-		t.Fatal("new domain owner's release refused")
+	bob2 := release(t, withPlan(t, both, "bob@example.org", "Settled."), "bob@example.org", 2, false, tt0.Add(2*time.Hour))
+	ch = Releases(entries(bob2), tkid, team)
+	if head, _ := ch.Head(); head.Entry.Author != "bob@example.org" || head.Release.Version != 2 || ch.Disputed {
+		t.Fatalf("settled: %+v %v", head, ch.Void)
 	}
 }

@@ -127,7 +127,7 @@ func errKind(err error) string {
 	case errors.Is(err, core.ErrPaused):
 		return "paused"
 	}
-	return ""
+	return core.KindOf(err)
 }
 
 func (d *Daemon) apiStatus(w http.ResponseWriter, _ *http.Request) {

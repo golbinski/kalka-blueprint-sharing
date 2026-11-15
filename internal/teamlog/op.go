@@ -24,7 +24,7 @@ import (
 
 // RuleVersion is the replay rule version of every operation this package
 // writes. An operation with another version is held as unsupported.
-const RuleVersion = 1
+const RuleVersion = 2
 
 // Operation kinds (spec 19.1).
 const (
@@ -33,7 +33,6 @@ const (
 	RemoveMember     = "remove-member"
 	AddOwner         = "add-owner"
 	RemoveOwner      = "remove-owner"
-	AssignDomain     = "assign-domain"
 	ReassignDocument = "reassign-document"
 )
 
@@ -42,18 +41,19 @@ const (
 const MaxLine = 8 << 10
 
 // Args are the arguments of an operation. Which fields an operation
-// carries is fixed by its kind (argKeys); After is meaningful only for
-// assign-domain and reassign-document, where 0 means "no release seen".
+// carries is fixed by its kind (argKeys); After and Plan are meaningful
+// only for reassign-document: the highest release the signer held and its
+// plan hash, 0 and "" when it held none.
 type Args struct {
 	Name   string
 	Email  string
 	PubKey string
 	Invite string
-	Domain string
 	Owner  string
 	Doc    string
 	From   string
 	After  int64
+	Plan   string
 }
 
 // argKeys lists the required keys of each kind; "invite" is the only
@@ -64,8 +64,7 @@ var argKeys = map[string][]string{
 	RemoveMember:     {"email"},
 	AddOwner:         {"email"},
 	RemoveOwner:      {"email"},
-	AssignDomain:     {"after", "domain", "owner"},
-	ReassignDocument: {"after", "doc", "from", "owner"},
+	ReassignDocument: {"after", "doc", "from", "owner", "plan"},
 }
 
 // Op is one team log operation.
@@ -90,10 +89,6 @@ var (
 // ValidTeamName reports whether s can name a team (spec 19.2).
 func ValidTeamName(s string) bool { return teamNameRe.MatchString(s) }
 
-// ValidDomainName uses the team name rule: it appears in file names and
-// in `domain:` references.
-func ValidDomainName(s string) bool { return teamNameRe.MatchString(s) }
-
 func value(a Args, key string) any {
 	switch key {
 	case "name":
@@ -104,8 +99,8 @@ func value(a Args, key string) any {
 		return a.PubKey
 	case "invite":
 		return a.Invite
-	case "domain":
-		return a.Domain
+	case "plan":
+		return a.Plan
 	case "owner":
 		return a.Owner
 	case "doc":
@@ -342,8 +337,8 @@ func Decode(line []byte) (Op, error) {
 			o.Args.PubKey = s
 		case "invite":
 			o.Args.Invite = s
-		case "domain":
-			o.Args.Domain = s
+		case "plan":
+			o.Args.Plan = s
 		case "owner":
 			o.Args.Owner = s
 		case "doc":
@@ -408,14 +403,13 @@ func (o *Op) checkShape() error {
 			return errors.New("operation: bad invite id")
 		}
 		return email(a.Email)
-	case AssignDomain:
-		if !ValidDomainName(a.Domain) {
-			return errors.New("operation: bad domain name")
-		}
-		return email(a.Owner)
 	case ReassignDocument:
 		if a.Doc == "" || len(a.Doc) > 64 || strings.ContainsAny(a.Doc, " \t\r\n") {
 			return errors.New("operation: bad document id")
+		}
+		// The plan hash of release after; none before the first release.
+		if (a.After == 0) != (a.Plan == "") || (a.Plan != "" && !hashRe.MatchString(a.Plan)) {
+			return errors.New("operation: bad plan hash for the cut-off")
 		}
 		if err := email(a.From); err != nil {
 			return err

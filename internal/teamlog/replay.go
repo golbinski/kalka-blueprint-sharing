@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -19,10 +20,9 @@ type State struct {
 	// Keys lists every key the log has ever bound to an email, in replay
 	// order, so entries of removed members can still be verified (20.4).
 	Keys map[string][]string
-	// Domains maps a domain to its effective assign-domain.
-	Domains map[string]Assignment
-	// Reassigned maps a kalka_id to its effective reassign-document.
-	Reassigned map[string]Assignment
+	// Reassigned maps a kalka_id to its anchors: every effective
+	// reassign-document of it, ordered by cut-off, one per cut-off (rule 8).
+	Reassigned map[string][]Assignment
 	// Invites maps a used invite id to the add-member that used it.
 	Invites map[string]string
 	// Effective holds the hashes of the operations that count.
@@ -46,12 +46,15 @@ type Member struct {
 	Owner  bool   `json:"owner,omitempty"`
 }
 
-// Assignment is an effective assign-domain or reassign-document.
+// Assignment is an effective reassign-document: Owner is the only valid
+// signer of release After+1 (spec 20.4).
 type Assignment struct {
 	Op    string `json:"op"`
 	Owner string `json:"owner"`
 	From  string `json:"from,omitempty"`
 	After int64  `json:"after"`
+	Plan  string `json:"plan,omitempty"`
+	At    string `json:"at,omitempty"`
 }
 
 // Discard explains why an operation does not count.
@@ -448,8 +451,6 @@ type eval struct {
 	used    []*oterm // the owner term each effective op was signed under
 	mterms  map[string][]*mterm
 	oterms  map[*mterm][]*oterm
-	domains map[string]int
-	reasgn  map[string]int
 	invites map[string]int
 	ends    map[int][]*oterm // owner terms each effective removal ended
 }
@@ -598,8 +599,8 @@ func (e *eval) currentOwner(mt *mterm) *oterm {
 func (r *replayer) evaluate(decided map[int]string, kills map[int]string) *eval {
 	n := len(r.nodes)
 	e := &eval{eff: make([]bool, n), reason: make([]string, n), used: make([]*oterm, n),
-		mterms: map[string][]*mterm{}, oterms: map[*mterm][]*oterm{}, domains: map[string]int{},
-		reasgn: map[string]int{}, invites: map[string]int{}, ends: map[int][]*oterm{}}
+		mterms: map[string][]*mterm{}, oterms: map[*mterm][]*oterm{},
+		invites: map[string]int{}, ends: map[int][]*oterm{}}
 
 	// The term i's signer acts under: an owner term granted in i's view
 	// and not ended in i's view.
@@ -757,28 +758,22 @@ func (r *replayer) evaluate(decided map[int]string, kills map[int]string) *eval 
 				e.oterms[mt] = append(e.oterms[mt], &oterm{mt: mt, grants: []int{i}})
 			}
 
-		case AssignDomain:
-			if memberInView(a.Owner, i) == nil {
-				fail(a.Owner + " is not a member")
-				continue
-			}
-			e.domains[a.Domain] = i // later in replay order wins (rule 5)
-
 		case ReassignDocument:
+			// Rule 9: no removal needed, from is not judged.
 			if memberInView(a.Owner, i) == nil {
 				fail(a.Owner + " is not a member")
 				continue
 			}
-			removed := false
-			for j := 0; j < i && !removed; j++ {
+			// Rule 8: a cut-off below one the signer already saw is stale.
+			stale := false
+			for j := 0; j < i && !stale; j++ {
 				q := r.nodes[j].op
-				removed = e.eff[j] && q.Kind == RemoveMember && q.Args.Email == a.From && r.before(j, i)
+				stale = e.eff[j] && q.Kind == ReassignDocument && q.Args.Doc == a.Doc && q.Args.After > a.After && r.before(j, i)
 			}
-			if !removed {
-				fail(a.From + " was not removed before this reassignment")
+			if stale {
+				fail("stale cut-off: a later reassignment of this document was already seen")
 				continue
 			}
-			e.reasgn[a.Doc] = i
 		}
 		e.eff[i], e.used[i] = true, ot
 	}
@@ -825,7 +820,7 @@ func (r *replayer) ownerTermsUpTo(e *eval, mt *mterm, i int) []*oterm {
 
 func (r *replayer) state(e *eval) *State {
 	s := &State{Team: r.team, Members: map[string]Member{}, Keys: map[string][]string{},
-		Domains: map[string]Assignment{}, Reassigned: map[string]Assignment{}, Invites: map[string]string{},
+		Reassigned: map[string][]Assignment{}, Invites: map[string]string{},
 		Effective: map[string]bool{}, Pending: r.pending, Heads: r.heads}
 	if s.Pending == nil {
 		s.Pending = []Discard{}
@@ -915,13 +910,22 @@ func (r *replayer) state(e *eval) *State {
 	for _, o := range owners {
 		s.Owners = append(s.Owners, o.email)
 	}
-	for d, i := range e.domains {
-		a := r.nodes[i].op.Args
-		s.Domains[d] = Assignment{Op: r.nodes[i].hash, Owner: a.Owner, After: a.After}
-	}
-	for d, i := range e.reasgn {
-		a := r.nodes[i].op.Args
-		s.Reassigned[d] = Assignment{Op: r.nodes[i].hash, Owner: a.Owner, From: a.From, After: a.After}
+	// Anchors: every effective reassignment; of those with one cut-off,
+	// the last in visiting order.
+	for i, nd := range r.nodes {
+		if !e.eff[i] || nd.op.Kind != ReassignDocument {
+			continue
+		}
+		a := nd.op.Args
+		as := s.Reassigned[a.Doc]
+		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, Plan: a.Plan, At: nd.op.At}
+		k := sort.Search(len(as), func(j int) bool { return as[j].After >= a.After })
+		if k < len(as) && as[k].After == a.After {
+			as[k] = x
+		} else {
+			as = slices.Insert(as, k, x)
+		}
+		s.Reassigned[a.Doc] = as
 	}
 	for id, i := range e.invites {
 		if e.eff[i] {

@@ -172,9 +172,6 @@ func TestJoinAndReplicaNotices(t *testing.T) {
 
 	// A newer version of a domain the courier's draft references.
 	path := depot.writeDomain("parcels-lockers-domain.md")
-	if _, err := depot.d.AssignDomain("", "lockers", depot.email); err != nil {
-		t.Fatal(err)
-	}
 	depot.release(path, "")
 	depot.replicate(courier)
 	courier.write("locker-pickup.md", "---\ndomain: parcels/lockers@v1\n---\n# Locker pickup\n")

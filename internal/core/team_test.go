@@ -289,13 +289,13 @@ func TestTeamRoster(t *testing.T) {
 	if len(v.Owners) != 2 || v.Owners[0] != desk.email {
 		t.Fatalf("owners %v", v.Owners)
 	}
-	if v, err = desk.d.AssignDomain("lending", "loans", reader.email); err != nil || len(v.Domains) != 1 || v.Domains[0].Owner != reader.email {
-		t.Fatalf("assign: %+v %v", v.Domains, err)
-	}
-
-	// Removal reassigns the member's published documents held here.
-	desk.write("lending/renewals.md", "---\nkalka_id: 6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\nteam: lending\n---\n# Renewals\n\n## Plan\n\nRenew online.\n")
-	desk.write("holds.md", "---\nkalka_id: 7f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\n---\n# Holds\n")
+	// Removal reassigns the member's published documents held here; an
+	// unpublished file naming them is not one.
+	reader.write("renewals.md", "# Renewals\n\n## Plan\n\nRenew online.\n")
+	waitIndexed(t, reader, 1)
+	reader.publish("renewals.md")
+	reader.replicate(desk)
+	desk.write("lending/holds.md", "---\nkalka_id: 7f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\nteam: lending\n---\n# Holds\n")
 	waitIndexed(t, desk, 2)
 	prev, err := desk.d.RemovalPreview("", reader.email)
 	if err != nil || len(prev) != 1 || prev[0].Title != "Renewals" {
@@ -307,7 +307,7 @@ func TestTeamRoster(t *testing.T) {
 	if _, ok := member(v, reader.email); ok || len(v.Owners) != 1 {
 		t.Fatalf("after removal: %+v", v)
 	}
-	// The document and the domain the member owned go to the remover.
+	// The document the member owned goes to the remover, who releases it.
 	var reassigned bool
 	for _, h := range v.History[len(v.History)-2:] {
 		reassigned = reassigned || (h.Op == teamlog.ReassignDocument && h.Effective && strings.Contains(h.Text, "to desk@library.example"))
@@ -315,9 +315,7 @@ func TestTeamRoster(t *testing.T) {
 	if !reassigned {
 		t.Fatalf("no reassignment: %+v", v.History[len(v.History)-2:])
 	}
-	if len(v.Domains) != 1 || v.Domains[0].Owner != desk.email {
-		t.Fatalf("domain after removal: %+v", v.Domains)
-	}
+	waitOwner(t, desk, prev[0].KalkaID, desk.email)
 }
 
 func waitIndexed(t *testing.T, n *node, count int) {

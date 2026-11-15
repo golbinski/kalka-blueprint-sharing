@@ -90,7 +90,7 @@ func TestSyncWithNoWindow(t *testing.T) {
 	unsub()
 	depot.write("parcels/lockers.md", strings.Replace(depot.read("parcels/lockers.md"), "every depot", "every depot and station", 1))
 	waitFor(t, "the edit indexed", func() bool { return holds(depot, "every depot and station") })
-	if _, err := depot.d.Publish(depot.path("parcels/lockers.md"), "", "stations too"); err != nil {
+	if _, err := depot.d.Release(depot.path("parcels/lockers.md"), "stations too", nil); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the pushed edit", func() bool { return holds(courier, "every depot and station") })

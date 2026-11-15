@@ -181,8 +181,8 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
               disabled={busy}
               onChange={(e) => setNote(e.target.value)}
             />
-            <button type="button" className="link" disabled={busy} onClick={() => act(() => api.publish(doc.rel, note))}>
-              Publish update
+            <button type="button" className="link" disabled={busy} onClick={() => act(() => api.release(doc.rel, note, []))}>
+              Release v{t.version + 1}
             </button>
           </>
         )}
@@ -214,19 +214,20 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
       {t.reassigned_to && (
         <div className="hint">
           <span className="hint-text">
-            Reassigned to {t.reassigned_to}; their kalka takes it over and publishes the next version when it has the releases
-            up to the cut-off.
+            Reassigned to {t.reassigned_to === doc.self ? 'you' : t.reassigned_to}, pending: their kalka releases the next
+            version as soon as it holds the reassignment.
           </span>
         </div>
       )}
       {t.owner_not_member && (
         <div className="hint warn">
           <span className="hint-text">
-            {t.releaser} is no longer a member of {t.team}. A team owner reassigns the document from the Team page by removing
-            them, or the document stays at version {t.version}.
+            {t.releaser} is no longer a member of {t.team}. A team owner reassigns the document, or it stays at version{' '}
+            {t.version}.
           </span>
         </div>
       )}
+      <OwnershipActions doc={doc} reload={reload} />
       {(t.local_only ?? 0) > 0 && (
         <div className="hint">
           <span className="hint-text">
@@ -241,7 +242,7 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
 }
 
 // DomainStrip heads a domain document (spec 6.12): its version and domain
-// owner, Release for the domain owner, and the switcher over the versions
+// owner, Release for the owner, and the switcher over the versions
 // kept here.
 function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [releasing, setReleasing] = useState(false)
@@ -263,12 +264,8 @@ function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
             <>
               The {dm.name} domain of <a href="#/team">{dm.team}</a>
               {dm.version > 0 ? `, version ${dm.version}.` : ': a draft, not released yet.'}
-              {dm.version > 0 && t?.unreleased && ' Edits since then are a draft until the domain owner releases them.'}{' '}
-              {dm.owner ? (
-                <>Domain owner: {dm.owner === doc.self ? 'you' : dm.owner}.</>
-              ) : (
-                <>No domain owner is assigned yet; a team owner assigns one on the Team page.</>
-              )}
+              {dm.version > 0 && t?.unreleased && ' Edits since then are a draft until the owner releases them.'}{' '}
+              {dm.owner && <>Owner: {dm.owner === doc.self ? 'you' : dm.owner}.</>}
             </>
           )}
         </span>
@@ -297,16 +294,25 @@ function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
       </div>
       {viewing === 0 && t?.disputed && (
         <div className="hint warn">
-          <span className="hint-text">Two releases claim the same version. A team owner settles it by assigning the domain again.</span>
+          <span className="hint-text">Two releases claim the same version. A team owner settles it by reassigning the document.</span>
         </div>
       )}
       {viewing === 0 && t?.reassigned_to && (
         <div className="hint">
           <span className="hint-text">
-            The domain is assigned to {t.reassigned_to}; their kalka takes the document over and releases the next version.
+            Reassigned to {t.reassigned_to === doc.self ? 'you' : t.reassigned_to}, pending: their kalka releases the next version.
           </span>
         </div>
       )}
+      {viewing === 0 && t?.domain_clash && (
+        <div className="hint warn">
+          <span className="hint-text">
+            Two documents claim this domain; the other is {t.domain_clash}. References to it are ambiguous until a team owner
+            deletes one.
+          </span>
+        </div>
+      )}
+      {viewing === 0 && <OwnershipActions doc={doc} reload={reload} />}
       {releasing && (
         <ReleaseDialog
           doc={doc}
@@ -317,6 +323,106 @@ function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// OwnershipActions: the owner hands off (spec 7.2); a team owner
+// reassigns (7.3), or takes the document over to release or delete it
+// (7.4).
+function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
+  const t = doc.team
+  const [mode, setMode] = useState<'' | 'handoff' | 'reassign' | 'take-release' | 'take-delete'>('')
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  if (!t?.held || t.version === 0) return null
+  if (!t.can_act && !t.team_owner) return null
+  const go = async (f: () => Promise<unknown>) => {
+    setBusy(true)
+    setErr('')
+    try {
+      await f()
+      setMode('')
+      setEmail('')
+      reload()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setBusy(false)
+  }
+  const takeOver = t.team_owner && !t.can_act
+  return (
+    <div className="hint">
+      {mode === '' && (
+        <>
+          {t.can_act && (
+            <button type="button" className="link" onClick={() => setMode('handoff')}>
+              Hand off…
+            </button>
+          )}
+          {t.team_owner && (
+            <button type="button" className="link" onClick={() => setMode('reassign')}>
+              Reassign…
+            </button>
+          )}
+          {takeOver && (
+            <>
+              <button type="button" className="link" onClick={() => setMode('take-release')}>
+                Release…
+              </button>
+              <button type="button" className="link" onClick={() => setMode('take-delete')}>
+                Delete for the team…
+              </button>
+            </>
+          )}
+        </>
+      )}
+      {(mode === 'handoff' || mode === 'reassign') && (
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const to = email.trim()
+            go(() => (mode === 'handoff' ? api.handoff(doc.rel, to) : api.reassign(doc.rel, to)))
+          }}
+        >
+          <span className="hint-text">
+            {mode === 'handoff'
+              ? 'Make another member the owner. It is a release naming them; no confirmation is asked of them.'
+              : 'Make any member the owner from the next version, without the current owner’s consent.'}
+          </span>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="member's email" aria-label="Member" />
+          <button type="submit" disabled={busy || !email.trim()}>
+            {mode === 'handoff' ? 'Hand off' : 'Reassign'}
+          </button>
+          <button type="button" className="link" onClick={() => setMode('')}>
+            Cancel
+          </button>
+        </form>
+      )}
+      {(mode === 'take-release' || mode === 'take-delete') && (
+        <>
+          <span className="hint-text">
+            You will become the owner first: a reassignment to you, then{' '}
+            {mode === 'take-release' ? 'a release of the plan as you hold it.' : 'the deletion for every member.'}
+          </span>
+          <button
+            type="button"
+            className={mode === 'take-delete' ? 'link danger' : 'link'}
+            disabled={busy}
+            onClick={() =>
+              go(() => (mode === 'take-release' ? api.release(doc.rel, '', [], true) : api.deleteForTeam(doc.rel, true)))
+            }
+          >
+            {mode === 'take-release' ? 'Take over and release' : 'Take over and delete'}
+          </button>
+          <button type="button" className="link" onClick={() => setMode('')}>
+            Cancel
+          </button>
+        </>
+      )}
+      {err && <div className="error-text">{err}</div>}
     </div>
   )
 }

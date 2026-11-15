@@ -13,7 +13,6 @@ import (
 type TeamRequest struct {
 	Name    string `json:"name,omitempty"`
 	Email   string `json:"email,omitempty"`
-	Domain  string `json:"domain,omitempty"`
 	Owner   *bool  `json:"owner,omitempty"`
 	Expires string `json:"expires,omitempty"` // a Go duration, e.g. 72h
 	Token   string `json:"token,omitempty"`
@@ -66,9 +65,38 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/teams/{team}/owners", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
 		return d.SetOwner(teamRef(r), q.Email, q.Owner == nil || *q.Owner)
 	}))
-	mux.HandleFunc("POST /api/teams/{team}/domains", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) {
-		return d.AssignDomain(teamRef(r), q.Domain, q.Email)
-	}))
+	mux.HandleFunc("POST /api/handoff", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path  string `json:"path"`
+			Email string `json:"email"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		res, err := d.Handoff(q.Path, q.Email)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("POST /api/reassign", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path  string `json:"path"`
+			Email string `json:"email"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		res, err := d.Reassign(q.Path, q.Email)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 	mux.HandleFunc("POST /api/publish", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
 			Path string `json:"path"`
@@ -91,12 +119,17 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 			Path         string   `json:"path"`
 			Note         string   `json:"note"`
 			Incorporates []string `json:"incorporates"`
+			TakeOver     bool     `json:"take_over"` // a team owner becomes the owner first (7.4)
 		}
 		if err := readBody(r, &q); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		res, err := d.Release(q.Path, q.Note, q.Incorporates)
+		release := d.Release
+		if q.TakeOver {
+			release = d.TakeOverRelease
+		}
+		res, err := release(q.Path, q.Note, q.Incorporates)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -106,13 +139,18 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Domains()) })
 	mux.HandleFunc("POST /api/delete", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
-			Path string `json:"path"`
+			Path     string `json:"path"`
+			TakeOver bool   `json:"take_over"`
 		}
 		if err := readBody(r, &q); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := d.Delete(q.Path); err != nil {
+		del := d.Delete
+		if q.TakeOver {
+			del = d.TakeOverDelete
+		}
+		if err := del(q.Path); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
@@ -200,10 +238,16 @@ func (c *Client) SetOwner(ctx context.Context, team, email string, owner bool) (
 	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/owners", TeamRequest{Email: email, Owner: &owner}, &v)
 }
 
-// AssignDomain appoints a domain owner.
-func (c *Client) AssignDomain(ctx context.Context, team, domain, email string) (core.TeamView, error) {
-	var v core.TeamView
-	return v, c.do(ctx, http.MethodPost, teamPath(team)+"/domains", TeamRequest{Domain: domain, Email: email}, &v)
+// Handoff makes another member the owner (spec 7.2).
+func (c *Client) Handoff(ctx context.Context, path, email string) (core.PublishResult, error) {
+	var v core.PublishResult
+	return v, c.do(ctx, http.MethodPost, "/api/handoff", map[string]string{"path": path, "email": email}, &v)
+}
+
+// Reassign makes any member the owner, for team owners (spec 7.3).
+func (c *Client) Reassign(ctx context.Context, path, email string) (core.ReassignResult, error) {
+	var v core.ReassignResult
+	return v, c.do(ctx, http.MethodPost, "/api/reassign", map[string]string{"path": path, "email": email}, &v)
 }
 
 // Join redeems a token.

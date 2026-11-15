@@ -4,6 +4,7 @@ package core
 // 20.6), and what the daemon does when a team log changes (19.5).
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
@@ -18,24 +19,21 @@ import (
 )
 
 // nextReleaser is who may release the next version of a published
-// document, and that version: the owner the head names, or the new owner
-// of an effective reassignment whose cut-off is the head (spec 19.5).
-func nextReleaser(ch merge.ReleaseChain, t merge.Team, id, firstOwner string) (string, int64) {
+// document, and that version: the owner the head names, or the owner of
+// the last anchor while it is pending; firstOwner before any release.
+// The owner is "" when nobody may: a dispute, a gap, a tombstone.
+func nextReleaser(ch merge.ReleaseChain, firstOwner string) (string, int64) {
+	if ch.Pending != nil {
+		return ch.Pending.Owner, ch.Pending.After + 1
+	}
 	head, ok := ch.Head()
-	var v int64
-	owner := firstOwner
-	if ok {
-		v, owner = head.Release.Version, head.Release.Owner
-	}
-	if o, after, ok := t.Override(id); ok && after == v {
-		owner = o
-	}
-	if r, ok := t.(merge.DomainRule); ok {
-		if o, after, isDomain := r.DomainOwner(); isDomain && v+1 > after {
-			owner = o // "" when no domain owner is assigned
+	if !ok {
+		if ch.Disputed {
+			return "", 1
 		}
+		return firstOwner, 1
 	}
-	return owner, v + 1
+	return ch.NextSigner(), head.Release.Version + 1
 }
 
 // PublishResult reports a publish or a publish update.
@@ -53,17 +51,34 @@ type PublishResult struct {
 // A file in Personal moves into the team's folder; the result has the new
 // path. A file in a team's folder belongs to that team (spec 14).
 func (d *Node) Publish(path, teamName, note string) (PublishResult, error) {
-	return d.release(path, teamName, note, nil)
+	return d.release(path, relOpts{mode: modePublish, team: teamName, note: note})
 }
 
-// Release releases the next version of a domain document (spec 6.12): the
-// assigned domain owner raises `version:` and lists the comments the
-// version incorporates. It is Publish for any other published document.
+// Release releases the next version of a team document (spec 20.4): the
+// owner's plan as it stands, listing the comments it incorporates. A
+// domain document's `version:` is raised.
 func (d *Node) Release(path, note string, incorporates []string) (PublishResult, error) {
-	return d.release(path, "", note, incorporates)
+	return d.release(path, relOpts{mode: modeRelease, note: note, incorporates: incorporates})
 }
 
-func (d *Node) release(path, teamName, note string, incorporates []string) (PublishResult, error) {
+// Release modes.
+const (
+	modePublish = iota // Personal into a team, first release
+	modeRelease        // the next version of a team document
+	modeHandoff        // the next version, naming another owner (7.2)
+	modeAuto           // kalka's own release (reassigned to you, promotion)
+)
+
+type relOpts struct {
+	mode         int
+	team         string
+	note         string
+	incorporates []string
+	owner        string // the owner the release names, for a handoff
+}
+
+func (d *Node) release(path string, o relOpts) (PublishResult, error) {
+	teamName := o.team
 	var res PublishResult
 	for attempt := 0; ; attempt++ {
 		f, err := d.Store.Load(d.resolve(path))
@@ -89,96 +104,130 @@ func (d *Node) release(path, teamName, note string, incorporates []string) (Publ
 		if err != nil {
 			return res, err
 		}
+		if personal && o.mode == modeHandoff {
+			return res, &Error{Kind: KindInPersonal, Msg: fmt.Sprintf("%s lies in Personal: publish it to a team before handing it off", d.rel(f.Path))}
+		}
+		if personal && o.mode != modePublish {
+			return res, &Error{Kind: KindInPersonal, Msg: fmt.Sprintf("%s lies in Personal: publish it to a team first (`%s publish`)", d.rel(f.Path), name.Binary)}
+		}
 		teamName = h.dir.Name
 		id := doc.KalkaID()
-		if dup, err := d.Store.FindIn(h.dir.Dir, id); err != nil {
-			return res, err
-		} else if dup != nil && dup.Path != f.Path {
-			return res, &store.ErrDuplicate{KalkaID: id, Paths: []string{f.Path, dup.Path}}
+		unlock, ok := d.Store.Lock(id, syncproto.LockWait)
+		if !ok {
+			return res, errors.New("this document is busy in a sync; try again")
 		}
-		if doc.IsDomain() && doc.DomainName() == "" {
-			return res, errors.New("a domain document needs `domain:` with a name of lower-case letters, digits and dashes")
-		}
-		doc.SetFrontmatter(bp.KeyTeam, teamName)
-		team := h.teamFor(doc)
-		ch := merge.Releases(entriesOf(doc), id, team)
-		releaser, v := nextReleaser(ch, team, id, doc.Owner())
-		if ch.Disputed {
-			return res, errors.New("ownership of this document is disputed; a team owner settles it by reassigning the document")
-		}
-		if releaser == "" && doc.IsDomain() {
-			return res, fmt.Errorf("no domain owner is assigned for %s; a team owner assigns one with `%s team assign-domain %s <email>`", doc.DomainName(), name.Binary, doc.DomainName())
-		}
-		if !bp.SameEmail(releaser, d.self.Email) {
-			if doc.IsDomain() {
-				return res, fmt.Errorf("only %s, the domain owner of %s, can release it", releaser, doc.DomainName())
-			}
-			return res, fmt.Errorf("only %s can publish this document", releaser)
-		}
-		for _, x := range incorporates {
-			if e := entryByID(doc, x); e == nil || e.Kind == bp.KindRelease {
-				return res, fmt.Errorf("%s is not a comment of this document", x)
-			}
-		}
-		// The released plan names its owner: the local user, also after a
-		// reassignment (spec 19.5).
-		if !bp.SameEmail(doc.Owner(), d.self.Email) {
-			doc.SetFrontmatter(name.FrontmatterOwner, strings.ToLower(d.self.Email))
-		}
-		if head, ok := ch.Head(); ok && head.Release.Plan == doc.PlanHash() {
-			if !personal {
-				return res, fmt.Errorf("version %d is already the published version of this plan; edit it first", head.Release.Version)
-			}
-			// Released, but lying in Personal: it only needs to move.
-			path, err := d.Store.Move(f, h.dir.Dir, doc)
-			if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
-				continue
-			}
-			if err != nil {
-				return res, err
-			}
-			d.logf("moved %s into %s", path, teamName)
-			d.pushTeam(h.dir.Team)
-			return PublishResult{Path: path, Team: teamName, Version: head.Release.Version}, nil
-		}
-		if doc.IsDomain() {
-			doc.SetFrontmatter(bp.KeyVersion, strconv.FormatInt(v, 10))
-		}
-		e, err := bp.NewRelease(doc, strings.ToLower(d.self.Email), d.now(), v, false, incorporates, note, d.signer())
-		if err != nil {
-			return res, err
-		}
-		if err := doc.AddEntry(e); err != nil {
-			return res, err
-		}
-		path := f.Path
-		if personal {
-			path, err = d.Store.Move(f, h.dir.Dir, doc)
-		} else {
-			err = d.Store.Update(f, doc)
-		}
-		if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
+		res, again, err := d.releaseLocked(f, doc, h, personal, teamName, id, o)
+		unlock()
+		if again && attempt < 3 {
 			continue
 		}
-		if err != nil {
-			return res, err
-		}
-		res = PublishResult{Path: path, Team: teamName, Version: v}
-		if doc.IsDomain() {
-			if _, err := d.Store.SaveSnapshot(path, v, doc); err != nil {
-				d.logf("snapshot of %s v%d: %v", path, v, err)
-			}
-		}
-		for _, en := range entriesOf(doc) {
-			if en.Valid() && !merge.VerifiedBy(team, id, en) {
-				res.LocalOnly++
-			}
-		}
-		d.logf("published %s to %s as version %d", path, teamName, v)
-		d.pushTeam(h.dir.Team)
-		return res, nil
+		return res, err
 	}
 }
+
+// releaseLocked is one attempt of release, holding the document's lock.
+// again is set when the file changed underneath and the caller retries.
+func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal bool, teamName, id string, o relOpts) (res PublishResult, again bool, err error) {
+	if cur, err := d.Store.Load(f.Path); err != nil || !bytes.Equal(cur.Raw, f.Raw) {
+		return res, err == nil, err
+	}
+	if dup, err := d.Store.FindIn(h.dir.Dir, id); err != nil {
+		return res, false, err
+	} else if dup != nil && dup.Path != f.Path {
+		return res, false, &store.ErrDuplicate{KalkaID: id, Paths: []string{f.Path, dup.Path}}
+	}
+	if doc.IsDomain() && doc.DomainName() == "" {
+		return res, false, errors.New("a domain document needs `domain:` with a name of lower-case letters, digits and dashes")
+	}
+	if doc.IsDomain() {
+		if other := d.domainHolder(h, doc.DomainName(), id); other != "" {
+			return res, false, &Error{Kind: KindDomainExists, Msg: fmt.Sprintf("%s already holds domain %s; a team has one document per domain", other, doc.DomainName())}
+		}
+	}
+	doc.SetFrontmatter(bp.KeyTeam, teamName)
+	team := h.team()
+	ch := merge.Releases(entriesOf(doc), id, team)
+	head, released := ch.Head()
+	if o.mode == modePublish && !personal && released {
+		return res, false, fmt.Errorf("%s is already published as version %d; release a new version with `%s release`", d.rel(f.Path), head.Release.Version, name.Binary)
+	}
+	if o.mode == modeAuto && (ch.Pending == nil || !bp.SameEmail(ch.Pending.Owner, d.self.Email)) {
+		return res, false, errTaken
+	}
+	releaser, v := nextReleaser(ch, doc.Owner())
+	if ch.Disputed {
+		return res, false, &Error{Kind: KindDisputed, Msg: "ownership of this document is disputed; a team owner settles it by reassigning the document"}
+	}
+	if releaser == "" {
+		return res, false, errors.New("this document has no valid release to build on; a team owner settles it by reassigning the document")
+	}
+	if !bp.SameEmail(releaser, d.self.Email) {
+		return res, false, &Error{Kind: KindNotOwner, Msg: fmt.Sprintf("only %s, the owner, can release this document; a team owner can reassign it first", releaser)}
+	}
+	for _, x := range o.incorporates {
+		if e := entryByID(doc, x); e == nil || e.Kind == bp.KindRelease {
+			return res, false, fmt.Errorf("%s is not a comment of this document", x)
+		}
+	}
+	// The released plan names its owner: the local user, also after a
+	// reassignment (spec 7.3), or the recipient of a handoff (7.2).
+	owner := strings.ToLower(d.self.Email)
+	if o.mode == modeHandoff {
+		owner = strings.ToLower(o.owner)
+	}
+	if !bp.SameEmail(doc.Owner(), owner) {
+		doc.SetFrontmatter(name.FrontmatterOwner, owner)
+	}
+	if released && head.Release.Plan == doc.PlanHash() && o.mode != modeAuto {
+		if !personal {
+			return res, false, fmt.Errorf("version %d is already the published version of this plan; edit it first", head.Release.Version)
+		}
+		// Released, but lying in Personal: it only needs to move.
+		path, err := d.Store.Move(f, h.dir.Dir, doc)
+		if err != nil {
+			return res, errors.Is(err, fsutil.ErrChanged), err
+		}
+		d.logf("moved %s into %s", path, teamName)
+		d.pushTeam(h.dir.Team)
+		return PublishResult{Path: path, Team: teamName, Version: head.Release.Version}, false, nil
+	}
+	if doc.IsDomain() {
+		doc.SetFrontmatter(bp.KeyVersion, strconv.FormatInt(v, 10))
+	}
+	e, err := bp.NewRelease(doc, strings.ToLower(d.self.Email), d.now(), v, false, o.incorporates, o.note, d.signer())
+	if err != nil {
+		return res, false, err
+	}
+	if err := doc.AddEntry(e); err != nil {
+		return res, false, err
+	}
+	path := f.Path
+	if personal {
+		path, err = d.Store.Move(f, h.dir.Dir, doc)
+	} else {
+		err = d.Store.Update(f, doc)
+	}
+	if err != nil {
+		return res, errors.Is(err, fsutil.ErrChanged), err
+	}
+	res = PublishResult{Path: path, Team: teamName, Version: v}
+	if doc.IsDomain() {
+		if _, err := d.Store.SaveSnapshot(path, v, doc); err != nil {
+			d.logf("snapshot of %s v%d: %v", path, v, err)
+		}
+	}
+	for _, en := range entriesOf(doc) {
+		if en.Valid() && !merge.VerifiedBy(team, id, en) {
+			res.LocalOnly++
+		}
+	}
+	d.logf("published %s to %s as version %d", path, teamName, v)
+	d.pushTeam(h.dir.Team)
+	return res, false, nil
+}
+
+// errTaken: kalka's own release after a reassignment was already made.
+var errTaken = errors.New("already released by the new owner")
 
 // publishTarget is the team a publish goes to, and whether the file lies in
 // Personal and so moves. A file in a team's folder belongs to that team;
@@ -238,12 +287,12 @@ func (d *Node) Delete(path string) error {
 		return errors.New("this document is busy in a sync; try again")
 	}
 	defer unlock()
-	team := h.teamFor(doc)
+	team := h.team()
 	ch := merge.Releases(entriesOf(doc), id, team)
 	if _, ok := ch.Head(); !ok {
 		return errors.New("the document has no valid release; nothing to delete for the team")
 	}
-	releaser, v := nextReleaser(ch, team, id, doc.Owner())
+	releaser, v := nextReleaser(ch, doc.Owner())
 	if !bp.SameEmail(releaser, d.self.Email) {
 		return fmt.Errorf("only %s can delete this document for the team", releaser)
 	}
@@ -300,53 +349,6 @@ func (d *Node) releaseOwn(path, note string) {
 	}
 }
 
-// afterLogChange reacts to new operations in a team log (spec 19.5): a
-// document reassigned to the local user gets its owner line and a release.
-func (d *Node) afterLogChange(h *held) {
-	for dom, a := range h.st.Domains {
-		if !bp.SameEmail(a.Owner, d.self.Email) {
-			continue
-		}
-		for _, in := range d.Store.FindDomain(h.dir.Name, dom) {
-			if !inDir(h.dir.Dir, in.Path) {
-				continue
-			}
-			f, err := d.Store.Load(in.Path)
-			if err != nil || bp.SameEmail(f.Doc.Owner(), d.self.Email) || f.Doc.HasErrors() {
-				continue
-			}
-			team := h.teamFor(f.Doc)
-			ch := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), team)
-			head, ok := ch.Head()
-			if !ok || head.Release.Version < a.After || head.Release.Plan != f.Doc.PlanHash() {
-				continue // the releases up to the cut-off have not arrived yet
-			}
-			if _, err := d.Publish(f.Path, h.dir.Name, "domain assigned to "+d.self.Email); err != nil {
-				d.logf("taking over domain %s: %v", dom, err)
-			}
-		}
-	}
-	for id, a := range h.st.Reassigned {
-		if !bp.SameEmail(a.Owner, d.self.Email) {
-			continue
-		}
-		f, err := d.Store.FindIn(h.dir.Dir, id)
-		if err != nil || f == nil || f.Doc.Team() != h.dir.Name || bp.SameEmail(f.Doc.Owner(), d.self.Email) {
-			continue
-		}
-		if f.Doc.IsDomain() {
-			continue // a domain follows assign-domain
-		}
-		ch := merge.Releases(entriesOf(f.Doc), id, h.teamFor(f.Doc))
-		if r, _ := nextReleaser(ch, h.teamFor(f.Doc), id, f.Doc.Owner()); !bp.SameEmail(r, d.self.Email) {
-			continue // the releases up to the cut-off have not arrived yet
-		}
-		if _, err := d.Publish(f.Path, h.dir.Name, "reassigned to "+d.self.Email); err != nil {
-			d.logf("taking over %s: %v", f.Path, err)
-		}
-	}
-}
-
 // memberOnline starts a round with each team the peer belongs to (spec
 // 20.3: when a member comes online).
 func (d *Node) memberOnline(email string) {
@@ -369,13 +371,17 @@ type TeamDocState struct {
 	CanAct    bool   `json:"can_act,omitempty"`  // the local user may publish an update or delete
 	Unrel     bool   `json:"unreleased,omitempty"`
 	Disputed  bool   `json:"disputed,omitempty"`
-	Pending   string `json:"reassigned_to,omitempty"` // reassigned, owner line not yet updated
+	Pending   string `json:"reassigned_to,omitempty"` // reassigned, the new owner has not released yet
 	OwnerGone bool   `json:"owner_not_member,omitempty"`
 	LocalOnly int    `json:"local_only,omitempty"`
 	Void      int    `json:"void_releases,omitempty"`
-	// Domain is set for a domain document (spec 6.12); Releaser is then the
-	// assigned domain owner, "" when none is assigned.
-	Domain string `json:"domain,omitempty"`
+	// TeamOwner is set when the local user is a team owner: they may
+	// reassign the document, or take it over to act on it (spec 7.4).
+	TeamOwner bool `json:"team_owner,omitempty"`
+	// Domain is set for a domain document (spec 6.12); DomainClash names
+	// another published document of the team claiming the same domain.
+	Domain      string `json:"domain,omitempty"`
+	DomainClash string `json:"domain_clash,omitempty"`
 }
 
 func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
@@ -390,7 +396,7 @@ func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
 	}
 	ts.Held = true
 	id := doc.KalkaID()
-	team := h.teamFor(doc)
+	team := h.team()
 	ch := merge.Releases(entriesOf(doc), id, team)
 	head, ok := ch.Head()
 	ts.Unrel = true
@@ -398,15 +404,18 @@ func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
 		ts.Version = head.Release.Version
 		ts.Unrel = head.Release.Plan != doc.PlanHash()
 	}
-	ts.Releaser, _ = nextReleaser(ch, team, id, doc.Owner())
+	ts.Releaser, _ = nextReleaser(ch, doc.Owner())
 	ts.Domain = doc.DomainName()
+	if doc.IsDomain() {
+		ts.DomainClash = d.domainHolder(h, ts.Domain, id)
+	}
 	ts.CanAct = bp.SameEmail(ts.Releaser, d.self.Email) && !ch.Disputed
 	ts.Disputed, ts.Void = ch.Disputed, len(ch.Void)
-	if a, ok := h.st.Reassigned[id]; ok && !doc.IsDomain() && !bp.SameEmail(a.Owner, doc.Owner()) {
-		ts.Pending = a.Owner
+	if ch.Pending != nil {
+		ts.Pending = ch.Pending.Owner
 	}
-	if doc.IsDomain() && ts.Releaser != "" && !bp.SameEmail(ts.Releaser, doc.Owner()) {
-		ts.Pending = ts.Releaser
+	if me, ok := memberOf(h.st, d.self.Email); ok && me.Owner {
+		ts.TeamOwner = true
 	}
 	if _, ok := memberOf(h.st, ts.Releaser); !ok && ts.Pending == "" && ts.Releaser != "" {
 		ts.OwnerGone = true
@@ -422,7 +431,7 @@ func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
 // entryTeamState marks an entry of a published document: signed by a
 // current member, by a removed member, or local only (spec 11.1).
 func (d *Node) entryTeamState(h *held, id string, e *bp.Entry) string {
-	if !merge.VerifiedBy(h.teamFor(), id, e) {
+	if !merge.VerifiedBy(h.team(), id, e) {
 		return "local-only"
 	}
 	if _, ok := memberOf(h.st, e.Author); !ok {

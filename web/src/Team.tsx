@@ -1,6 +1,6 @@
-// Team view (spec 11.1): members, owners, domain owners, open invites and
-// the log as a readable history; Join, Invite, Remove (with a preview of
-// the documents to be reassigned), Add owner, Assign domain.
+// Team view (spec 11.1): members, owners, open invites and the log as a
+// readable history; Join, Invite, Remove (with a preview of the documents
+// to be reassigned), Add owner.
 import { useCallback, useEffect, useState } from 'react'
 import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Join, type Reassigned, type Team, type TeamMember } from './api'
 import { docHref, localTime, plural } from './util'
@@ -248,19 +248,6 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
         </div>
       )}
 
-      <h3>Domains</h3>
-      {t.domains.length === 0 ? (
-        <p className="muted small">No domain owners yet.</p>
-      ) : (
-        <ul className="plain">
-          {t.domains.map((d) => (
-            <li key={d.domain}>
-              <span className="mono">{d.domain}</span> · {d.owner === self ? 'you' : d.owner} · from version {d.after + 1}
-            </li>
-          ))}
-        </ul>
-      )}
-      {owner && <AssignForm t={t} run={run} />}
 
       {owner && <Invites t={t} run={run} />}
 
@@ -337,32 +324,6 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
         </td>
       )}
     </tr>
-  )
-}
-
-function AssignForm({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Promise<void> }) {
-  const [domain, setDomain] = useState('')
-  const [email, setEmail] = useState(t.members[0]?.email ?? '')
-  return (
-    <form
-      className="row"
-      onSubmit={(e) => {
-        e.preventDefault()
-        run(() => api.assignDomain(t.team, domain.trim(), email)).then(() => setDomain(''))
-      }}
-    >
-      <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="domain, e.g. loans" aria-label="Domain" />
-      <select value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Domain owner">
-        {t.members.map((m) => (
-          <option key={m.email} value={m.email}>
-            {m.email}
-          </option>
-        ))}
-      </select>
-      <button type="submit" disabled={!domain.trim() || !email}>
-        Assign domain
-      </button>
-    </form>
   )
 }
 
@@ -512,7 +473,7 @@ function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => P
 }
 
 // DomainsPage lists the team domain documents held here (spec 6.12, 11.1):
-// version, domain owner, open comments, kept versions.
+// version, owner, open comments, kept versions.
 export function DomainsPage({ reloadKey, list }: { reloadKey: number; list: BlueprintInfo[] }) {
   const [rows, setRows] = useState<DomainRow[] | null>(null)
   const [err, setErr] = useState('')
@@ -523,8 +484,8 @@ export function DomainsPage({ reloadKey, list }: { reloadKey: number; list: Blue
     <div className="page">
       <h1>Domains</h1>
       <p className="muted">
-        A domain document holds a team's shared language: glossary, contexts, invariants, events. Its domain owner, assigned by a
-        team owner on the <a href="#/team">Team</a> page, releases its versions; everyone else comments. Blueprints name the
+        A domain document holds a team's shared language: glossary, contexts, invariants, events. Its owner releases its versions,
+        like any document's; everyone else comments. Blueprints name the
         version they rely on with <code>domain: &lt;team&gt;/&lt;domain&gt;@v&lt;N&gt;</code>.
       </p>
       {err && <div className="error-box">{err}</div>}
@@ -541,7 +502,7 @@ export function DomainsPage({ reloadKey, list }: { reloadKey: number; list: Blue
               <tr>
                 <th>Domain</th>
                 <th>Version</th>
-                <th>Domain owner</th>
+                <th>Owner</th>
                 <th>Open comments</th>
                 <th>Kept versions</th>
               </tr>

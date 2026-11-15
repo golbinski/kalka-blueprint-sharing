@@ -21,7 +21,7 @@ type DomainInfo struct {
 	Version  int64   `json:"version"`
 	Versions []int64 `json:"versions"`
 	Viewing  int64   `json:"viewing,omitempty"`
-	// Owner is the assigned domain owner, "" when none is.
+	// Owner releases the next version, "" when nobody may (a dispute).
 	Owner string `json:"owner,omitempty"`
 }
 
@@ -37,7 +37,7 @@ type DomainRefView struct {
 	Rel       string `json:"rel,omitempty"`
 	Held      bool   `json:"held"`
 	Missing   bool   `json:"missing,omitempty"`   // the pinned version is not kept here
-	Ambiguous bool   `json:"ambiguous,omitempty"` // two teams held here have that name
+	Ambiguous bool   `json:"ambiguous,omitempty"` // two teams held here have that name, or two documents claim the domain
 }
 
 // DomainRow is one domain document in `kalka domains` and the Domains view.
@@ -48,8 +48,8 @@ type DomainRow struct {
 	Path       string  `json:"path"`
 	Rel        string  `json:"rel"`
 	Version    int64   `json:"version"`
-	Owner      string  `json:"owner,omitempty"` // assigned domain owner
-	You        bool    `json:"you,omitempty"`   // you are the domain owner
+	Owner      string  `json:"owner,omitempty"` // who releases the next version
+	You        bool    `json:"you,omitempty"`   // you are the owner
 	Unreleased bool    `json:"unreleased,omitempty"`
 	Open       int     `json:"open"` // comments no release incorporated
 	Versions   []int64 `json:"versions"`
@@ -71,14 +71,14 @@ func (d *Node) Domains() []DomainRow {
 			r.Versions = []int64{}
 		}
 		if h, err := d.heldAt(in.Path); err == nil && h.dir.Name == in.Team {
-			team := h.teamFor(f.Doc)
+			team := h.team()
 			ch := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), team)
 			head, ok := ch.Head()
 			r.Unreleased = !ok || head.Release.Plan != f.Doc.PlanHash()
 			if ok {
 				r.Version = head.Release.Version
 			}
-			r.Owner, _ = nextReleaser(ch, team, f.Doc.KalkaID(), f.Doc.Owner())
+			r.Owner, _ = nextReleaser(ch, f.Doc.Owner())
 			r.You = r.Owner != "" && bp.SameEmail(r.Owner, d.self.Email)
 			inc := incorporated(ch)
 			for _, e := range entriesOf(f.Doc) {
@@ -126,14 +126,12 @@ func (d *Node) domainInfo(live string, doc *bp.Document, viewing int64) (*Domain
 	if err != nil || h.dir.Name != doc.Team() {
 		return di, nil
 	}
-	team := h.teamFor(doc)
+	team := h.team()
 	ch := merge.Releases(entriesOf(doc), doc.KalkaID(), team)
 	if head, ok := ch.Head(); ok {
 		di.Version = head.Release.Version
 	}
-	if a, ok := h.st.Domains[di.Name]; ok {
-		di.Owner = a.Owner
-	}
+	di.Owner, _ = nextReleaser(ch, doc.Owner())
 	return di, incorporated(ch)
 }
 
@@ -151,8 +149,9 @@ func (d *Node) domainRef(doc *bp.Document) *DomainRefView {
 			n++
 		}
 	}
-	v.Ambiguous = n > 1
 	docs := d.Store.FindDomain(ref.Team, ref.Domain)
+	// Two teams of that name, or two documents claiming the domain (D4).
+	v.Ambiguous = n > 1 || len(docs) > 1
 	if len(docs) == 0 {
 		return v
 	}
@@ -164,7 +163,7 @@ func (d *Node) domainRef(doc *bp.Document) *DomainRefView {
 	}
 	v.Latest = f.Doc.DomainVersion()
 	if h, err := d.heldByName(ref.Team); err == nil {
-		ch := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), h.teamFor(f.Doc))
+		ch := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), h.team())
 		if head, ok := ch.Head(); ok {
 			v.Latest = head.Release.Version
 		}
