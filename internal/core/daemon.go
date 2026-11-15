@@ -68,6 +68,9 @@ type Node struct {
 	// bg tracks work started in the background (rounds, takeovers after a
 	// log change) so Run returns only when it is done.
 	bg sync.WaitGroup
+	// installs serializes installing accepted transfers (spec 20.7), so
+	// the file and its release 1 appear as one step.
+	installs sync.Mutex
 	// work is the context of background work. It outlives Run's ctx by
 	// up to DrainTimeout, so a stop lets running rounds finish.
 	work context.Context
@@ -226,6 +229,14 @@ func (d *Node) Run(ctx context.Context) error {
 	d.work, d.stopping = work, ctx
 	d.refs.ctx = ctx // plugin calls end with the daemon
 	d.seedNotices()
+	d.background(func() {
+		// Decisions taken while this daemon was stopped (spec 20.7).
+		for _, t := range d.teamDirs() {
+			if h, err := d.heldTeam(t.Team); err == nil && h.isMember(d.self.Email, d.pub) {
+				d.afterTransfers(h)
+			}
+		}
+	})
 	go d.forward(ctx)
 	var wg, sig sync.WaitGroup
 	wg.Add(1)

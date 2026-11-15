@@ -21,8 +21,11 @@ type State struct {
 	// order, so entries of removed members can still be verified (20.4).
 	Keys map[string][]string
 	// Reassigned maps a kalka_id to its anchors: every effective
-	// reassign-document of it, ordered by cut-off, one per cut-off (rule 8).
+	// reassign-document of it, and an effective accept-transfer at cut-off
+	// 0, ordered by cut-off, one per cut-off (rule 8).
 	Reassigned map[string][]Assignment
+	// Transfers maps a transfer digest to its effective decision (19.6).
+	Transfers map[string]Decision
 	// Invites maps a used invite id to the add-member that used it.
 	Invites map[string]string
 	// Effective holds the hashes of the operations that count.
@@ -46,15 +49,28 @@ type Member struct {
 	Owner  bool   `json:"owner,omitempty"`
 }
 
-// Assignment is an effective reassign-document: Owner is the only valid
-// signer of release After+1 (spec 20.4).
+// Assignment is an effective reassign-document, or an accept-transfer
+// (Transfer set, After 0): Owner is the only valid signer of release
+// After+1 (spec 20.4).
 type Assignment struct {
-	Op    string `json:"op"`
-	Owner string `json:"owner"`
-	From  string `json:"from,omitempty"`
-	After int64  `json:"after"`
-	Plan  string `json:"plan,omitempty"`
-	At    string `json:"at,omitempty"`
+	Op       string `json:"op"`
+	Owner    string `json:"owner"`
+	From     string `json:"from,omitempty"`
+	After    int64  `json:"after"`
+	Plan     string `json:"plan,omitempty"`
+	At       string `json:"at,omitempty"`
+	Transfer string `json:"transfer,omitempty"`
+}
+
+// Decision is the effective decision on one transfer offer: an accept, or
+// else the first decline (rule 8).
+type Decision struct {
+	Op       string `json:"op"`
+	Doc      string `json:"doc"`
+	Accepted bool   `json:"accepted"`
+	Owner    string `json:"owner,omitempty"` // accept: the owner of version 1
+	By       string `json:"by"`              // the deciding team owner
+	At       string `json:"at,omitempty"`
 }
 
 // Discard explains why an operation does not count.
@@ -774,8 +790,38 @@ func (r *replayer) evaluate(decided map[int]string, kills map[int]string) *eval 
 				fail("stale cut-off: a later reassignment of this document was already seen")
 				continue
 			}
+
+		case AcceptTransfer:
+			// Rule 10; rule 8: one accept per transfer, and per document.
+			if memberInView(a.Owner, i) == nil {
+				fail(a.Owner + " is not a member")
+				continue
+			}
+			decided := false
+			for j := 0; j < i && !decided; j++ {
+				q := r.nodes[j].op
+				decided = e.eff[j] && q.Kind == AcceptTransfer && (q.Args.Transfer == a.Transfer || q.Args.Doc == a.Doc)
+			}
+			if decided {
+				fail("already decided: another accept of this transfer counts")
+				continue
+			}
 		}
 		e.eff[i], e.used[i] = true, ot
+	}
+	// Rule 8: an accept beats a decline of the same transfer, whichever
+	// is visited first.
+	accepted := map[string]bool{}
+	for i, nd := range r.nodes {
+		if e.eff[i] && nd.op.Kind == AcceptTransfer {
+			accepted[nd.op.Args.Transfer] = true
+		}
+	}
+	for i, nd := range r.nodes {
+		if e.eff[i] && nd.op.Kind == DeclineTransfer && accepted[nd.op.Args.Transfer] {
+			e.eff[i], e.used[i] = false, nil
+			e.reason[i] = "already decided: an accept of this transfer counts"
+		}
 	}
 	return e
 }
@@ -820,7 +866,7 @@ func (r *replayer) ownerTermsUpTo(e *eval, mt *mterm, i int) []*oterm {
 
 func (r *replayer) state(e *eval) *State {
 	s := &State{Team: r.team, Members: map[string]Member{}, Keys: map[string][]string{},
-		Reassigned: map[string][]Assignment{}, Invites: map[string]string{},
+		Reassigned: map[string][]Assignment{}, Transfers: map[string]Decision{}, Invites: map[string]string{},
 		Effective: map[string]bool{}, Pending: r.pending, Heads: r.heads}
 	if s.Pending == nil {
 		s.Pending = []Discard{}
@@ -910,15 +956,31 @@ func (r *replayer) state(e *eval) *State {
 	for _, o := range owners {
 		s.Owners = append(s.Owners, o.email)
 	}
-	// Anchors: every effective reassignment; of those with one cut-off,
-	// the last in visiting order.
+	// Decisions: the accept, or else the first decline.
 	for i, nd := range r.nodes {
-		if !e.eff[i] || nd.op.Kind != ReassignDocument {
+		k := nd.op.Kind
+		if !e.eff[i] || (k != AcceptTransfer && k != DeclineTransfer) {
+			continue
+		}
+		a := nd.op.Args
+		if _, ok := s.Transfers[a.Transfer]; ok && k == DeclineTransfer {
+			continue
+		}
+		s.Transfers[a.Transfer] = Decision{Op: nd.hash, Doc: a.Doc, Accepted: k == AcceptTransfer,
+			Owner: a.Owner, By: e.used[i].mt.email, At: nd.op.At}
+	}
+	// Anchors: every effective reassignment and accept; of those with one
+	// cut-off, the last in visiting order.
+	for i, nd := range r.nodes {
+		if !e.eff[i] || (nd.op.Kind != ReassignDocument && nd.op.Kind != AcceptTransfer) {
 			continue
 		}
 		a := nd.op.Args
 		as := s.Reassigned[a.Doc]
 		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, Plan: a.Plan, At: nd.op.At}
+		if nd.op.Kind == AcceptTransfer {
+			x = Assignment{Op: nd.hash, Owner: a.Owner, At: nd.op.At, Transfer: a.Transfer}
+		}
 		k := sort.Search(len(as), func(j int) bool { return as[j].After >= a.After })
 		if k < len(as) && as[k].After == a.After {
 			as[k] = x

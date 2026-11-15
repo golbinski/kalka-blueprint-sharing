@@ -13,12 +13,17 @@ import (
 )
 
 type fakeTeam struct {
-	keys    map[string][]ed25519.PublicKey
-	anchors map[string][]Anchor
+	keys     map[string][]ed25519.PublicKey
+	anchors  map[string][]Anchor
+	accepted map[string]Acceptance
 }
 
 func (f *fakeTeam) Keys(email string) []ed25519.PublicKey { return f.keys[strings.ToLower(email)] }
 func (f *fakeTeam) Anchors(id string) []Anchor            { return f.anchors[id] }
+func (f *fakeTeam) Accepted(id string) (Acceptance, bool) {
+	a, ok := f.accepted[id]
+	return a, ok
+}
 
 func tkey(s string) ed25519.PrivateKey {
 	seed := sha256.Sum256([]byte(s))
@@ -33,7 +38,7 @@ func sgn(email string) bp.Signer {
 var members = []string{"dana@example.org", "bob@example.org", "carol@example.org", "erin@example.org"}
 
 func newFakeTeam() *fakeTeam {
-	f := &fakeTeam{keys: map[string][]ed25519.PublicKey{}, anchors: map[string][]Anchor{}}
+	f := &fakeTeam{keys: map[string][]ed25519.PublicKey{}, anchors: map[string][]Anchor{}, accepted: map[string]Acceptance{}}
 	for _, m := range members {
 		f.keys[m] = []ed25519.PublicKey{tkey(m).Public().(ed25519.PublicKey)}
 	}

@@ -654,6 +654,55 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - Error kinds beyond handoff/reassign in the CLI's `--json` belong with T6's parity work.
   - Waiting items for handoffs and disputes (D10) are T6.
 
+**T4, transfers between teams.** Done 2026-11-15.
+
+- **Team log** (`internal/teamlog`):
+  - `accept-transfer {doc, owner, transfer}` and `decline-transfer {doc, transfer}`, built by `Signer.Accept` and `Signer.Decline`.
+  - One accept counts per transfer, and per document, so a forged second offer with the same `kalka_id` cannot bring a second version 1.
+  - A decline is discarded when an accept of the same transfer counts, whichever is visited first. An accept whose signer is concurrently removed falls (rule 2), and the decline counts again.
+  - `State.Transfers` maps each transfer digest to its decision. An accept is also an anchor at cut-off 0 (`Assignment.Transfer`).
+  - The harness generates accepts and declines of a few offers, among them a second offer for one document and owners who are not members. It checks: at most one accept per transfer and per document, no decline beside an accept, and the named owner is a member in the operation's view. 100 000 histories pass (48 021 "already decided" discards; 818 s).
+- **Blueprint** (`transfer.go`):
+  - The `transfer` entry, whose `to:` names the destination as well as its hash (`to:library-desk/<hash>`), so source members outside it can read the banner.
+  - `HistoryDigest` and `EntryIDs`; the `transfer-withdrawn` entry (`re: <id>`, then `withdrawn`, `move declined`, `move withdrawn` or `move ended as a copy`).
+  - `copied-from`, `moved-from` and `moved-to`; `Release.Moved` and `NewMoveTombstone`; `DeleteFrontmatter`.
+- **Merge** (`merge/transfer.go`):
+  - `Team.Accepted(id)` is new. `Attested` matches the listed entries against the signed history, trying the signed copy first. `Trusted` is the entry filter (signed by a team key, or attested), used by `Docs`, `Replica`, `describe` and the views.
+  - Attested releases take no part in the chain.
+  - `CheckOffer` makes the checks of spec 20.7, and also refuses any entry that is neither attested nor signed by a member. `Pending` merges two copies of an offer, and `CheckStub` checks a stub.
+- **Core** (`core/transfer.go`):
+  - `Copy` and `Move(path, team, takeOver)`. They refuse a non-member of the destination (`not-member`), a Personal file (`in-personal`), a dispute (`disputed`), a transfer already pending (`transfer-pending`), and a file that differs from its head release. A move by a team owner who is not the owner needs `takeOver`, which reassigns the document first.
+  - The offer is written to `<team>/.kalka/incoming/<new id>.md`. For a move, the same entry, signed under the source id, records the start in the source.
+  - Replication:
+    - Pending offers and their stubs get inventory lines marked `pending` (`InvItem.Pending`) and travel as signed (`TeamDoc.Pending`) through `applyPending`. A pending copy gives way to the released document.
+    - A refusal is reported with its reason, prefixed "transfer refused:".
+  - Decisions:
+    - `AcceptTransfer(id, owner)`, `DeclineTransfer` and `WithdrawTransfer`, with the kinds `unknown-transfer`, `transfer-decided` and `domain-exists`.
+    - `afterTransfers` runs on every log change, after a pending merge, and at start. The owner of version 1 installs the document and releases it, serialized by `Node.installs`. Declined or withdrawn offers become stubs, the full offer going to `trash/<id>.offer.md`. A stub whose offer was accepted after all is restored.
+  - `finishMoves` is derived from files. The source's open move entry has the same digest as the offer's, so the destination log's decision is looked up directly. An accept writes the `moved:` tombstone (`deleteLocked`, shared with `Delete`). If the actor no longer releases the source, the move ends as a copy, with a notice. A decline appends "move declined".
+  - Notices (`transfer`): an offer waits for your team (to its owners); your transfer was accepted or declined; you were named owner; the move finished or ended as a copy.
+  - Views: `Transfers()`, shown to the destination's owners and to the actor. `DocView.transfer` carries the source, the actor and the accepting owner, or `moving_to` for the source's banner. Entries carry `team_state`/`sig` `attested`.
+  - `store.Info.From` and `Store.Resolve` let a seed's `parent` and a budded link find a copied or moved document.
+- **API and CLI:**
+  - `POST /api/transfers {path, team, mode, take_over}`, `GET /api/transfers`, `POST /api/transfers/{id}/accept|decline|withdraw`.
+  - `kalka copy|move <file> --to <team>`, `kalka transfers`, `kalka transfer accept <id> [--owner] | decline <id> | withdraw <id>`, all with `--json` kinds.
+- **Tests:**
+  - `core/transfer_test.go`, over two teams with real sessions:
+    - copy accepted (new id, `copied-from`, source bytes unchanged, accepting owner, handoff, history attested by actor and owner, held by a member outside the source team);
+    - move accepted (banner, no tombstone before Ewa sees the accept, the `moved:` tombstone after it, gone for Marek, and the source id resolves);
+    - declines of a copy (every peer stubs it, a stale offer cannot come back, a later accept is `transfer-decided`) and of a move (no tombstone, banner gone, a new transfer may start);
+    - offer checks (an altered, removed or added attested entry, and a transfer signed by Marek's key, are refused on two peers with the reason; Marek's own copy is `not-member`);
+    - an offer relayed while the actor is offline;
+    - two accepts, accept against decline, and accept against withdrawal: one version 1 everywhere, the accept winning;
+    - a move ending as a copy after a reassignment;
+    - a move there and back;
+    - a seed's parent after a move.
+  - Teamlog: `TestTransferDecisions`, `TestAcceptFallsWithRemoval`. Blueprint: the transfer entry round trip and the move tombstone. Daemon: `TestTransferAPI`.
+- **Left for later milestones:**
+  - The page has no transfer dialogs or attested badge yet; that is T7 (`Transfer.tsx`), on the API above. `kalka transfers` starts the daemon, where spec 12.1 calls it a view; it also belongs with T6.
+  - Waiting items for pending transfers (D10) are T6.
+  - The acceptance check of a domain document (`domain-exists`) is made by the accepting owner only; a concurrent clash is flagged as for any two domain documents.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

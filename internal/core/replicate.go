@@ -65,13 +65,25 @@ func (t logTeam) Keys(email string) []ed25519.PublicKey {
 	return out
 }
 
-// Anchors are the document's effective reassignments (spec 20.4).
+// Anchors are the document's effective reassignments and accepted
+// transfer (spec 20.4).
 func (t logTeam) Anchors(id string) []merge.Anchor {
 	var out []merge.Anchor
 	for _, a := range t.st.Reassigned[strings.ToLower(id)] {
 		out = append(out, merge.Anchor{Owner: a.Owner, After: a.After})
 	}
 	return out
+}
+
+// Accepted is the document's effective accept-transfer (spec 19.6).
+func (t logTeam) Accepted(id string) (merge.Acceptance, bool) {
+	id = strings.ToLower(id)
+	for tr, dec := range t.st.Transfers {
+		if dec.Accepted && dec.Doc == id {
+			return merge.Acceptance{Transfer: tr, By: dec.By, Owner: dec.Owner}, true
+		}
+	}
+	return merge.Acceptance{}, false
 }
 
 // held is a team log held locally, replayed.
@@ -142,12 +154,13 @@ func short(h string) string {
 
 // teamDoc is one published document of the replication set.
 type teamDoc struct {
-	item  syncproto.InvItem
-	path  string // the live file, or the tombstone
-	tomb  bool
-	doc   *bp.Document
-	raw   []byte
-	chain merge.ReleaseChain
+	item    syncproto.InvItem
+	path    string // the live file, the tombstone, or the pending file
+	tomb    bool
+	pending bool // a pending transfer, or its stub when tomb (spec 20.7)
+	doc     *bp.Document
+	raw     []byte
+	chain   merge.ReleaseChain
 }
 
 func entriesOf(doc *bp.Document) []*bp.Entry {
@@ -170,24 +183,31 @@ func describe(h *held, doc *bp.Document) (syncproto.InvItem, merge.ReleaseChain,
 		return syncproto.InvItem{}, ch, false
 	}
 	var ids []string
+	trust := merge.Trusted(h.team(), id, entriesOf(doc))
 	for _, e := range entriesOf(doc) {
-		if e.Valid() && merge.VerifiedBy(h.team(), id, e) {
+		if e.Valid() && trust(e) {
 			ids = append(ids, e.ID)
 		}
 	}
 	slices.Sort(ids)
-	sum := sha256.Sum256([]byte(strings.Join(slices.Compact(ids), ",")))
 	return syncproto.InvItem{ID: id, Version: head.Release.Version, Plan: head.Release.Plan,
-		Entries: hex.EncodeToString(sum[:16]), Deleted: head.Release.Deleted}, ch, true
+		Entries: idsDigest(ids), Deleted: head.Release.Deleted}, ch, true
+}
+
+// idsDigest is the inventory digest of a sorted list of entry ids.
+func idsDigest(ids []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(slices.Compact(ids), ",")))
+	return hex.EncodeToString(sum[:16])
 }
 
 func tombDir(h *held) string  { return filepath.Join(h.dir.Dir, ".kalka", "tombstones") }
 func trashDir(h *held) string { return filepath.Join(h.dir.Dir, ".kalka", "trash") }
 
 // replicaSet lists the team's documents held here: the team documents in
-// its folder (isTeamDoc) and the tombstones (spec 14, 20.1, 20.6). Nothing
-// else ever enters an inventory; no file outside the team's folder is
-// even read.
+// its folder (isTeamDoc), the tombstones, and the pending transfers with
+// the stubs of those declined or withdrawn (spec 14, 20.1, 20.6, 20.7).
+// Nothing else ever enters an inventory; no file outside the team's
+// folder is even read.
 func (d *Node) replicaSet(h *held) map[string]teamDoc {
 	set := map[string]teamDoc{}
 	for _, in := range d.Store.List() {
@@ -202,6 +222,12 @@ func (d *Node) replicaSet(h *held) map[string]teamDoc {
 			set[item.ID] = teamDoc{item: item, path: f.Path, doc: f.Doc, raw: f.Raw, chain: ch}
 		}
 	}
+	for _, p := range d.pendingDocs(h) {
+		if _, released := set[p.id]; released || p.err != nil {
+			continue
+		}
+		set[p.id] = teamDoc{item: pendingItem(p.doc, false), path: p.path, pending: true, doc: p.doc, raw: p.raw}
+	}
 	tombs, _ := filepath.Glob(filepath.Join(tombDir(h), "*.md"))
 	for _, p := range tombs {
 		raw, err := os.ReadFile(p)
@@ -214,6 +240,12 @@ func (d *Node) replicaSet(h *held) map[string]teamDoc {
 		}
 		if item, ch, ok := describe(h, doc); ok && item.Deleted {
 			set[item.ID] = teamDoc{item: item, path: p, tomb: true, doc: doc, raw: raw, chain: ch}
+			continue
+		}
+		if _, _, err := merge.CheckStub(doc, h.team()); err == nil {
+			if td, ok := set[doc.KalkaID()]; !ok || td.pending {
+				set[doc.KalkaID()] = teamDoc{item: pendingItem(doc, true), path: p, tomb: true, pending: true, doc: doc, raw: raw}
+			}
 		}
 	}
 	return set
@@ -223,7 +255,7 @@ func digest(set map[string]teamDoc) string {
 	lines := make([]string, 0, len(set))
 	for _, td := range set {
 		it := td.item
-		lines = append(lines, fmt.Sprintf("%s %d %s %s %t", it.ID, it.Version, it.Plan, it.Entries, it.Deleted))
+		lines = append(lines, fmt.Sprintf("%s %d %s %s %t %t", it.ID, it.Version, it.Plan, it.Entries, it.Deleted, it.Pending))
 	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
@@ -241,7 +273,9 @@ func inventory(set map[string]teamDoc) []syncproto.InvItem {
 
 // wants lists what to ask for from the other side's inventory: documents
 // not held, newer versions, and differing entry sets. A local tombstone is
-// final and wants nothing.
+// final and wants nothing. A pending transfer is wanted while none is
+// held, again for a withdrawal, and gives way to the released document
+// (spec 20.7).
 func wants(mine map[string]teamDoc, theirs []syncproto.InvItem) []string {
 	var out []string
 	for _, t := range theirs {
@@ -250,6 +284,13 @@ func wants(mine map[string]teamDoc, theirs []syncproto.InvItem) []string {
 		case !ok:
 			out = append(out, t.ID)
 		case m.item.Deleted:
+		case t.Pending && !m.pending:
+		case t.Pending:
+			if t.Deleted || t.Entries != m.item.Entries {
+				out = append(out, t.ID)
+			}
+		case m.pending:
+			out = append(out, t.ID)
 		case t.Deleted, t.Version > m.item.Version, t.Entries != m.item.Entries, t.Version == m.item.Version && t.Plan != m.item.Plan:
 			out = append(out, t.ID)
 		}
@@ -525,7 +566,11 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 	give := func() error {
 		for _, id := range tw.IDs {
 			doc := syncproto.TeamDoc{Type: "team_doc", Team: team, KalkaID: id}
-			if td, ok := set[strings.ToLower(id)]; ok {
+			if td, ok := set[strings.ToLower(id)]; ok && td.pending {
+				// A pending document travels as signed (spec 20.7).
+				doc.Filename, doc.Content, doc.Pending = filepath.Base(td.path), string(td.raw), true
+				res.Sent = append(res.Sent, td.item.ID)
+			} else if ok {
 				if rep, err := merge.Replica(td.doc, h.team()); err == nil {
 					doc.Filename, doc.Content = filepath.Base(td.path), string(rep.Bytes())
 					res.Sent = append(res.Sent, td.item.ID)
@@ -552,7 +597,11 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 				res.Unavailable++
 				continue
 			}
-			written, ref := d.applyReplica(h, peer.Email, off)
+			apply := d.applyReplica
+			if off.Pending {
+				apply = d.applyPending
+			}
+			written, ref := apply(h, peer.Email, off)
 			if ref != nil {
 				res.Refused = append(res.Refused, *ref)
 			}
@@ -608,7 +657,9 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 		set := d.replicaSet(h)
 		var local *bp.Document
 		var live *store.File
-		if td, ok := set[id]; ok {
+		if td, ok := set[id]; ok && td.pending {
+			// A pending copy: the released document replaces it.
+		} else if ok {
 			local = td.doc
 			if !td.tomb {
 				live, _ = d.Store.Load(td.path)
@@ -641,7 +692,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 			d.logf("%s was deleted for team %s (from %s)", in.Title(), h.dir.Name, from)
 			return true, nil
 		}
-		if td, ok := set[id]; ok && td.tomb {
+		if td, ok := set[id]; ok && td.tomb && !td.pending {
 			return false, nil // a tombstone is final
 		}
 		var path string
@@ -668,6 +719,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 		}
 		d.snapshotHead(h, path, doc)
 		d.notePushed(id)
+		d.dropPending(h, id)
 		var before *bp.Document
 		if live != nil {
 			before = live.Doc

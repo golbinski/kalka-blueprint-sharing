@@ -106,7 +106,7 @@ func (d *Node) Backlink(seedPath string) (*bp.Entry, error) {
 	if sf.Doc.Parent() == "" {
 		return nil, errors.New("this document names no parent")
 	}
-	pf, err := d.Store.Find(sf.Doc.Parent())
+	pf, err := d.Store.Resolve(sf.Doc.Parent())
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (d *Node) Seeds() []SeedView {
 		v := SeedView{Rel: d.rel(f.Path), KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(),
 			Mine: bp.SameEmail(doc.Owner(), d.self.Email), Parent: doc.Parent()}
 		if v.Parent != "" {
-			if pf, err := d.Store.Find(v.Parent); err == nil && pf != nil {
+			if pf, err := d.Store.Resolve(v.Parent); err == nil && pf != nil {
 				v.ParentRel, v.ParentTitle = d.rel(pf.Path), pf.Doc.Title()
 			}
 		}

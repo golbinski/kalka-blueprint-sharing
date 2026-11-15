@@ -34,6 +34,8 @@ const (
 	AddOwner         = "add-owner"
 	RemoveOwner      = "remove-owner"
 	ReassignDocument = "reassign-document"
+	AcceptTransfer   = "accept-transfer"
+	DeclineTransfer  = "decline-transfer"
 )
 
 // MaxLine bounds one encoded operation, so a hostile peer cannot hand over
@@ -43,17 +45,19 @@ const MaxLine = 8 << 10
 // Args are the arguments of an operation. Which fields an operation
 // carries is fixed by its kind (argKeys); After and Plan are meaningful
 // only for reassign-document: the highest release the signer held and its
-// plan hash, 0 and "" when it held none.
+// plan hash, 0 and "" when it held none. Transfer is the digest of an
+// offer's transfer entry (spec 20.7).
 type Args struct {
-	Name   string
-	Email  string
-	PubKey string
-	Invite string
-	Owner  string
-	Doc    string
-	From   string
-	After  int64
-	Plan   string
+	Name     string
+	Email    string
+	PubKey   string
+	Invite   string
+	Owner    string
+	Doc      string
+	From     string
+	After    int64
+	Plan     string
+	Transfer string
 }
 
 // argKeys lists the required keys of each kind; "invite" is the only
@@ -65,6 +69,8 @@ var argKeys = map[string][]string{
 	AddOwner:         {"email"},
 	RemoveOwner:      {"email"},
 	ReassignDocument: {"after", "doc", "from", "owner", "plan"},
+	AcceptTransfer:   {"doc", "owner", "transfer"},
+	DeclineTransfer:  {"doc", "transfer"},
 }
 
 // Op is one team log operation.
@@ -109,6 +115,8 @@ func value(a Args, key string) any {
 		return a.From
 	case "after":
 		return a.After
+	case "transfer":
+		return a.Transfer
 	}
 	return nil
 }
@@ -345,6 +353,8 @@ func Decode(line []byte) (Op, error) {
 			o.Args.Doc = s
 		case "from":
 			o.Args.From = s
+		case "transfer":
+			o.Args.Transfer = s
 		}
 	}
 	if err := o.checkShape(); err != nil {
@@ -403,8 +413,18 @@ func (o *Op) checkShape() error {
 			return errors.New("operation: bad invite id")
 		}
 		return email(a.Email)
+	case AcceptTransfer, DeclineTransfer:
+		if !validDoc(a.Doc) {
+			return errors.New("operation: bad document id")
+		}
+		if !hashRe.MatchString(a.Transfer) {
+			return errors.New("operation: bad transfer digest")
+		}
+		if o.Kind == AcceptTransfer {
+			return email(a.Owner)
+		}
 	case ReassignDocument:
-		if a.Doc == "" || len(a.Doc) > 64 || strings.ContainsAny(a.Doc, " \t\r\n") {
+		if !validDoc(a.Doc) {
 			return errors.New("operation: bad document id")
 		}
 		// The plan hash of release after; none before the first release.
@@ -417,6 +437,10 @@ func (o *Op) checkShape() error {
 		return email(a.Owner)
 	}
 	return nil
+}
+
+func validDoc(s string) bool {
+	return s != "" && len(s) <= 64 && !strings.ContainsAny(s, " \t\r\n")
 }
 
 func equalStrings(a, b []string) bool {

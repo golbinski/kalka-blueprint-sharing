@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"github.com/golbinski/kalka/internal/core"
 	"net/http"
 	"net/url"
@@ -91,6 +92,60 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 			return
 		}
 		res, err := d.Reassign(q.Path, q.Email)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	// Transfers between teams (spec 20.7).
+	mux.HandleFunc("POST /api/transfers", func(w http.ResponseWriter, r *http.Request) {
+		var q TransferRequest
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		var res core.TransferResult
+		var err error
+		switch q.Mode {
+		case "copy":
+			res, err = d.Copy(q.Path, q.Team)
+		case "move":
+			res, err = d.Move(q.Path, q.Team, q.TakeOver)
+		default:
+			err = fmt.Errorf("mode %q: copy or move", q.Mode)
+		}
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("GET /api/transfers", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, d.Transfers())
+	})
+	mux.HandleFunc("POST /api/transfers/{id}/{action}", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Owner string `json:"owner"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		id := r.PathValue("id")
+		var res any = map[string]string{"id": id}
+		var err error
+		switch r.PathValue("action") {
+		case "accept":
+			res, err = d.AcceptTransfer(id, q.Owner)
+		case "decline":
+			err = d.DeclineTransfer(id)
+		case "withdraw":
+			err = d.WithdrawTransfer(id)
+		default:
+			fail(w, http.StatusNotFound, fmt.Errorf("no action %q", r.PathValue("action")))
+			return
+		}
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -248,6 +303,33 @@ func (c *Client) Handoff(ctx context.Context, path, email string) (core.PublishR
 func (c *Client) Reassign(ctx context.Context, path, email string) (core.ReassignResult, error) {
 	var v core.ReassignResult
 	return v, c.do(ctx, http.MethodPost, "/api/reassign", map[string]string{"path": path, "email": email}, &v)
+}
+
+// TransferRequest starts a copy or a move (spec 20.7).
+type TransferRequest struct {
+	Path     string `json:"path"`
+	Team     string `json:"team"`
+	Mode     string `json:"mode"`
+	TakeOver bool   `json:"take_over,omitempty"`
+}
+
+// Transfer starts a copy or a move of path to team.
+func (c *Client) Transfer(ctx context.Context, q TransferRequest) (core.TransferResult, error) {
+	var v core.TransferResult
+	return v, c.do(ctx, http.MethodPost, "/api/transfers", q, &v)
+}
+
+// Transfers lists the pending transfers the user may see.
+func (c *Client) Transfers(ctx context.Context) ([]core.TransferView, error) {
+	var v []core.TransferView
+	return v, c.do(ctx, http.MethodGet, "/api/transfers", nil, &v)
+}
+
+// DecideTransfer accepts (owner may be empty), declines or withdraws a
+// pending transfer.
+func (c *Client) DecideTransfer(ctx context.Context, id, action, owner string) (core.TransferView, error) {
+	var v core.TransferView
+	return v, c.do(ctx, http.MethodPost, "/api/transfers/"+url.PathEscape(id)+"/"+action, map[string]string{"owner": owner}, &v)
 }
 
 // Join redeems a token.

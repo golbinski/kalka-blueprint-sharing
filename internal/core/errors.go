@@ -11,6 +11,10 @@ const (
 	KindNotShared    = "not-shared"
 	KindDisputed     = "disputed"
 	KindDomainExists = "domain-exists"
+
+	KindTransferPending = "transfer-pending"
+	KindTransferDecided = "transfer-decided"
+	KindUnknownTransfer = "unknown-transfer"
 )
 
 // Error is a failure with a stable kind.

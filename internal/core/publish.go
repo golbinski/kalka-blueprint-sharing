@@ -216,8 +216,9 @@ func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal 
 			d.logf("snapshot of %s v%d: %v", path, v, err)
 		}
 	}
+	trust := merge.Trusted(team, id, entriesOf(doc))
 	for _, en := range entriesOf(doc) {
-		if en.Valid() && !merge.VerifiedBy(team, id, en) {
+		if en.Valid() && !trust(en) {
 			res.LocalOnly++
 		}
 	}
@@ -292,15 +293,38 @@ func (d *Node) Delete(path string) error {
 	if _, ok := ch.Head(); !ok {
 		return errors.New("the document has no valid release; nothing to delete for the team")
 	}
-	releaser, v := nextReleaser(ch, doc.Owner())
+	releaser, _ := nextReleaser(ch, doc.Owner())
 	if !bp.SameEmail(releaser, d.self.Email) {
 		return fmt.Errorf("only %s can delete this document for the team", releaser)
 	}
+	if err := d.deleteLocked(h, f, ch, ""); err != nil {
+		return err
+	}
+	d.logf("deleted %s for team %s", f.Path, h.dir.Name)
+	d.pushTeam(h.dir.Team)
+	return nil
+}
+
+// deleteLocked writes the tombstone of f, whose chain is ch and whose next
+// release the local user signs; moved names where a move went (spec 20.6,
+// 20.7), "" for a deletion. The caller holds the document's lock.
+func (d *Node) deleteLocked(h *held, f *store.File, ch merge.ReleaseChain, moved string) error {
+	doc := f.Doc
+	_, v := nextReleaser(ch, doc.Owner())
 	stub, err := stubOf(doc)
 	if err != nil {
 		return err
 	}
-	e, err := bp.NewRelease(stub, strings.ToLower(d.self.Email), d.now(), v, true, nil, "", d.signer())
+	var e *bp.Entry
+	if moved != "" {
+		stub.SetFrontmatter(bp.KeyMovedTo, moved)
+		if stub, err = stub.Reparse(); err != nil {
+			return err
+		}
+		e, err = bp.NewMoveTombstone(stub, strings.ToLower(d.self.Email), d.now(), v, moved, d.signer())
+	} else {
+		e, err = bp.NewRelease(stub, strings.ToLower(d.self.Email), d.now(), v, true, nil, "", d.signer())
+	}
 	if err != nil {
 		return err
 	}
@@ -313,12 +337,7 @@ func (d *Node) Delete(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := d.writeTombstone(h, final, f); err != nil {
-		return err
-	}
-	d.logf("deleted %s for team %s", f.Path, h.dir.Name)
-	d.pushTeam(h.dir.Team)
-	return nil
+	return d.writeTombstone(h, final, f)
 }
 
 // stubOf is a tombstone's plan: the frontmatter with deleted: true, no
@@ -420,17 +439,22 @@ func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
 	if _, ok := memberOf(h.st, ts.Releaser); !ok && ts.Pending == "" && ts.Releaser != "" {
 		ts.OwnerGone = true
 	}
+	trust := merge.Trusted(team, id, entriesOf(doc))
 	for _, e := range entriesOf(doc) {
-		if e.Valid() && !merge.VerifiedBy(team, id, e) {
+		if e.Valid() && !trust(e) {
 			ts.LocalOnly++
 		}
 	}
 	return ts
 }
 
-// entryTeamState marks an entry of a published document: signed by a
-// current member, by a removed member, or local only (spec 11.1).
-func (d *Node) entryTeamState(h *held, id string, e *bp.Entry) string {
+// entryTeamState marks an entry of a published document: attested by a
+// transfer, signed by a current member, by a removed member, or local
+// only (spec 11.1, 20.7).
+func (d *Node) entryTeamState(h *held, id string, e *bp.Entry, att *merge.Attestation) string {
+	if att.Has(e) {
+		return "attested"
+	}
 	if !merge.VerifiedBy(h.team(), id, e) {
 		return "local-only"
 	}

@@ -61,6 +61,9 @@ type InvItem struct {
 	Plan    string `json:"plan"`
 	Entries string `json:"entries"`
 	Deleted bool   `json:"deleted,omitempty"`
+	// Pending marks a pending transfer (spec 20.7): no release yet;
+	// with Deleted, its stub after a withdrawal or a decline.
+	Pending bool `json:"pending,omitempty"`
 }
 
 // TeamInv carries the sender's inventory.
@@ -86,6 +89,7 @@ type TeamDoc struct {
 	KalkaID  string `json:"kalka_id"`
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
+	Pending  bool   `json:"pending,omitempty"` // a pending transfer or its stub
 }
 
 // Replication session outcomes, as bye reasons.

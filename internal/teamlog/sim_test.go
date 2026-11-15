@@ -178,7 +178,7 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 		}
 		return ops
 	}
-	switch r.Intn(7) {
+	switch r.Intn(9) {
 	case 0, 1:
 		e := pick(func(m Member, ok bool) bool { return !ok })
 		key := newActor(e).pub
@@ -210,6 +210,22 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 		return best(func(t time.Time) []Op {
 			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, simPlan(after), t)}
 		})
+	case 7, 8:
+		// A decision on one of a few offers: concurrent accepts, accepts
+		// against declines, to members or not.
+		x := r.Intn(3)
+		doc, tr := fmt.Sprintf("xfer%d", x), strings.Repeat(strconv.Itoa(x+1), 64)
+		if r.Intn(8) == 0 { // a second offer for one document
+			tr = strings.Repeat(strconv.Itoa(x+4), 64)
+		}
+		if r.Intn(2) == 0 {
+			e := pick(func(m Member, ok bool) bool { return ok })
+			if r.Intn(6) == 0 {
+				e = simEmails[r.Intn(len(simEmails))]
+			}
+			return best(func(t time.Time) []Op { return []Op{sg.Accept(prev, doc, e, tr, t)} })
+		}
+		return best(func(t time.Time) []Op { return []Op{sg.Decline(prev, doc, tr, t)} })
 	default:
 		from := simEmails[r.Intn(len(simEmails))]
 		e := pick(func(m Member, ok bool) bool { return ok })
@@ -252,7 +268,7 @@ func (s *sim) check(ops []Op) error {
 				return fmt.Errorf("removal %s counts though its signer was removed by the senior %s", short(nd.hash), short(r.nodes[R].hash))
 			}
 		}
-		if nd.op.Kind == ReassignDocument {
+		if nd.op.Kind == ReassignDocument || nd.op.Kind == AcceptTransfer {
 			a := nd.op.Args
 			// The new owner is a member in its view.
 			member := false
@@ -264,7 +280,10 @@ func (s *sim) check(ops []Op) error {
 				member = member || (r.before(mt.grant, i) && !ended)
 			}
 			if !member {
-				return fmt.Errorf("reassignment %s to %s, not a member in its view", short(nd.hash), a.Owner)
+				return fmt.Errorf("%s %s to %s, not a member in its view", nd.op.Kind, short(nd.hash), a.Owner)
+			}
+			if nd.op.Kind == AcceptTransfer {
+				continue
 			}
 			// No counting cut-off below one it saw.
 			for j := range r.nodes {
@@ -273,6 +292,27 @@ func (s *sim) check(ops []Op) error {
 					return fmt.Errorf("reassignment %s counts with a stale cut-off below %s", short(nd.hash), short(r.nodes[j].hash))
 				}
 			}
+		}
+	}
+	// One accept per transfer, and no decline beside it.
+	accepts, declines, docs := map[string]int{}, map[string]int{}, map[string]int{}
+	for i, nd := range r.nodes {
+		if e.eff[i] && nd.op.Kind == AcceptTransfer {
+			accepts[nd.op.Args.Transfer]++
+			if docs[nd.op.Args.Doc]++; docs[nd.op.Args.Doc] > 1 {
+				return fmt.Errorf("document %s: two accepts count", nd.op.Args.Doc)
+			}
+		}
+		if e.eff[i] && nd.op.Kind == DeclineTransfer {
+			declines[nd.op.Args.Transfer]++
+		}
+	}
+	for tr, n := range accepts {
+		if n > 1 || declines[tr] > 0 {
+			return fmt.Errorf("transfer %s: %d accepts and %d declines count", short(tr), n, declines[tr])
+		}
+		if d, ok := st.Transfers[tr]; !ok || !d.Accepted {
+			return fmt.Errorf("transfer %s: the state does not show the accept", short(tr))
 		}
 	}
 	// An owner never ranks above the owner who appointed them.
@@ -332,7 +372,7 @@ func (s *sim) rule5Conflict(r *replayer) bool {
 
 func reasonClass(r string) string {
 	for _, k := range []string{"more senior owner", "removed by", "without an owner", "not an owner", "not a member",
-		"already a member", "concurrently by another", "already bound", "already used", "stale cut-off", "themselves"} {
+		"already a member", "concurrently by another", "already bound", "already used", "stale cut-off", "themselves", "already decided"} {
 		if strings.Contains(r, k) {
 			return k
 		}

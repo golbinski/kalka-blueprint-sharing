@@ -176,6 +176,7 @@ func (d *Node) afterLogChange(h *held) {
 		}
 	}
 	d.reassignNotices(h)
+	d.afterTransfers(h)
 }
 
 // sawOps marks operations as already noticed.
@@ -205,6 +206,9 @@ func (d *Node) seedNotices() {
 func (d *Node) reassignNotices(h *held) {
 	for id, as := range h.st.Reassigned {
 		for _, a := range as {
+			if a.Transfer != "" {
+				continue // an accept: transferNotices
+			}
 			d.notes.mu.Lock()
 			if d.notes.opsSeen == nil {
 				d.notes.opsSeen = map[string]bool{}

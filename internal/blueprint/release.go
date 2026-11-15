@@ -24,17 +24,19 @@ const (
 //	Free text.
 //
 // Owner is the `owner:` of the released plan: the one who may sign the
-// next version. Deleted marks a tombstone (spec 20.6).
+// next version. Deleted marks a tombstone (spec 20.6); Moved, on a
+// tombstone, the `<team name>/<kalka_id>` a move went to (20.7).
 type Release struct {
 	Version      int64
 	Plan         string
 	Owner        string
 	Deleted      bool
+	Moved        string
 	Incorporates []string
 	Note         string
 }
 
-var releaseRe = regexp.MustCompile(`^v([1-9][0-9]{0,17}) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted)?$`)
+var releaseRe = regexp.MustCompile(`^v([1-9][0-9]{0,17}) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted(?: · moved:(\S+))?)?$`)
 
 // Release parses a release entry's body.
 func (e *Entry) Release() (Release, bool) {
@@ -49,6 +51,12 @@ func (e *Entry) Release() (Release, bool) {
 	}
 	r.Version, _ = strconv.ParseInt(m[1], 10, 64)
 	r.Plan, r.Owner, r.Deleted = m[2], m[3], m[4] != ""
+	if m[5] != "" {
+		if _, _, ok := ParseOrigin(m[5]); !ok {
+			return Release{}, false
+		}
+		r.Moved = m[5]
+	}
 	rest := lines[1:]
 	if len(rest) > 0 {
 		if list, ok := strings.CutPrefix(rest[0], "incorporates: "); ok {
@@ -68,6 +76,9 @@ func (r Release) body() string {
 	b := fmt.Sprintf("v%d · plan:%s · owner:%s", r.Version, r.Plan, r.Owner)
 	if r.Deleted {
 		b += " · deleted"
+		if r.Moved != "" {
+			b += " · moved:" + r.Moved
+		}
 	}
 	if len(r.Incorporates) > 0 {
 		b += "\nincorporates: " + strings.Join(r.Incorporates, ", ")
@@ -81,6 +92,20 @@ func (r Release) body() string {
 // NewRelease builds a signed release of d's current plan as version v.
 // The plan hash and owner are taken from d; the caller adds the entry.
 func NewRelease(d *Document, author string, at time.Time, v int64, deleted bool, incorporates []string, note string, sign Signer) (*Entry, error) {
+	return newRelease(d, author, at, Release{Version: v, Deleted: deleted, Incorporates: incorporates, Note: note}, sign)
+}
+
+// NewMoveTombstone builds the signed tombstone release of a moved document
+// (spec 20.6, 20.7): version v, deleted, moved to `<team name>/<kalka_id>`.
+func NewMoveTombstone(d *Document, author string, at time.Time, v int64, moved string, sign Signer) (*Entry, error) {
+	if _, _, ok := ParseOrigin(moved); !ok {
+		return nil, fmt.Errorf("moved:%s is not <team>/<kalka_id>", moved)
+	}
+	return newRelease(d, author, at, Release{Version: v, Deleted: true, Moved: moved}, sign)
+}
+
+func newRelease(d *Document, author string, at time.Time, r Release, sign Signer) (*Entry, error) {
+	v := r.Version
 	if d.KalkaID() == "" {
 		return nil, errors.New("a release needs a kalka_id")
 	}
@@ -90,7 +115,7 @@ func NewRelease(d *Document, author string, at time.Time, v int64, deleted bool,
 	if sign == nil {
 		return nil, errors.New("a release must be signed")
 	}
-	r := Release{Version: v, Plan: d.PlanHash(), Owner: d.Owner(), Deleted: deleted, Incorporates: incorporates, Note: note}
+	r.Plan, r.Owner = d.PlanHash(), d.Owner()
 	if !emailRe.MatchString(r.Owner) {
 		return nil, fmt.Errorf("owner %q is not an email address", r.Owner)
 	}

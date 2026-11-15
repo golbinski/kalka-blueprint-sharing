@@ -1073,7 +1073,7 @@ The state is a pure function of the set of known operations, so every peer holdi
 8. **Same subject.**
    - An `add-member` for an email that is a member in the signer's view is discarded. Of concurrent `add-member` operations for one email, one key, or one invite id, the first in replay order counts.
    - A `reassign-document` whose `after` is lower than that of an effective reassignment of the same document in its view is discarded ("stale cut-off"). Of effective reassignments of one document with the same `after`, the last in replay order counts. Reassignments with different `after` all count: each is an anchor (20.4).
-   - Of `accept-transfer` operations for one `transfer`, the first in replay order counts and the others are discarded ("already decided"). A `decline-transfer` is discarded when an `accept-transfer` for the same `transfer` counts: accept beats decline.
+   - Of `accept-transfer` operations for one `transfer`, or for one `doc`, the first in replay order counts and the others are discarded ("already decided"). A `decline-transfer` is discarded when an `accept-transfer` for the same `transfer` counts: accept beats decline.
 
    The replay order is causal depth, then hash. These are the only places where a hash decides, and any team owner can always sign a later operation, so the hash gives nobody anything they did not have.
 9. **Targets must be members.** The `owner` of a `reassign-document` or `accept-transfer` must be a member in the signer's view.
@@ -1208,7 +1208,7 @@ A transfer has three parts in three places:
 **Starting.** `kalka copy <file> --to <team>` or `kalka move <file> --to <team>`, or *Copy to team…* / *Move to team…*:
 
 1. Checks, all local: the actor is a member of the source and of the destination; the actor is the document's owner or a source team owner; the document is not disputed; no transfer of it is pending (`transfer-pending`). A non-member of the destination is refused with `not-member`.
-2. A new document is built: a fresh `kalka_id`; `team: <destination>`; `copied-from: <source team name>/<source kalka_id>`, or `moved-from:` for a move; `owner:` the actor for now; the plan of the source's head release (unreleased edits do not travel); every valid entry of the source, byte for byte, with their signatures.
+2. A new document is built: a fresh `kalka_id`; `team: <destination>`; `copied-from: <source team name>/<source kalka_id>`, or `moved-from:` for a move; `owner:` the actor for now; the plan of the source's head release (unreleased edits do not travel: a file that differs from its head release is refused until its edits are released or undone); every valid entry of the source, byte for byte, with their signatures.
 3. The actor's `kalka` appends a signed `transfer` entry and writes the file to `<folder>/<destination>/.kalka/incoming/<new id>.md`, from where destination replication carries it.
 4. For a move, a signed `transfer` entry is also appended to the source document, so the source team sees "being moved to <team>; comments added now will not travel". A copy leaves the source unchanged byte for byte.
 
@@ -1216,12 +1216,12 @@ A transfer has three parts in three places:
 
 ```
 ### transfer · ewa@example.org · 2026-12-01T10:00:00Z · § · rev:<8 hex> · id:<12 hex> · sig:<base64url>
-move · from:parcel-ops/<source kalka_id> · source:<64 hex team hash> · to:<64 hex team hash>
+move · from:parcel-ops/<source kalka_id> · source:<64 hex team hash> · to:library-desk/<64 hex team hash>
 plan:<64 hex>
 history:<64 hex> · entries: 7c2e91ab04f3, a41b77c09e12
 ```
 
-- The first body line is `copy` or `move`, the source document, and both teams by hash. `plan` is the plan hash of the offered plan.
+- The first body line is `copy` or `move`, the source document, and both teams by hash; `to` also names the destination, so source members who are not in it can read the banner. `plan` is the plan hash of the offered plan.
 - `history` is SHA-256 over the lines `<64 hex digest of the entry's id input> <sig or "-">\n`, one per listed entry, in `(timestamp, id)` order. It covers the full digests, not the 48-bit ids, and the original signature text.
 - `entries` lists the ids of the attested set, so every peer knows which entries the digest speaks for, also after members add their own.
 - The entry's own v2 signature covers its body and the new `kalka_id`. So the actor signs the mode, both teams, the plan and the exact history.
@@ -1239,16 +1239,17 @@ Anything else is refused and listed in the Team view with the reason.
 **Deciding.** Any destination team owner, in the Waiting view or with `kalka transfer accept|decline <id>`:
 
 - **Accept** signs `accept-transfer {doc, owner, transfer}` (19.6), with `owner` the accepting owner unless `--owner <member>` names another member. The named owner's `kalka` then rewrites `owner:`, makes release 1, and moves the file from `.kalka/incoming/` into the team folder. From there it is an ordinary team document; its owner can hand it off to anyone in the team.
-- **Decline** signs `decline-transfer {doc, transfer}`. Every peer replaces the pending file by a stub in `.kalka/tombstones/` holding the `transfer` entry only, so a lagging replica cannot bring the offer back. A copy is thereby discarded. For a move, the actor's `kalka` appends "move declined" to the source document, and nothing else changes there.
-- **Withdraw:** the actor signs a `transfer-withdrawn` entry on the pending document (body: `withdrawn`). It has the effect of a decline unless an accept counts.
+- **Decline** signs `decline-transfer {doc, transfer}`. Every peer replaces the pending file by a stub in `.kalka/tombstones/` holding the `transfer` entry only, so a lagging replica cannot bring the offer back; the full offer is kept in `.kalka/trash/<kalka_id>.offer.md`, so an accept that wins after all (below) restores it. A copy is thereby discarded. For a move, the actor's `kalka` appends a `transfer-withdrawn` entry answering the source's `transfer` entry (`re: <id>`, body `move declined`), and nothing else changes there.
+- **Withdraw:** the actor signs a `transfer-withdrawn` entry on the pending document (`re: <id>`, body `withdrawn`). It has the effect of a decline unless an accept counts: the stub keeps the withdrawal, so it travels as one. For a move, the source gets `move withdrawn` in the same way.
 - Concurrent decisions: an accept beats a decline or a withdrawal; of two accepts the first in replay order counts (19.4 rule 8). So there is never a second version 1.
 
 **Attested entries.** Entries listed by an accepted transfer are *attested*. They are not checked against destination keys, take no part in the destination's release chain (source releases are shown as history, "v3 in parcel-ops"), and are shown as "from parcel-ops, attested by Ewa and Jan": the actor and the accepting owner. Before the accept the badge names the actor only. An attested entry never changes: one that no longer matches `history` is dropped with a warning, as an entry with a wrong id is. Entries written after the transfer are ordinary destination entries.
 
-**The source tombstone.** For a move, the actor's `kalka` writes the tombstone (20.6) when its destination replica shows the effective accept. The trigger is derived from files: a document in the destination folder with `moved-from`, a `transfer` entry by the local user, and a live source document the local user owns. It needs no state file and survives restarts. Until then the source is live and unchanged, with its banner.
+**The source tombstone.** For a move, the actor's `kalka` writes the tombstone (20.6) when its destination replica shows the effective accept. The trigger is derived from files: a live source document whose `transfer` entry of a move, by the local user, is not answered by a `transfer-withdrawn`, and an effective accept of that entry's digest in the destination log (the entry in the source and the offer's entry have one digest; only their signatures differ). It needs no state file and survives restarts. Until then the source is live and unchanged, with its banner.
 
 - If the actor is offline, the tombstone waits for them; both documents exist meanwhile.
-- If the actor can no longer sign it (the source was reassigned, or the actor removed, in the meantime), the move ends as a copy. The actor gets a notice; the source's owner may delete it.
+- If the actor can no longer sign it (the source was reassigned, or the actor removed, in the meantime), the move ends as a copy: the actor's `kalka` answers the entry with `move ended as a copy`. The actor gets a notice; the source's owner may delete it.
+- A move withdrawn and then accepted all the same (an accept beats a withdrawal) also ends as a copy: the source's entry is already answered.
 - Entries added in the source after the transfer started are not carried. They stay in the source and in its trash copy after the tombstone.
 
 **Identity.** Copy and move both get a new `kalka_id`. A tombstone is final for its id on every peer of its team, so with the id kept a document could never move back; and a member of both teams would hold two live files with one id. The store indexes `moved-from` and `copied-from` (14), so a seed's `parent:` and a `budded:` link still resolve to a moved document that is held.

@@ -102,6 +102,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		return cmdHandoff(rest, stdout, stderr)
 	case "reassign":
 		return cmdReassign(rest, stdout, stderr)
+	case "copy", "move":
+		return cmdTransferStart(cmd, rest, stdout, stderr)
+	case "transfers":
+		return cmdTransfers(rest, stdout, stderr)
+	case "transfer":
+		return cmdTransfer(rest, stdout, stderr)
 	case "domains":
 		return cmdDomains(args[1:], stdout, stderr)
 	case "delete":
@@ -140,13 +146,17 @@ func usage(w io.Writer) {
   %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release the next version
   %[1]s handoff <file> <email> [--json]   make another member the owner
   %[1]s reassign <file> <email> [--json]  team owners: make any member the owner
+  %[1]s copy|move <file> --to <team> [--json]   offer a document to another team
+  %[1]s transfers [--json]    the pending transfers you decide or started
+  %[1]s transfer accept <id> [--owner <email>] | decline <id> | withdraw <id> [--json]
   %[1]s delete <file>         delete a published document for the team
   %[1]s domains [--json]      list the team domain documents held here
   %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
 
-Commands that act through kalka (team changes, join, publish, release, delete, open,
+Commands that act through kalka (team changes, join, publish, release, delete, copy,
+move, transfers, transfer, open,
 pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 team members|log|invites, domains) never start it: with none running they read the

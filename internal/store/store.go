@@ -84,7 +84,10 @@ type Info struct {
 	Team          string `json:"team,omitempty"`
 	Domain        string `json:"domain,omitempty"`
 	DomainVersion int64  `json:"domain_version,omitempty"`
-	hash          [32]byte
+	// From is the source kalka_id of a copy or a move (spec 20.7), so a
+	// link to the source still resolves.
+	From string `json:"from,omitempty"`
+	hash [32]byte
 }
 
 // Event reports a change in the folder.
@@ -198,6 +201,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 	} else {
 		info.KalkaID, info.Title, info.Owner, info.Rev = d.KalkaID(), d.Title(), d.Owner(), d.Rev()
 		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
+		_, _, info.From = d.TransferredFrom()
 		for _, it := range d.Items() {
 			if it.Entry != nil {
 				info.Entries++
@@ -290,6 +294,31 @@ func (s *Store) Find(kalkaID string) (*File, error) {
 // by kalka_id within their scope (spec 14).
 func (s *Store) FindIn(dir, kalkaID string) (*File, error) {
 	return s.find(kalkaID, dir)
+}
+
+// Resolve is Find, falling back to a document copied or moved from
+// kalkaID (spec 14, 20.7): a seed's parent, a budded link. Of several
+// copies, the first by path.
+func (s *Store) Resolve(kalkaID string) (*File, error) {
+	if f, err := s.Find(kalkaID); f != nil || err != nil {
+		return f, err
+	}
+	kalkaID = strings.ToLower(kalkaID)
+	s.mu.Lock()
+	var paths []string
+	for p, i := range s.index {
+		if i.From == kalkaID {
+			paths = append(paths, p)
+		}
+	}
+	s.mu.Unlock()
+	slices.Sort(paths)
+	for _, p := range paths {
+		if f, err := s.Load(p); err == nil {
+			return f, nil
+		}
+	}
+	return nil, nil
 }
 
 func (s *Store) find(kalkaID, dir string) (*File, error) {

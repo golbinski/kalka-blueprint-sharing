@@ -505,6 +505,16 @@ func (d *Document) SetFrontmatter(key, value string) {
 	d.modified = true
 }
 
+// DeleteFrontmatter removes one top-level frontmatter key.
+func (d *Document) DeleteFrontmatter(key string) {
+	if d.fm == nil || d.fm.find(key) < 0 {
+		return
+	}
+	d.fm = &Frontmatter{Lines: append([]string(nil), d.fm.Lines...)}
+	d.fm.Delete(key)
+	d.modified = true
+}
+
 // ErrOpenBlock means the body ends inside an unclosed code fence or HTML
 // block, so a review log added after it would not be read as a heading.
 var ErrOpenBlock = errors.New("the body ends inside an unclosed code fence or HTML block; close it before adding entries")

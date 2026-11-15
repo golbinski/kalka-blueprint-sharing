@@ -49,6 +49,18 @@ func (s Signer) Reassign(prev []string, doc, from, owner string, after int64, pl
 	return s.op(ReassignDocument, Args{Doc: doc, From: from, Owner: owner, After: after, Plan: plan}, prev, at)
 }
 
+// Accept accepts the transfer offer whose transfer entry has digest
+// transfer, for the pending document doc, naming owner as the only valid
+// signer of its version 1 (spec 19.6, 20.7).
+func (s Signer) Accept(prev []string, doc, owner, transfer string, at time.Time) Op {
+	return s.op(AcceptTransfer, Args{Doc: doc, Owner: owner, Transfer: transfer}, prev, at)
+}
+
+// Decline discards a transfer offer on every peer (spec 19.6, 20.7).
+func (s Signer) Decline(prev []string, doc, transfer string, at time.Time) Op {
+	return s.op(DeclineTransfer, Args{Doc: doc, Transfer: transfer}, prev, at)
+}
+
 // Owned is a published document held by the remover whose effective owner
 // is the member being removed, with the last release seen.
 type Owned struct {

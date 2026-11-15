@@ -81,6 +81,13 @@ func (f *Frontmatter) Set(key, value, eol string) {
 	f.Lines = append(f.Lines[:at], append([]string{line + eol}, f.Lines[at:]...)...)
 }
 
+// Delete removes the line holding key, if any.
+func (f *Frontmatter) Delete(key string) {
+	if i := f.find(key); i >= 0 {
+		f.Lines = append(f.Lines[:i], f.Lines[i+1:]...)
+	}
+}
+
 var managedKeys = []string{name.FrontmatterID, name.FrontmatterOwner}
 
 func (f *Frontmatter) find(key string) int {

@@ -10,6 +10,7 @@ import (
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/merge"
 )
 
 // Roles of the local user for one blueprint (spec 11.1).
@@ -58,6 +59,9 @@ type DocView struct {
 	// `domain:` names a domain version (spec 6.12).
 	Domain    *DomainInfo    `json:"domain,omitempty"`
 	DomainRef *DomainRefView `json:"domain_ref,omitempty"`
+	// Transfer is set for a document that came by a copy or a move, or
+	// that is being moved away (spec 20.7).
+	Transfer *TransferInfo `json:"transfer,omitempty"`
 }
 
 // SeedInfo describes a seed in the document view.
@@ -175,8 +179,13 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	}
 	v.DomainRef = d.domainRef(doc)
 	var th *held
+	var att *merge.Attestation
 	if v.Team != nil && v.Team.Held {
 		th, _ = d.heldAt(path)
+		if th != nil {
+			att = merge.Attested(th.team(), v.KalkaID, entriesOf(doc))
+			v.Transfer = d.transferInfo(th, doc)
+		}
 	}
 	rev := doc.Rev()
 	for _, it := range doc.Items() {
@@ -194,14 +203,18 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		ev.IncorporatedIn = incorp[e.ID]
 		ev.Sig = d.sigState(v.KalkaID, e, th)
 		if th != nil {
-			ev.TeamState = d.entryTeamState(th, v.KalkaID, e)
-			if ev.TeamState != "local-only" {
+			ev.TeamState = d.entryTeamState(th, v.KalkaID, e, att)
+			switch ev.TeamState {
+			case "attested":
+				ev.Sig = "attested" // by a transfer (spec 20.7)
+			case "local-only":
+			default:
 				ev.Sig = "verified" // by a key the team log binds (spec 8.2)
 			}
 		}
 		if id, title, ok := e.Budded(); ok {
 			ev.BuddedSeed, ev.BuddedTitle = id, title
-			if sf, err := d.Store.Find(id); err == nil && sf != nil {
+			if sf, err := d.Store.Resolve(id); err == nil && sf != nil {
 				ev.BuddedRel = d.rel(sf.Path)
 			}
 		}
@@ -210,7 +223,7 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	if doc.IsSeed() {
 		si := &SeedInfo{Parent: doc.Parent()}
 		if si.Parent != "" {
-			if pf, err := d.Store.Find(si.Parent); err == nil && pf != nil {
+			if pf, err := d.Store.Resolve(si.Parent); err == nil && pf != nil {
 				si.ParentRel, si.ParentTitle = d.rel(pf.Path), pf.Doc.Title()
 				si.BacklinkMissing = true
 				for _, it := range pf.Doc.Items() {

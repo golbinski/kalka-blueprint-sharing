@@ -489,3 +489,65 @@ func sortedKeys(m map[string]Member) []string {
 	sort.Strings(out)
 	return out
 }
+
+// Transfer decisions (rule 8, rule 10): one accept per transfer, whatever
+// the order; an accept beats a decline; the accept is an anchor at 0.
+func TestTransferDecisions(t *testing.T) {
+	tm := setup(t)
+	alice, bob := tm.signer("alice@example.org"), tm.signer("bob@example.org")
+	const doc = "9c1d2e3f-0a4b-4c5d-8e6f-7a8b9c0d1e2f"
+	tr := strings.Repeat("7", 64)
+	base := tm.heads()
+	dec := tm.add(alice.Decline(base, doc, tr, t0))
+	a1 := tm.add(alice.Accept(base, doc, "carol@example.org", tr, t0))
+	a2 := tm.add(bob.Accept(base, doc, "bob@example.org", tr, t0))
+	s := tm.state()
+	if s.Effective[dec] || !strings.Contains(tm.reason(s, dec), "already decided") {
+		t.Fatalf("decline beside an accept: %q", tm.reason(s, dec))
+	}
+	if s.Effective[a1] == s.Effective[a2] {
+		t.Fatalf("two accepts: %v %v", s.Effective[a1], s.Effective[a2])
+	}
+	won := a1
+	if s.Effective[a2] {
+		won = a2
+	}
+	d := s.Transfers[tr]
+	if !d.Accepted || d.Op != won || d.Doc != doc {
+		t.Fatalf("decision %+v", d)
+	}
+	as := s.Reassigned[doc]
+	if len(as) != 1 || as[0].After != 0 || as[0].Transfer != tr || as[0].Owner != d.Owner {
+		t.Fatalf("anchor %+v", as)
+	}
+
+	// A decline alone counts; an accept to a non-member does not.
+	tr2 := strings.Repeat("8", 64)
+	bad := tm.add(alice.Accept(tm.heads(), "other", "stranger@example.org", tr2, t0))
+	dec2 := tm.add(bob.Decline(tm.heads(), "other", tr2, t0))
+	s = tm.state()
+	if s.Effective[bad] || !s.Effective[dec2] || s.Transfers[tr2].Accepted || s.Transfers[tr2].By != "bob@example.org" {
+		t.Fatalf("decline alone: %q %+v", tm.reason(s, bad), s.Transfers[tr2])
+	}
+	// A plain member cannot decide.
+	dave := tm.signer("dave@example.org")
+	if h := tm.add(dave.Decline(tm.heads(), "third", strings.Repeat("5", 64), t0)); tm.state().Effective[h] {
+		t.Fatal("a member's decline counts")
+	}
+}
+
+// An accept whose signer is concurrently removed falls (rule 2), and the
+// decline it beat counts again.
+func TestAcceptFallsWithRemoval(t *testing.T) {
+	tm := setup(t)
+	alice, bob := tm.signer("alice@example.org"), tm.signer("bob@example.org")
+	tr := strings.Repeat("6", 64)
+	base := tm.heads()
+	acc := tm.add(bob.Accept(base, "d1", "bob@example.org", tr, t0))
+	dec := tm.add(alice.Decline(base, "d1", tr, t0))
+	tm.add(alice.RemoveOwner(base, "bob@example.org", t0))
+	s := tm.state()
+	if s.Effective[acc] || !s.Effective[dec] || s.Transfers[tr].Accepted || len(s.Reassigned["d1"]) != 0 {
+		t.Fatalf("accept %q, decline %q, %+v", tm.reason(s, acc), tm.reason(s, dec), s.Transfers[tr])
+	}
+}

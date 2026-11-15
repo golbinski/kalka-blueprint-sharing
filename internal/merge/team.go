@@ -14,9 +14,13 @@ type Team interface {
 	// Keys lists every key the log has ever bound to email, so entries by
 	// removed members still verify (20.4).
 	Keys(email string) []ed25519.PublicKey
-	// Anchors returns the document's effective reassignments, ordered by
-	// cut-off, one per cut-off (19.5, docs/teamlog.md rule 8).
+	// Anchors returns the document's effective reassignments and accepted
+	// transfer (cut-off 0), ordered by cut-off, one per cut-off (19.5,
+	// 19.6, docs/teamlog.md rule 8).
 	Anchors(kalkaID string) []Anchor
+	// Accepted returns the effective accept-transfer of a document that
+	// came by a transfer (20.7).
+	Accepted(kalkaID string) (Acceptance, bool)
 }
 
 // Anchor is an effective reassignment: Owner is the only valid signer of
@@ -214,7 +218,11 @@ func Docs(local, in *bp.Document, team Team) Result {
 		return reject(Malformed, msg)
 	}
 	id := in.KalkaID()
-	verified := func(e *bp.Entry) bool { return VerifiedBy(team, id, e) }
+	all := allEntries(in)
+	if local != nil {
+		all = append(all, allEntries(local)...)
+	}
+	verified := Trusted(team, id, all)
 	if local == nil {
 		// A new document enters only with a valid release of its plan.
 		ch := Releases(validEntries(in, verified), id, team)
@@ -360,7 +368,7 @@ func emptyLike(in *bp.Document) *bp.Document {
 // stay in the local file.
 func Replica(d *bp.Document, team Team) (*bp.Document, error) {
 	id := d.KalkaID()
-	verified := func(e *bp.Entry) bool { return VerifiedBy(team, id, e) }
+	verified := Trusted(team, id, allEntries(d))
 	keep := func(e *bp.Entry, _ bool) bool { return verified(e) }
 	src, err := d.Reparse() // items are edited below
 	if err != nil {
