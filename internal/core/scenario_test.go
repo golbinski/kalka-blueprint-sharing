@@ -52,6 +52,12 @@ type node struct {
 	d        *Node
 	stop     func()
 	autoRepl bool // run the replication loop (otherwise rounds run only when a test asks)
+
+	// moved maps a file name a test wrote to where publishing moved it
+	// (out of Personal into the team's folder, spec 14).
+	moved map[string]string
+
+	taps *tapSwitch // routes session channels to the current tap
 }
 
 func (w *world) node(email string) *node {
@@ -88,7 +94,27 @@ func (n *node) start() {
 	t.Cleanup(n.stop)
 }
 
-func (n *node) path(name string) string { return filepath.Join(n.folder, name) }
+func (n *node) path(name string) string {
+	if r, ok := n.moved[name]; ok {
+		name = r
+	}
+	return filepath.Join(n.folder, name)
+}
+
+// follow records that publishing name moved it to path.
+func (n *node) follow(name, path string) {
+	if path == "" || path == n.path(name) {
+		return
+	}
+	r, err := filepath.Rel(n.folder, path)
+	if err != nil {
+		n.w.t.Fatal(err)
+	}
+	if n.moved == nil {
+		n.moved = map[string]string{}
+	}
+	n.moved[name] = r
+}
 
 func (n *node) write(name, content string) {
 	n.w.t.Helper()

@@ -294,7 +294,7 @@ func TestTeamRoster(t *testing.T) {
 	}
 
 	// Removal reassigns the member's published documents held here.
-	desk.write("renewals.md", "---\nkalka_id: 6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\nteam: lending\n---\n# Renewals\n\n## Plan\n\nRenew online.\n")
+	desk.write("lending/renewals.md", "---\nkalka_id: 6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\nteam: lending\n---\n# Renewals\n\n## Plan\n\nRenew online.\n")
 	desk.write("holds.md", "---\nkalka_id: 7f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\n---\n# Holds\n")
 	waitIndexed(t, desk, 2)
 	prev, err := desk.d.RemovalPreview("", reader.email)

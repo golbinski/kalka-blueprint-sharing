@@ -268,6 +268,11 @@ export function App() {
           </div>
         )}
         {!live && <div className="banner danger">Lost the connection to kalka. Live updates resume when it is back.</div>}
+        {inDoc && doc?.mismatch && !doc.duplicate && (
+          <div className="banner warn">
+            Not shared: {doc.mismatch.replace(/^not shared: /, '')}.
+          </div>
+        )}
         {inDoc && doc?.duplicate && (
           <div className="banner warn">Another file in the folder has the same kalka_id. Publishing is refused until one is removed.</div>
         )}

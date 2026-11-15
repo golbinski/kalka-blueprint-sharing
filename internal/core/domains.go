@@ -70,7 +70,7 @@ func (d *Node) Domains() []DomainRow {
 		if r.Versions == nil {
 			r.Versions = []int64{}
 		}
-		if h, err := d.heldByName(in.Team); err == nil {
+		if h, err := d.heldAt(in.Path); err == nil && h.dir.Name == in.Team {
 			team := h.teamFor(f.Doc)
 			ch := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), team)
 			head, ok := ch.Head()
@@ -122,8 +122,8 @@ func (d *Node) domainInfo(live string, doc *bp.Document, viewing int64) (*Domain
 	if di.Versions == nil {
 		di.Versions = []int64{}
 	}
-	h, err := d.heldByName(doc.Team())
-	if err != nil {
+	h, err := d.heldAt(live)
+	if err != nil || h.dir.Name != doc.Team() {
 		return di, nil
 	}
 	team := h.teamFor(doc)

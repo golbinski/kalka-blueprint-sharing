@@ -10,7 +10,6 @@ import (
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
-	"github.com/golbinski/kalka/internal/store"
 )
 
 // Roles of the local user for one blueprint (spec 11.1).
@@ -42,6 +41,11 @@ type DocView struct {
 	// 6.13), kept apart from Problems: they never block a sync.
 	Hints     []bp.Problem `json:"hints"`
 	Duplicate bool         `json:"duplicate,omitempty"`
+	// Scope is "personal" or the name of the team whose folder holds the
+	// file; Mismatch says why a file's location and team: disagree, or why
+	// a file in a team's folder is not shared (spec 14).
+	Scope    string `json:"scope"`
+	Mismatch string `json:"mismatch,omitempty"`
 	// Traces are the body's trace blocks; Refs the references in them, as
 	// the reader's plugins resolved them.
 	Traces []TraceView        `json:"traces"`
@@ -150,18 +154,18 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	default:
 		v.Role = RoleReviewer
 	}
-	if v.KalkaID != "" {
-		var dup *store.ErrDuplicate
-		if _, err := d.Store.Find(v.KalkaID); errors.As(err, &dup) {
-			v.Duplicate = true
-		}
+	v.Duplicate = v.KalkaID != "" && d.duplicate(path)
+	v.Scope = ScopePersonal
+	if t, ok := d.teamDirAt(path); ok {
+		v.Scope = t.Name
 	}
+	v.Mismatch = d.mismatch(path, doc)
 	rel := v.Rel
 	v.Traces, v.Refs = d.refViews(doc, func() { d.bus.Publish(BusEvent{Type: "refs", Data: map[string]string{"path": rel}}) })
 	v.LogLead = strings.TrimSpace(bp.Normalize(strings.Join(doc.Lead(), "")))
 
 	if snapshot == 0 {
-		v.Team = d.teamDocState(doc)
+		v.Team = d.teamDocState(path, doc)
 	}
 	var incorp map[string]int64
 	v.Domain, incorp = d.domainInfo(path, doc, snapshot)
@@ -172,7 +176,7 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	v.DomainRef = d.domainRef(doc)
 	var th *held
 	if v.Team != nil && v.Team.Held {
-		th, _ = d.heldByName(v.Team.Team)
+		th, _ = d.heldAt(path)
 	}
 	rev := doc.Rev()
 	for _, it := range doc.Items() {

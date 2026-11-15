@@ -43,7 +43,7 @@ func TestIndexFindDuplicate(t *testing.T) {
 	if err != nil || f == nil {
 		t.Fatal(f, err)
 	}
-	os.WriteFile(filepath.Join(dir, "copy.md"), []byte(doc1), 0o644)
+	os.WriteFile(filepath.Join(dir, "sub", "copy.md"), []byte(doc1), 0o644) // duplicates count per folder
 	s.scan(s.dir, nil)
 	var dup *ErrDuplicate
 	if _, err := s.Find(f.Doc.KalkaID()); !errors.As(err, &dup) || len(dup.Paths) != 2 {

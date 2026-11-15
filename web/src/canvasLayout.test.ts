@@ -29,6 +29,7 @@ function doc(): Doc {
   return {
     path: '/f/renewals.md',
     rel: 'renewals.md',
+    scope: 'personal',
     kalka_id: '00000000-0000-4000-8000-000000000001',
     title: 'Loan renewals',
     role: 'reviewer',

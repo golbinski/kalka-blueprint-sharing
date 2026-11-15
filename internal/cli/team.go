@@ -174,6 +174,9 @@ func printMembers(w io.Writer, v core.TeamView) {
 	if n := len(v.BadLines) + v.Rejected; n > 0 {
 		fmt.Fprintf(w, "%d log line(s) do not count: damaged or badly signed; see `%s team log`\n", n, name.Binary)
 	}
+	for _, d := range v.NotShared {
+		fmt.Fprintf(w, "not shared: %s: %s\n", d.Rel, d.Reason)
+	}
 }
 
 func printLog(w io.Writer, v core.TeamView) {

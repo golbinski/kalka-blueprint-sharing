@@ -50,6 +50,8 @@ type PublishResult struct {
 
 // Publish publishes a document to a team, or releases the next version of
 // one already published (spec 20.1): `team:` and a release, by the owner.
+// A file in Personal moves into the team's folder; the result has the new
+// path. A file in a team's folder belongs to that team (spec 14).
 func (d *Node) Publish(path, teamName, note string) (PublishResult, error) {
 	return d.release(path, teamName, note, nil)
 }
@@ -83,25 +85,13 @@ func (d *Node) release(path, teamName, note string, incorporates []string) (Publ
 		if err != nil {
 			return res, err
 		}
-		if cur := doc.Team(); cur != "" {
-			if teamName != "" && teamName != cur {
-				return res, fmt.Errorf("this document is published to %s; a document belongs to one team", cur)
-			}
-			teamName = cur
-		}
-		if teamName == "" {
-			t, err := d.findTeam("")
-			if err != nil {
-				return res, err
-			}
-			teamName = t.Name
-		}
-		h, err := d.heldByName(teamName)
+		h, personal, err := d.publishTarget(f, doc, teamName)
 		if err != nil {
 			return res, err
 		}
+		teamName = h.dir.Name
 		id := doc.KalkaID()
-		if dup, err := d.Store.Find(id); err != nil {
+		if dup, err := d.Store.FindIn(h.dir.Dir, id); err != nil {
 			return res, err
 		} else if dup != nil && dup.Path != f.Path {
 			return res, &store.ErrDuplicate{KalkaID: id, Paths: []string{f.Path, dup.Path}}
@@ -136,7 +126,20 @@ func (d *Node) release(path, teamName, note string, incorporates []string) (Publ
 			doc.SetFrontmatter(name.FrontmatterOwner, strings.ToLower(d.self.Email))
 		}
 		if head, ok := ch.Head(); ok && head.Release.Plan == doc.PlanHash() {
-			return res, fmt.Errorf("version %d is already the published version of this plan; edit it first", head.Release.Version)
+			if !personal {
+				return res, fmt.Errorf("version %d is already the published version of this plan; edit it first", head.Release.Version)
+			}
+			// Released, but lying in Personal: it only needs to move.
+			path, err := d.Store.Move(f, h.dir.Dir, doc)
+			if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
+				continue
+			}
+			if err != nil {
+				return res, err
+			}
+			d.logf("moved %s into %s", path, teamName)
+			d.pushTeam(h.dir.Team)
+			return PublishResult{Path: path, Team: teamName, Version: head.Release.Version}, nil
 		}
 		if doc.IsDomain() {
 			doc.SetFrontmatter(bp.KeyVersion, strconv.FormatInt(v, 10))
@@ -148,17 +151,22 @@ func (d *Node) release(path, teamName, note string, incorporates []string) (Publ
 		if err := doc.AddEntry(e); err != nil {
 			return res, err
 		}
-		err = d.Store.Update(f, doc)
+		path := f.Path
+		if personal {
+			path, err = d.Store.Move(f, h.dir.Dir, doc)
+		} else {
+			err = d.Store.Update(f, doc)
+		}
 		if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
 			continue
 		}
 		if err != nil {
 			return res, err
 		}
-		res = PublishResult{Path: f.Path, Team: teamName, Version: v}
+		res = PublishResult{Path: path, Team: teamName, Version: v}
 		if doc.IsDomain() {
-			if _, err := d.Store.SaveSnapshot(f.Path, v, doc); err != nil {
-				d.logf("snapshot of %s v%d: %v", f.Path, v, err)
+			if _, err := d.Store.SaveSnapshot(path, v, doc); err != nil {
+				d.logf("snapshot of %s v%d: %v", path, v, err)
 			}
 		}
 		for _, en := range entriesOf(doc) {
@@ -166,10 +174,49 @@ func (d *Node) release(path, teamName, note string, incorporates []string) (Publ
 				res.LocalOnly++
 			}
 		}
-		d.logf("published %s to %s as version %d", f.Path, teamName, v)
+		d.logf("published %s to %s as version %d", path, teamName, v)
 		d.pushTeam(h.dir.Team)
 		return res, nil
 	}
+}
+
+// publishTarget is the team a publish goes to, and whether the file lies in
+// Personal and so moves. A file in a team's folder belongs to that team;
+// one in Personal goes to the team named, or to its `team:`, or to the
+// only team held.
+func (d *Node) publishTarget(f *store.File, doc *bp.Document, teamName string) (*held, bool, error) {
+	if t, ok := d.teamDirAt(f.Path); ok {
+		if teamName != "" && teamName != t.Name && teamName != t.Team {
+			return nil, false, fmt.Errorf("%s lies in the folder of %s; a document belongs to one team", d.rel(f.Path), t.Name)
+		}
+		h, err := d.heldAt(f.Path)
+		return h, false, err
+	}
+	if cur := doc.Team(); cur != "" {
+		if teamName != "" && teamName != cur {
+			return nil, false, fmt.Errorf("this document names team %s; publish it there, or remove its team: line first", cur)
+		}
+		teamName = cur
+	}
+	if teamName == "" {
+		t, err := d.findTeam("")
+		if err != nil {
+			return nil, false, err
+		}
+		teamName = t.Name
+	}
+	t, err := d.findTeam(teamName)
+	if err != nil {
+		return nil, false, err
+	}
+	h, err := d.heldTeam(t.Team)
+	if err != nil {
+		return nil, false, err
+	}
+	if !h.isMember(d.self.Email, d.pub) {
+		return nil, false, fmt.Errorf("you are not a member of %s: only a member publishes to a team", t.Name)
+	}
+	return h, true, nil
 }
 
 // Delete deletes a published document for the team (spec 20.6): a final
@@ -181,12 +228,9 @@ func (d *Node) Delete(path string) error {
 		return err
 	}
 	doc := f.Doc
-	if doc.Team() == "" {
-		return fmt.Errorf("%s is not published to a team; delete the file as usual", f.Path)
-	}
-	h, err := d.heldByName(doc.Team())
-	if err != nil {
-		return err
+	h, err := d.heldAt(f.Path)
+	if err != nil || doc.Team() != h.dir.Name {
+		return fmt.Errorf("%s is not a document of a team; delete the file as usual", f.Path)
 	}
 	id := doc.KalkaID()
 	unlock, ok := d.Store.Lock(id, syncproto.LockWait)
@@ -264,6 +308,9 @@ func (d *Node) afterLogChange(h *held) {
 			continue
 		}
 		for _, in := range d.Store.FindDomain(h.dir.Name, dom) {
+			if !inDir(h.dir.Dir, in.Path) {
+				continue
+			}
 			f, err := d.Store.Load(in.Path)
 			if err != nil || bp.SameEmail(f.Doc.Owner(), d.self.Email) || f.Doc.HasErrors() {
 				continue
@@ -283,7 +330,7 @@ func (d *Node) afterLogChange(h *held) {
 		if !bp.SameEmail(a.Owner, d.self.Email) {
 			continue
 		}
-		f, err := d.Store.Find(id)
+		f, err := d.Store.FindIn(h.dir.Dir, id)
 		if err != nil || f == nil || f.Doc.Team() != h.dir.Name || bp.SameEmail(f.Doc.Owner(), d.self.Email) {
 			continue
 		}
@@ -331,15 +378,15 @@ type TeamDocState struct {
 	Domain string `json:"domain,omitempty"`
 }
 
-func (d *Node) teamDocState(doc *bp.Document) *TeamDocState {
+func (d *Node) teamDocState(path string, doc *bp.Document) *TeamDocState {
 	name := doc.Team()
 	if name == "" {
 		return nil
 	}
 	ts := &TeamDocState{Team: name}
-	h, err := d.heldByName(name)
-	if err != nil || doc.KalkaID() == "" {
-		return ts
+	h, err := d.heldAt(path)
+	if err != nil || h.dir.Name != name || doc.KalkaID() == "" {
+		return ts // in Personal, or in another team's folder: not shared
 	}
 	ts.Held = true
 	id := doc.KalkaID()

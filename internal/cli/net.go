@@ -33,6 +33,7 @@ import (
 	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/plugin"
+	"github.com/golbinski/kalka/internal/store"
 )
 
 // cmdDaemon is `kalka daemon`: run the daemon until stopped (spec 4.1,
@@ -497,7 +498,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "setup:", err)
 		return exitUsage
 	}
-	if err := os.MkdirAll(cfg.Folder, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cfg.Folder, store.PersonalDir), 0o755); err != nil {
 		fmt.Fprintln(stderr, "setup:", err)
 		return exitProblems
 	}

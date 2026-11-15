@@ -132,6 +132,7 @@ func (n *node) publish(name string) PublishResult {
 	if err != nil {
 		n.w.t.Fatalf("%s publishing %s: %v", n.email, name, err)
 	}
+	n.follow(name, r.Path)
 	return r
 }
 
@@ -160,6 +161,16 @@ type recorder struct {
 	sent  *[]string
 	ask   []string          // ids added to the team_want
 	asked map[string]string // answers to them: kalka_id -> content
+	// shared, when set, guards sent and asked in place of mu, for
+	// recorders of several sessions writing to one tap.
+	shared *sync.Mutex
+}
+
+func (r *recorder) lock() *sync.Mutex {
+	if r.shared != nil {
+		return r.shared
+	}
+	return &r.mu
 }
 
 func (r *recorder) Send(v any) error {
@@ -168,9 +179,9 @@ func (r *recorder) Send(v any) error {
 		v = w
 	}
 	b, _ := json.Marshal(v)
-	r.mu.Lock()
+	r.lock().Lock()
 	*r.sent = append(*r.sent, string(b))
-	r.mu.Unlock()
+	r.lock().Unlock()
 	return r.Channel.Send(v)
 }
 
@@ -185,9 +196,9 @@ func (r *recorder) Receive(timeout time.Duration) (transport.Envelope, error) {
 		hit := false
 		for _, id := range r.ask {
 			if off.KalkaID == id {
-				r.mu.Lock()
+				r.lock().Lock()
 				r.asked[id] = off.Content
-				r.mu.Unlock()
+				r.lock().Unlock()
 				hit = true
 			}
 		}

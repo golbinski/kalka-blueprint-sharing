@@ -77,7 +77,7 @@ func (d *Node) Bud(req BudRequest) (BudResult, error) {
 	d.logf("budded seed %s from %s", seedPath, f.Path)
 	// A seed of a published parent is published to the same team (6.11).
 	if t := f.Doc.Team(); t != "" && bp.SameEmail(seed.Owner(), d.self.Email) {
-		if _, err := d.heldByName(t); err == nil {
+		if h, err := d.heldAt(f.Path); err == nil && h.dir.Name == t {
 			if _, err := d.Publish(seedPath, t, "split off "+f.Doc.Title()); err != nil {
 				d.logf("publishing seed %s: %v", seedPath, err)
 			}

@@ -22,6 +22,7 @@ import (
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/peerid"
+	"github.com/golbinski/kalka/internal/store"
 	"github.com/golbinski/kalka/internal/teamlog"
 )
 
@@ -152,8 +153,8 @@ func (d *Node) teamDirs() []teamDir {
 	ents, _ := os.ReadDir(root)
 	var out []teamDir
 	for _, e := range ents {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || strings.EqualFold(e.Name(), store.PersonalDir) {
+			continue // personal/ is never a team's folder (spec 14)
 		}
 		dir := filepath.Join(root, e.Name())
 		logs, _ := filepath.Glob(filepath.Join(dir, "*-team.log"))
@@ -223,8 +224,8 @@ func (d *Node) newTeamDir(teamName, team string) teamDir {
 	root := d.Store.Dir()
 	for i := 1; ; i++ {
 		dirName := teamName
-		if i > 1 {
-			dirName = fmt.Sprintf("%s-%d", teamName, i)
+		if i > 1 || teamName == store.PersonalDir {
+			dirName = fmt.Sprintf("%s-%d", teamName, max(i, 2))
 		}
 		dir := filepath.Join(root, dirName)
 		lp := filepath.Join(dir, teamlog.LogName(teamName))
@@ -311,6 +312,9 @@ func (d *Node) CreateTeam(teamName string) (TeamView, error) {
 	teamName = strings.TrimSpace(teamName)
 	if !teamlog.ValidTeamName(teamName) {
 		return TeamView{}, fmt.Errorf("%q cannot name a team: use lower-case letters, digits and dashes, starting with a letter or digit", teamName)
+	}
+	if teamName == store.PersonalDir {
+		return TeamView{}, fmt.Errorf("%q is reserved for your Personal folder; choose another team name", teamName)
 	}
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
@@ -420,7 +424,7 @@ func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 			continue
 		}
 		f, err := d.Store.Load(in.Path)
-		if err != nil || f.Doc.Team() != t.Name || f.Doc.IsDomain() {
+		if err != nil || !inDir(t.Dir, f.Path) || f.Doc.Team() != t.Name || f.Doc.IsDomain() {
 			continue // a domain document follows assign-domain
 		}
 		out = append(out, Reassigned{KalkaID: in.KalkaID, Title: in.Title, Path: in.Path, After: lastRelease(f.Doc)})
@@ -571,6 +575,8 @@ type TeamView struct {
 	// lists the tombstones.
 	Published int          `json:"published"`
 	Deleted   []DeletedDoc `json:"deleted"`
+	// NotShared lists the mismatches (spec 14).
+	NotShared []NotSharedDoc `json:"not_shared"`
 }
 
 // DeletedDoc is a document deleted for the team.
@@ -714,7 +720,41 @@ func (d *Node) teamView(t teamDir) TeamView {
 		v.Deleted = append(v.Deleted, dd)
 	}
 	sort.Slice(v.Deleted, func(i, j int) bool { return v.Deleted[i].Title < v.Deleted[j].Title })
+	v.NotShared = d.notShared(h)
 	return v
+}
+
+// NotSharedDoc is a file whose location and `team:` disagree, or that lies
+// in a team's folder without being a team document: listed, never
+// replicated (spec 14).
+type NotSharedDoc struct {
+	Rel     string `json:"rel"`
+	Title   string `json:"title"`
+	KalkaID string `json:"kalka_id,omitempty"`
+	Reason  string `json:"reason"`
+}
+
+// notShared lists the files in h's folder that do not replicate, and the
+// Personal files whose `team:` names h.
+func (d *Node) notShared(h *held) []NotSharedDoc {
+	out := []NotSharedDoc{}
+	for _, in := range d.Store.List() {
+		f, err := d.Store.Load(in.Path)
+		if err != nil {
+			continue
+		}
+		var why string
+		switch {
+		case inDir(h.dir.Dir, in.Path):
+			why = isTeamDoc(h, in.Path, f.Doc, in.Duplicate)
+		case in.Scope == "" && f.Doc.Team() == h.dir.Name:
+			why = MismatchInPersonal
+		}
+		if why != "" {
+			out = append(out, NotSharedDoc{Rel: in.Rel, Title: in.Title, KalkaID: in.KalkaID, Reason: why})
+		}
+	}
+	return out
 }
 
 // history renders the log in causal order, oldest first.

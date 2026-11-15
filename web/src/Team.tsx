@@ -264,6 +264,19 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
 
       {owner && <Invites t={t} run={run} />}
 
+      {(t.not_shared?.length ?? 0) > 0 && (
+        <>
+          <h3>Not shared</h3>
+          <ul className="plain">
+            {t.not_shared!.map((d) => (
+              <li key={d.rel}>
+                <code>{d.rel}</code> · {d.reason}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       {(t.deleted?.length ?? 0) > 0 && (
         <>
           <h3>Deleted for the team</h3>

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golbinski/kalka/internal/config"
+	"github.com/golbinski/kalka/internal/store"
 	"github.com/golbinski/kalka/internal/ui"
 )
 
@@ -275,7 +276,7 @@ func SaveSetup(cfg *config.Config) error {
 	if err := core.Validate(cfg); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(cfg.Folder, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cfg.Folder, store.PersonalDir), 0o755); err != nil {
 		return err
 	}
 	return config.Save(cfg)

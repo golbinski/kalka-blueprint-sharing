@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -151,6 +153,8 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 	if now == nil {
 		now = time.Now
 	}
+	// The Personal folder: files there never leave this machine (spec 14).
+	_ = os.Mkdir(filepath.Join(cfg.Folder, store.PersonalDir), 0o755)
 	st, err := store.Open(cfg.Folder)
 	if err != nil {
 		return nil, fmt.Errorf("blueprint folder: %w", err)

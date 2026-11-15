@@ -194,6 +194,9 @@ export interface Doc {
   /** Soft hints of the blueprint reference (spec 6.13); never errors. */
   hints: Problem[]
   duplicate?: boolean
+  /** "personal" or the name of the team whose folder holds the file. */
+  scope: string
+  mismatch?: string
   traces: Trace[]
   refs: Record<string, RefView>
   seed?: { parent?: string; parent_rel?: string; parent_title?: string; backlink_missing?: boolean }
@@ -380,6 +383,8 @@ export interface Team {
   replication?: ReplicationStatus
   published: number
   deleted: { kalka_id: string; title: string; version: number; by: string }[] | null
+  /** Files whose location and team: disagree: listed, never replicated (spec 14). */
+  not_shared: { rel: string; title: string; kalka_id?: string; reason: string }[] | null
 }
 export interface InviteResult {
   token: string

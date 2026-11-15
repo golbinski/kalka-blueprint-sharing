@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,6 +28,11 @@ owner: %s
 
 func (n *node) writeDomain(file string) string {
 	n.w.t.Helper()
+	// Domain documents are written in the team's folder, where they are
+	// released in place.
+	if ts := n.d.teamDirs(); len(ts) == 1 {
+		file = filepath.Join(filepath.Base(ts[0].Dir), file)
+	}
 	n.write(file, strings.Replace(lockersDomain, "%s", n.email, 1))
 	waitStored(n.w.t, n, n.path(file), "Locker bank")
 	return n.path(file)

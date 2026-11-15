@@ -207,17 +207,18 @@ func describe(h *held, doc *bp.Document) (syncproto.InvItem, merge.ReleaseChain,
 func tombDir(h *held) string  { return filepath.Join(h.dir.Dir, ".kalka", "tombstones") }
 func trashDir(h *held) string { return filepath.Join(h.dir.Dir, ".kalka", "trash") }
 
-// replicaSet lists the team's published documents held here: files with
-// `team: <name>` and a valid release, and the tombstones (spec 20.1, 20.6).
-// Nothing else ever enters an inventory.
+// replicaSet lists the team's documents held here: the team documents in
+// its folder (isTeamDoc) and the tombstones (spec 14, 20.1, 20.6). Nothing
+// else ever enters an inventory; no file outside the team's folder is
+// even read.
 func (d *Node) replicaSet(h *held) map[string]teamDoc {
 	set := map[string]teamDoc{}
 	for _, in := range d.Store.List() {
-		if in.KalkaID == "" || in.Duplicate {
+		if in.KalkaID == "" || in.Duplicate || !inDir(h.dir.Dir, in.Path) {
 			continue
 		}
 		f, err := d.Store.Load(in.Path)
-		if err != nil || f.Doc.Team() != h.dir.Name || f.Doc.HasErrors() {
+		if err != nil || isTeamDoc(h, f.Path, f.Doc, false) != "" {
 			continue
 		}
 		if item, ch, ok := describe(h, f.Doc); ok {
@@ -635,7 +636,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 			if !td.tomb {
 				live, _ = d.Store.Load(td.path)
 			}
-		} else if f, err := d.Store.Find(id); err == nil && f != nil {
+		} else if f, err := d.Store.FindIn(h.dir.Dir, id); err == nil && f != nil {
 			local, live = f.Doc, f
 		}
 		if live != nil {
@@ -846,7 +847,7 @@ func (d *Node) localChange(path string) {
 	if recent && time.Since(at) < 5*time.Second {
 		return
 	}
-	if h, err := d.heldByName(f.Doc.Team()); err == nil {
+	if h, err := d.heldAt(f.Path); err == nil && f.Doc.Team() == h.dir.Name {
 		d.pushTeam(h.dir.Team)
 	}
 }

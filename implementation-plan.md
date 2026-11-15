@@ -593,6 +593,23 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
 - Tests: the one-to-one scenarios are deleted. Seeds, signatures, hints, traces and comment notices are re-seated on publish plus replication (`node.share`, `node.rel`). The merge tests and the golden round trip run as team merges (fixture entries without a signature stay in Alice's file; the golden outputs were regenerated). New: one registration per node (`rendezvous.Server.IDs`), a stranger and an impostor with a member's email both get `not-member` with nothing but heads sent, a key the log does not bind fails the initiator's handshake, and `TestNoOneToOneLeft` keeps the deleted messages, endpoints, files and flags out of the Go code and the page.
 - Left for later milestones: handoff returns as a release naming the new owner in T3 (`kalka handoff` is absent until then, and so is the seed handoff test). `kalka check` checks signatures against the user's own key only; team keys there belong with T6. `kalka join` while paused reports on stderr without a JSON `kind`, which is part of the T6/T7 parity work. `Summary.peers_online`/`peers_known` keep their names but count team members.
 
+**T2, Personal and team folders.** Done 2026-11-15.
+
+- Location decides scope (`core/scope.go`). A file belongs to the team whose folder holds it, at any depth. Anything else is Personal: `personal/`, files at the root, and other top-level folders that are not a team's. `store.ScopeOf` names the top folder, and `store.Info.Scope` carries it. Duplicates now count per scope: the same `kalka_id` in Personal and in a team's folder is not a duplicate. `Store.Find` stays global, and `Store.FindIn(dir, id)` searches one folder.
+- One test of what replicates, `isTeamDoc`. The file must lie in the team's folder, `team:` must name that team, it must have no format errors and no duplicate in the scope, and it must hold a valid release under the team's log. `replicaSet` takes only that folder's files. An incoming document's fallback lookup searches the team's folder only. Every place that went from `team:` to a team now goes from the location: local changes, delete, the doc view, seeds, domains and removal reassignments (`heldAt`). `heldByName` remains only for a domain referenced by name.
+- Publishing a Personal file picks the team named, else the file's `team:`, else the only team. It releases the file, then moves it into that team's folder (`Store.Move`, which refuses if the file changed underneath) and reports the new path in `PublishResult.Path`. A Personal file that already holds a release for that team is only moved. A file in a team's folder is published in place, and naming another team for it is an error.
+- Mismatches are listed and never replicated. `TeamView.not_shared` lists each with its reason: not published, `team:` names another team, no valid release, duplicate id, or a Personal file whose `team:` names the team. `DocView` gains `scope` and `mismatch`. `kalka team` prints them as `not shared:` lines; the Team view has a "Not shared" list, and the document view has a banner.
+- `personal/` is created by `kalka setup`, by the setup page and when a node starts. It is never a team's folder (`teamDirs` skips it). `team create personal` is refused, and a joined team of that name gets the folder `personal-2`.
+- Tests (`core/scope_test.go`):
+  - Two-team isolation, with recorded channels both ways and probes for a foreign id answered like an unknown one.
+  - Two same-name teams on one machine (`parcels`, `parcels-2`) exchange nothing.
+  - Personal never leaves: a draft with `team:`, and a file holding a real release that was moved back into Personal, neither appear on the channel and both are listed.
+  - Publish moves the file and reports the path; a second publish stays in place.
+  - Mismatches are listed with reasons and not replicated.
+  - `personal` is refused as a team name.
+  - A mutation check confirmed the tests catch a dropped location filter.
+  - Test helpers follow moved files (`node.follow`, used by `node.publish`). Domain documents are written in the team's folder. Recording uses a tap switch installed once per node, so swapping recorders does not race the sessions.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

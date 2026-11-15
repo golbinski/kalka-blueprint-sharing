@@ -78,9 +78,9 @@ func TestSyncWithNoWindow(t *testing.T) {
 	if depot.d.APIAddr() != "" || depot.d.Bus().Clients() != 0 {
 		t.Fatal("expected no listener and no page")
 	}
-	depot.write("lockers.md", lockers)
+	depot.write("parcels/lockers.md", lockers)
 	waitFor(t, "the index", func() bool { return len(depot.d.Store.List()) == 1 })
-	if _, err := depot.d.Publish(depot.path("lockers.md"), "", ""); err != nil {
+	if _, err := depot.d.Publish(depot.path("parcels/lockers.md"), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the pushed document", func() bool { return holds(courier, "every depot") })
@@ -88,9 +88,9 @@ func TestSyncWithNoWindow(t *testing.T) {
 	// A page connects and leaves; the next change still travels.
 	_, unsub := depot.d.Bus().Subscribe()
 	unsub()
-	depot.write("lockers.md", strings.Replace(depot.read("lockers.md"), "every depot", "every depot and station", 1))
+	depot.write("parcels/lockers.md", strings.Replace(depot.read("parcels/lockers.md"), "every depot", "every depot and station", 1))
 	waitFor(t, "the edit indexed", func() bool { return holds(depot, "every depot and station") })
-	if _, err := depot.d.Publish(depot.path("lockers.md"), "", "stations too"); err != nil {
+	if _, err := depot.d.Publish(depot.path("parcels/lockers.md"), "", "stations too"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the pushed edit", func() bool { return holds(courier, "every depot and station") })

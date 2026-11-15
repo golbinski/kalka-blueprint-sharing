@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -27,6 +28,24 @@ import (
 // Debounce is how long the watcher waits for a file to settle.
 const Debounce = 300 * time.Millisecond
 
+// PersonalDir is the folder of Personal documents (spec 14). Files
+// directly in the folder count as Personal too.
+const PersonalDir = "personal"
+
+// ScopeOf is the scope a path relative to the folder lies in (spec 14):
+// the top-level folder holding it, or "" for Personal (the folder itself,
+// personal/, and so on). Whether a top-level folder is a team's is for the
+// caller, which knows the team logs; the store uses scopes to count
+// duplicates and to look documents up.
+func ScopeOf(rel string) string {
+	rel = filepath.ToSlash(rel)
+	top, _, nested := strings.Cut(rel, "/")
+	if !nested || strings.EqualFold(top, PersonalDir) {
+		return ""
+	}
+	return top
+}
+
 // ErrDuplicate means two files carry the same kalka_id (spec 14).
 type ErrDuplicate struct {
 	KalkaID string
@@ -46,17 +65,21 @@ type File struct {
 
 // Info describes an indexed file.
 type Info struct {
-	Path       string    `json:"path"`
-	Rel        string    `json:"rel"`
-	KalkaID    string    `json:"kalka_id,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	Owner      string    `json:"owner,omitempty"`
-	Rev        string    `json:"rev,omitempty"`
-	Entries    int       `json:"entries"`
-	Errors     int       `json:"errors"`
-	ParseError string    `json:"parse_error,omitempty"`
-	Duplicate  bool      `json:"duplicate,omitempty"`
-	Modified   time.Time `json:"modified"`
+	Path       string `json:"path"`
+	Rel        string `json:"rel"`
+	KalkaID    string `json:"kalka_id,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Owner      string `json:"owner,omitempty"`
+	Rev        string `json:"rev,omitempty"`
+	Entries    int    `json:"entries"`
+	Errors     int    `json:"errors"`
+	ParseError string `json:"parse_error,omitempty"`
+	// Duplicate: another file in the same scope has this kalka_id.
+	Duplicate bool      `json:"duplicate,omitempty"`
+	Modified  time.Time `json:"modified"`
+	// Scope is the top-level folder the file lies in, "" for Personal
+	// (ScopeOf).
+	Scope string `json:"scope,omitempty"`
 	// Team, and for a domain document (spec 6.12) its domain and version.
 	Team          string `json:"team,omitempty"`
 	Domain        string `json:"domain,omitempty"`
@@ -166,6 +189,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 	}
 	info := &Info{Path: p, hash: h}
 	info.Rel, _ = filepath.Rel(s.dir, p)
+	info.Scope = ScopeOf(info.Rel)
 	if st, err := os.Stat(p); err == nil {
 		info.Modified = st.ModTime().UTC()
 	}
@@ -202,20 +226,20 @@ func (s *Store) Info(path string) (Info, bool) {
 }
 
 // List returns the indexed files sorted by relative path, with duplicates
-// flagged.
+// within a scope flagged.
 func (s *Store) List() []Info {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := map[string]int{}
+	count := map[[2]string]int{}
 	for _, i := range s.index {
 		if i.KalkaID != "" {
-			count[i.KalkaID]++
+			count[[2]string{i.Scope, i.KalkaID}]++
 		}
 	}
 	out := make([]Info, 0, len(s.index))
 	for _, i := range s.index {
 		c := *i
-		c.Duplicate = c.KalkaID != "" && count[c.KalkaID] > 1
+		c.Duplicate = c.KalkaID != "" && count[[2]string{c.Scope, c.KalkaID}] > 1
 		out = append(out, c)
 	}
 	slices.SortFunc(out, func(a, b Info) int { return strings.Compare(a.Rel, b.Rel) })
@@ -256,15 +280,25 @@ func (s *Store) Load(path string) (*File, error) {
 	return &File{Path: abs, Raw: raw, Doc: d}, nil
 }
 
-// Find returns the file with kalkaID, or nil if there is none. Two files
-// with the same id give *ErrDuplicate.
+// Find returns the file with kalkaID anywhere in the folder, or nil if
+// there is none. Two files with the same id give *ErrDuplicate.
 func (s *Store) Find(kalkaID string) (*File, error) {
+	return s.find(kalkaID, "")
+}
+
+// FindIn is Find within dir, such as a team's folder: documents are found
+// by kalka_id within their scope (spec 14).
+func (s *Store) FindIn(dir, kalkaID string) (*File, error) {
+	return s.find(kalkaID, dir)
+}
+
+func (s *Store) find(kalkaID, dir string) (*File, error) {
 	kalkaID = strings.ToLower(kalkaID)
-	paths := s.pathsFor(kalkaID)
+	paths := s.pathsFor(kalkaID, dir)
 	if len(paths) == 0 {
 		// The watcher may lag behind: rescan before deciding it is new.
 		s.scan(s.dir, nil)
-		paths = s.pathsFor(kalkaID)
+		paths = s.pathsFor(kalkaID, dir)
 	}
 	var found []*File
 	for _, p := range paths {
@@ -289,12 +323,13 @@ func (s *Store) Find(kalkaID string) (*File, error) {
 	return nil, dup
 }
 
-func (s *Store) pathsFor(id string) []string {
+func (s *Store) pathsFor(id, dir string) []string {
+	prefix := filepath.Clean(dir) + string(filepath.Separator)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []string
 	for p, i := range s.index {
-		if i.KalkaID == id {
+		if i.KalkaID == id && (dir == "" || strings.HasPrefix(p, prefix)) {
 			out = append(out, p)
 		}
 	}
@@ -355,6 +390,31 @@ func (s *Store) CreateIn(dir string, doc *bp.Document, suggested string) (string
 	s.own[path] = [32]byte{} // reserve until written
 	s.mu.Unlock()
 	return path, s.write(path, doc.Bytes(), nil)
+}
+
+// Move writes doc as a new file in dir, under f's name (with a suffix if
+// taken), and removes f's file, which must still hold f.Raw (spec 20.1:
+// publish moves the file into the team's folder). It returns the new path.
+func (s *Store) Move(f *File, dir string, doc *bp.Document) (string, error) {
+	raw, err := os.ReadFile(f.Path)
+	if err != nil {
+		return "", err
+	}
+	if !bytes.Equal(raw, f.Raw) {
+		return "", fsutil.ErrChanged
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path, err := s.CreateIn(dir, doc, strings.TrimSuffix(filepath.Base(f.Path), filepath.Ext(f.Path)))
+	if err != nil {
+		return "", err
+	}
+	if err := os.Remove(f.Path); err != nil {
+		return path, fmt.Errorf("%s was written, but %s could not be removed: %w", path, f.Path, err)
+	}
+	s.Forget(f.Path)
+	return path, nil
 }
 
 var reserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])$`)
