@@ -1,41 +1,114 @@
-# Tests on Linux and Windows (path handling, file locking and line endings
-# are checked on Windows first, implementation plan §2.5); release
-# archives on a v* tag.
-name: ci
+# The checks run before every milestone commit: the web UI's types, tests
+# and build; go vet for every system and the desktop build; the Go tests
+# with the race detector, and the desktop shell's tests, on Linux, macOS
+# and Windows.
+#
+# No test registers a URL scheme or writes a real login entry (the smoke
+# test sets KALKA_NO_URL_SCHEME and marks start at login as set up). Tests
+# that reach the public PeerJS cloud or GitHub stay off: they need
+# KALKA_CLOUD_TEST or KALKA_GH_LIVE.
+#
+# A v* tag also builds the release archives (tools/release) and publishes
+# them as a GitHub release, once every check has passed.
+name: CI
+
 on:
   push:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: cd web && npm ci && npm run build && npm test
-      - run: go vet ./...
-      - run: go test -race ./...
+      - run: npm ci
+      - run: npx --no-install tsc --noEmit -p .
+      - run: npx --no-install vitest run
+      - run: npm run build
+      # The Go tests serve the built page (internal/ui embeds it).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: internal/ui/dist
+          include-hidden-files: true
+          retention-days: 1
+
+  vet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go vet, every system
+        run: |
+          for os in linux darwin windows; do
+            echo "== GOOS=$os"
+            GOOS=$os go vet ./...
+          done
+      - name: go vet, the Windows desktop shell (pure Go)
+        run: GOOS=windows go vet -tags desktop ./cmd/kalka-desktop ./internal/desktop
+
+  test:
+    needs: web
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: internal/ui/dist
+      - name: Desktop libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev xvfb
+      - name: go vet, desktop
+        run: go vet -tags desktop ./cmd/kalka-desktop ./internal/desktop
+      - name: go test -race
+        run: go test -race -count=1 ./...
+      - name: Desktop shell tests
+        if: runner.os != 'Linux'
+        run: go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
+      - name: Desktop shell tests (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
-    runs-on: ubuntu-latest
+    needs: [web, vet, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -43,10 +116,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 24
-      - run: cd web && npm ci && npm run build
+          name: ui-dist
+          path: internal/ui/dist
       - run: go run ./tools/release -version "${GITHUB_REF_NAME#v}"
       - run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
         env:
