@@ -2,7 +2,7 @@ package cli
 
 // Product rule: no financial or trading examples in fixtures, mockups or
 // tests (plan T7). This reads the text tests feed the code: the string
-// literals of every Go test file, the web tests, and testdata.
+// literals of every Go test file, the web tests, testdata and samples.
 
 import (
 	"go/ast"
@@ -55,7 +55,7 @@ func TestFixturesStayInNeutralDomains(t *testing.T) {
 				}
 				return true
 			})
-		case strings.HasSuffix(n, ".test.ts"), strings.Contains(slash, "/testdata/"), strings.Contains(slash, "/mockups/"):
+		case strings.HasSuffix(n, ".test.ts"), strings.Contains(slash, "/testdata/"), strings.Contains(slash, "/mockups/"), strings.Contains(slash, "/samples/"):
 			raw, err := os.ReadFile(p)
 			if err != nil {
 				return err

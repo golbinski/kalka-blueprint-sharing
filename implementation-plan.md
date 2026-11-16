@@ -873,6 +873,19 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
 - **Watcher: a folder that arrives with files inside.** A new folder was scanned before it was watched, and only the folder was announced. Files in a copied or unpacked folder were indexed, but the page and replication heard of them only at the next unrelated event, and a file written between the scan and the watch was missed. The watcher now watches first, then scans, and announces each file. `TestWatchFolderMovedIn` fails on the old code. This was found as a flake of `TestWatchSuppressesOwnWrites` under full-suite load.
 - **Tests:** `TestInviteFlow` (token and link only while open), `historySays` in the copy, decline and reassignment tests, the domain in `TestDomainOwnership`'s removal preview. Checked against two throwaway daemons through the page's endpoints (the Chrome extension was not connected, so the page itself was not looked at).
 
+### T9b. Sample blueprints (done)
+
+- **`samples/blueprints`:** five blueprints for an invented library's lending desk, for the manual pass and demos. They hold no `kalka_id`, owner or review log, so they are published and reviewed under the tester's own identity.
+  - A domain document (`circulation`): glossary, contexts, invariants, events.
+  - A full opted-in blueprint: every section, a Mermaid diagram, and a trace block with a divergence.
+  - A short plan that shows three hints.
+  - A file with no frontmatter.
+  - A plan for a second team (`returns-desk`), for transfers.
+- **`samples/README.md`:** what each file exercises, how to copy the folder into Personal (never point kalka at it), and a short walk-through: publish the domain (v1), the blueprints resolving `lending-desk/circulation@v1`, release v2 for the "newer domain version" indicator, a second team for transfers.
+- **Tests:** `TestSamples` runs `kalka check --json` on each file and requires no error or warning, valid trace blocks and exactly the hints the README lists. It also fails on a sample the README does not list. `TestFixturesStayInNeutralDomains` now covers `samples/`; it caught "checkout" in the glossary.
+- **`docs/desktop-testing.md`:** section 4 copies the folder in in one go (which also exercises T9a's watcher fix) and walks the samples. It adds checks for the T9a items: *Show link* on an older invite, *Reassign…* from a member's row, and the history wording for transfers.
+- Walked through with a throwaway daemon: the folder copied into Personal, the domain published as v1 and listed in *Domains*, and both blueprints' `domain_ref` resolved to it.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

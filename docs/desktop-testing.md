@@ -22,7 +22,9 @@ the machine can check. It is written as one pass, in order, for Windows
   release's `kalka-rendezvous_<v>_<os>_<arch>` archive on any host (users
   then set `http://<host>:9000`), or the public PeerJS cloud for a quick
   run.
-- Neutral test content only: a library-lending or parcel-logistics plan.
+- Test content: the blueprints in `samples/blueprints` (see
+  `samples/README.md`), copied into the folder's `personal\`. Anything you
+  add yourself: library lending or parcel logistics, nothing financial.
 
 Write down anything that differs from what an item says, with the time and
 the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
@@ -73,16 +75,28 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
       lending-desk…"; then the team appears, and A gets a "joined" notice.
 - [ ] B: *Join with link or token…* in the switcher, paste the token of a
       fresh invite: the same join screen.
+- [ ] A: reload the page, then *Show link* on an open invite made earlier:
+      the same box, and *Copy link* and *Copy token* copy it.
+      `kalka team invites` prints that link; used invites show none.
 - [ ] A: *Team* shows B with presence "online"; stop kalka on B and the
       presence turns to "offline" within a minute.
 
 ## 4. Publish, review, hand off (A and B)
 
-- [ ] A: put `renewals.md` (a heading and a plan) into `personal\`. It shows
-      in *Blueprints · Personal* with *Publish to team…*.
-- [ ] *Publish to team…* → `lending-desk`. The file moves to the team folder
-      at version 1, and reaches B within seconds (*Sync now* on *Team*
-      forces a round).
+- [ ] A: copy the sample folder in, in one go (Explorer, or
+      `Copy-Item samples\blueprints <folder>\personal\samples -Recurse`).
+      All five show in *Blueprints · Personal* within a second,
+      `interlibrary-requests.md` as a local blueprint, each with *Publish to
+      team…*.
+- [ ] A: publish `lending-desk-circulation-domain.md` to `lending-desk`.
+      *Domains* lists `circulation` v1.
+- [ ] `hold-shelf-expiry.md`: *Publish to team…* → `lending-desk`. The file
+      moves to the team folder at version 1. Its Mermaid diagram and trace
+      render (one divergence: C3), its domain reference resolves to v1,
+      and it reaches B within seconds (*Sync now* on *Team* forces a
+      round).
+- [ ] A: edit the domain document and release v2. B's copy of
+      `hold-shelf-expiry.md` shows "newer domain version available (v2)".
 - [ ] B: comment on a section. A, window hidden: one notification for the
       new comment; clicking it opens the document.
 - [ ] A: edit the plan; the review strip offers *Release v2*. Release it; B
@@ -92,6 +106,10 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 - [ ] B: *Open* the item. It clears, and the badge goes.
 - [ ] A (team owner): *Reassign…* the document back to A from its review.
       B's copy says it was reassigned, and A releases on its own.
+- [ ] A: hand another document to B, then on *Team* use *Reassign…* in B's
+      row: it lists B's documents (the domain document labelled with its
+      domain), and *Reassign* takes one back. The history reads
+      "reassigned "<title>" from … to …".
 
 ## 5. Transfers between teams (A)
 
@@ -102,6 +120,8 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 - [ ] A: *Accept*. The copy appears in `returns-desk` with the "attested"
       strip naming who offered and who accepted it; its old comments carry
       an "attested" badge.
+      *Team → History* of `returns-desk` reads "accepted "<title>" from
+      another team, owned by …"; a declined one later reads "declined …".
 - [ ] A: *Move to team…* another document. Until it is decided the review
       shows "being moved to …; comments added now will not travel".
       *Withdraw* it from *Team → Transfers*, then move again and *Decline*
