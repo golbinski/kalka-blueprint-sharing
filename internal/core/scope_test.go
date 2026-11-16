@@ -340,7 +340,7 @@ func TestPersonalNeverLeaves(t *testing.T) {
 		got[d.Rel] = d.Reason
 	}
 	for _, rel := range []string{"personal/draft.md", "personal/codes.md"} {
-		if got[filepath.FromSlash(rel)] != MismatchInPersonal {
+		if got[rel] != MismatchInPersonal {
 			t.Fatalf("not shared: %+v", v.NotShared)
 		}
 	}
@@ -412,9 +412,9 @@ func TestMismatchesNotReplicated(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		filepath.Join("parcels", "draft.md"): MismatchNotShared,
-		filepath.Join("parcels", "other.md"): MismatchOtherTeam,
-		filepath.Join("parcels", "bare.md"):  MismatchUnreleased,
+		"parcels/draft.md": MismatchNotShared,
+		"parcels/other.md": MismatchOtherTeam,
+		"parcels/bare.md":  MismatchUnreleased,
 	}
 	got := map[string]string{}
 	for _, d := range v.NotShared {

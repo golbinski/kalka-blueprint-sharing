@@ -36,7 +36,7 @@ func TestIndexFindDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := s.List(); len(l) != 1 || l[0].Rel != filepath.Join("sub", "a.md") || l[0].Title != "T" {
+	if l := s.List(); len(l) != 1 || l[0].Rel != "sub/a.md" || l[0].Title != "T" {
 		t.Fatalf("list %+v", l)
 	}
 	f, err := s.Find("6F1C2A0E-8D1B-4C57-9A43-0E2B7C9D51AA")

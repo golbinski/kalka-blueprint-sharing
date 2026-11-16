@@ -93,6 +93,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev xvfb dbus
+          # WebKit's sandbox (bubblewrap) needs unprivileged user namespaces,
+          # which Ubuntu 24.04 restricts by default; desktops allow them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: go vet, desktop
         run: go vet -tags desktop ./cmd/kalka-desktop ./internal/desktop
       - name: go test -race
@@ -102,7 +105,10 @@ jobs:
         run: go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
       - name: Desktop shell tests (Linux, virtual display)
         if: runner.os == 'Linux'
-        # The tray (StatusNotifierItem) needs a session bus as well as a display.
+        # A session bus as well as a display, as on a desktop. No tray host
+        # runs here, so the shell logs that the tray failed and goes on.
+        env:
+          GTK_A11Y: none
         run: dbus-run-session -- xvfb-run -a go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
 
   release:
