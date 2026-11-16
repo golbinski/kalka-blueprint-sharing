@@ -500,7 +500,7 @@ Done (spec 6.12, 19.6):
 - UI: Domains view; domain strip with version, domain owner, draft note, *Release vN…* (dialog with a checklist of open comments), and a version switcher over kept versions, shown read only; comments folded as "incorporated in vN"; the dismissible "newer domain version available" indicator, and notes for a version not kept here or an ambiguous team.
 - Tests: `TestDomainReleases` (merge), `TestDomainReleaseByNonAssignedOwner` (the required scenario: no peer applies it and each says why), `TestDomainRelayAndReassignment`, `TestDomainIncorporatedAndReferences`. Checked by hand with two daemons: assign, CLI release, reader comment, release from the dialog, the indicator and a kept version.
 
-Not done: the removal preview does not list the domains that move with a member.
+Not done at the time: the removal preview did not list the domains that move with a member. Since v0.6 a domain document is an ordinary document, so it was always listed; T9a labels it.
 
 ## 6t. D-series status: background desktop app
 
@@ -863,6 +863,15 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - `internal/reference/BLUEPRINT-REFERENCE.md` names no removed command; unchanged.
   - The spec already described the split (v0.6, 9.6, 15, 16, 23).
 - **Left for T9:** the product owner's Windows pass with `docs/desktop-testing.md`.
+
+### T9a. Gaps before the Windows pass (done)
+
+- **Open invites can be passed on again.** `InviteView` carries `token` and `link` while an invite is open (never once it is used, expired or cancelled). The daemon always kept them in the owner-only `invites.yaml`; only the view left them out. The Team view's invite list has *Show link*, which reopens the box with *Copy link* and *Copy token* (spec 11, Team). `kalka team invites` prints the link of each open invite under the table.
+- **History in words for every operation.** `accept-transfer` and `decline-transfer` read "accepted "<title>" from another team, owned by …" and "declined "<title>", offered from another team". Those two and `reassign-document` name the document by its title when it is held in the team's folder, otherwise by a short id.
+- **Reassign from a member's row.** For team owners, *Reassign…* in the Members table lists that member's published documents in the team, each with a new owner to choose (you by default) and *Reassign*. It uses the same list as the removal preview.
+- **Domains in the removal and reassign lists.** `Reassigned.domain` is set for a domain document, and the page and `kalka team remove` show it.
+- **Watcher: a folder that arrives with files inside.** A new folder was scanned before it was watched, and only the folder was announced. Files in a copied or unpacked folder were indexed, but the page and replication heard of them only at the next unrelated event, and a file written between the scan and the watch was missed. The watcher now watches first, then scans, and announces each file. `TestWatchFolderMovedIn` fails on the old code. This was found as a flake of `TestWatchSuppressesOwnWrites` under full-suite load.
+- **Tests:** `TestInviteFlow` (token and link only while open), `historySays` in the copy, decline and reassignment tests, the domain in `TestDomainOwnership`'s removal preview. Checked against two throwaway daemons through the page's endpoints (the Chrome extension was not connected, so the page itself was not looked at).
 
 ## 7. Sequencing and rough size
 

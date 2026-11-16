@@ -441,6 +441,9 @@ export interface TeamInvite {
   expires: string
   state: 'open' | 'used' | 'expired' | 'canceled'
   used_at?: string
+  /** Only while open: the invite can be passed on again. */
+  token?: string
+  link?: string
 }
 export interface TeamHistory {
   hash: string
@@ -516,6 +519,8 @@ export interface Reassigned {
   title: string
   path: string
   after: number
+  /** Set for a domain document: the domain moves with the document. */
+  domain?: string
 }
 
 export const api = {

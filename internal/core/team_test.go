@@ -86,7 +86,8 @@ func TestInviteFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := teamOf(t, desk); len(v.Invites) != 1 || v.Invites[0].State != "open" {
+	// An open invite can be passed on again: it carries the token.
+	if v := teamOf(t, desk); len(v.Invites) != 1 || v.Invites[0].State != "open" || v.Invites[0].Token != inv.Token || v.Invites[0].Link != inv.Link {
 		t.Fatalf("open invites: %+v", v.Invites)
 	}
 	jv, err := reader.d.Join(context.Background(), inv.Token)
@@ -116,7 +117,7 @@ func TestInviteFlow(t *testing.T) {
 	if v := teamOf(t, reader); v.Me != "member" {
 		t.Fatalf("reader is %q", v.Me)
 	}
-	if v := teamOf(t, desk); v.Me != "owner" || v.Invites[0].State != "used" {
+	if v := teamOf(t, desk); v.Me != "owner" || v.Invites[0].State != "used" || v.Invites[0].Token != "" || v.Invites[0].Link != "" {
 		t.Fatalf("desk is %q, invite %+v", v.Me, v.Invites)
 	}
 	if runtime.GOOS != "windows" {

@@ -167,7 +167,11 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "removing %s reassigns these published documents to you:\n", pos[1])
 			}
 			for _, d := range docs {
-				fmt.Fprintf(stdout, "  %s  (%s, released up to v%d)\n", d.Title, d.Path, d.After)
+				dom := ""
+				if d.Domain != "" {
+					dom = "domain " + d.Domain + ", "
+				}
+				fmt.Fprintf(stdout, "  %s  (%s%s, released up to v%d)\n", d.Title, dom, d.Path, d.After)
 			}
 			return exitOK
 		}
@@ -236,6 +240,12 @@ func printInvites(w io.Writer, v core.TeamView) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", iv.Email, iv.State, iv.Expires.Local().Format("2006-01-02 15:04"))
 	}
 	tw.Flush()
+	// The links last: they are long, and copied whole.
+	for _, iv := range v.Invites {
+		if iv.Link != "" {
+			fmt.Fprintf(w, "\n%s:\n%s\n", iv.Email, iv.Link)
+		}
+	}
 }
 
 // cmdJoin implements `kalka join <link or token>` and `kalka join --show`

@@ -144,9 +144,26 @@ func ignored(name string, isDir bool) bool {
 	return !strings.EqualFold(filepath.Ext(name), ".md") || bp.IsSnapshotName(name)
 }
 
+// dirsUnder lists root and the folders below it that are not ignored.
+func dirsUnder(root string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if p != root && ignored(d.Name(), true) {
+			return filepath.SkipDir
+		}
+		out = append(out, p)
+		return nil
+	})
+	return out
+}
+
 // scan indexes every blueprint under root; dirs, if not nil, collects the
-// folders seen so the watcher can add them.
-func (s *Store) scan(root string, dirs *[]string) {
+// folders seen so the watcher can add them. changed, if not nil, is told
+// of every file whose index entry changed.
+func (s *Store) scan(root string, dirs *[]string, changed ...func(p string, external bool)) {
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -163,7 +180,11 @@ func (s *Store) scan(root string, dirs *[]string) {
 			}
 			return nil
 		}
-		s.refresh(p)
+		if c, ext := s.refresh(p); c {
+			for _, f := range changed {
+				f(p, ext)
+			}
+		}
 		return nil
 	})
 }
@@ -560,11 +581,16 @@ func (s *Store) Watch(ctx context.Context) error {
 			name := filepath.Base(ev.Name)
 			if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
 				if !ignored(name, true) && ev.Has(fsnotify.Create) {
-					var sub []string
-					s.scan(ev.Name, &sub)
-					for _, d := range sub {
+					// Watch first, then scan: a file written in between is
+					// caught by one or the other. A folder copied or
+					// unpacked in arrives with its files already inside,
+					// so each is announced.
+					for _, d := range dirsUnder(ev.Name) {
 						_ = w.Add(d)
 					}
+					s.scan(ev.Name, nil, func(p string, external bool) {
+						s.publish(Event{Path: p, External: external})
+					})
 					s.publish(Event{Path: ev.Name, External: true})
 				}
 				continue

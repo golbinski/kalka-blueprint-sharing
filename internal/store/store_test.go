@@ -93,6 +93,41 @@ func TestCreateNames(t *testing.T) {
 	}
 }
 
+// A folder that arrives with files inside, as a copied or unpacked sample
+// folder does, has each of its files indexed and announced, nested ones too.
+func TestWatchFolderMovedIn(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Watch(ctx)
+	time.Sleep(100 * time.Millisecond)
+	ev, stop := s.Subscribe()
+	defer stop()
+
+	outside := t.TempDir()
+	src := filepath.Join(outside, "samples")
+	os.MkdirAll(filepath.Join(src, "deep"), 0o755)
+	os.WriteFile(filepath.Join(src, "a.md"), []byte(doc1), 0o644)
+	os.WriteFile(filepath.Join(src, "deep", "b.md"), []byte(strings.Replace(doc1, "6f1c", "7f1c", 1)), 0o644)
+	if err := os.Rename(src, filepath.Join(dir, "samples")); err != nil {
+		t.Skip("rename across temp folders:", err)
+	}
+	seen := map[string]bool{}
+	deadline := time.After(5 * time.Second)
+	for !seen["a.md"] || !seen["b.md"] {
+		select {
+		case e := <-ev:
+			seen[filepath.Base(e.Path)] = true
+		case <-deadline:
+			t.Fatalf("announced %v; index %+v", seen, s.List())
+		}
+	}
+	if l := s.List(); len(l) != 2 || l[0].Rel != "samples/a.md" || l[1].Rel != "samples/deep/b.md" {
+		t.Fatalf("index %+v", l)
+	}
+}
+
 func TestWatchSuppressesOwnWrites(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.md")

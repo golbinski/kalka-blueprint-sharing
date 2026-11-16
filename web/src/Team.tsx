@@ -37,6 +37,7 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
   const owner = t.me === 'owner'
   const [err, setErr] = useState('')
   const [removing, setRemoving] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
+  const [reassigning, setReassigning] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
   const run = async (f: () => Promise<unknown>) => {
     setErr('')
     try {
@@ -88,7 +89,18 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
                 m={m}
                 owner={owner}
                 onOwner={(make) => run(() => api.setOwner(t.team, m.email, make))}
+                onReassign={async () => {
+                  setRemoving(null)
+                  setReassigning({ email: m.email, docs: null })
+                  try {
+                    setReassigning({ email: m.email, docs: await api.removalPreview(t.team, m.email) })
+                  } catch (e) {
+                    setReassigning(null)
+                    setErr((e as Error).message)
+                  }
+                }}
                 onRemove={async () => {
+                  setReassigning(null)
                   setRemoving({ email: m.email, docs: null })
                   try {
                     setRemoving({ email: m.email, docs: await api.removalPreview(t.team, m.email) })
@@ -114,7 +126,7 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
             <ul>
               {removing.docs.map((d) => (
                 <li key={d.kalka_id}>
-                  {d.title} <span className="muted small">({d.after > 0 ? `released up to v${d.after}` : 'not released yet'})</span>
+                  {d.title} <span className="muted small">({d.domain ? `domain ${d.domain}, ` : ''}{d.after > 0 ? `released up to v${d.after}` : 'not released yet'})</span>
                 </li>
               ))}
             </ul>
@@ -140,6 +152,17 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
         </div>
       )}
 
+      {reassigning && (
+        <ReassignPanel
+          t={t}
+          self={self}
+          email={reassigning.email}
+          docs={reassigning.docs}
+          run={run}
+          onClose={() => setReassigning(null)}
+          onDone={(kalkaID) => setReassigning((r) => r && { ...r, docs: r.docs?.filter((d) => d.kalka_id !== kalkaID) ?? null })}
+        />
+      )}
 
       {owner && <Invites t={t} run={run} />}
 
@@ -190,7 +213,19 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
   )
 }
 
-function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: boolean; onOwner: (make: boolean) => void; onRemove: () => void }) {
+function MemberRow({
+  m,
+  owner,
+  onOwner,
+  onReassign,
+  onRemove,
+}: {
+  m: TeamMember
+  owner: boolean
+  onOwner: (make: boolean) => void
+  onReassign: () => void
+  onRemove: () => void
+}) {
   return (
     <tr>
       <td>
@@ -211,6 +246,10 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
                 {m.owner ? 'Remove as owner' : 'Make owner'}
               </button>{' '}
               ·{' '}
+              <button type="button" className="link" onClick={onReassign}>
+                Reassign…
+              </button>{' '}
+              ·{' '}
               <button type="button" className="link" onClick={onRemove}>
                 Remove
               </button>
@@ -219,6 +258,80 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
         </td>
       )}
     </tr>
+  )
+}
+
+// ReassignPanel lists a member's published documents in the team, each
+// with a new owner to choose (spec 7.4: a team owner reassigns without the
+// owner's consent).
+function ReassignPanel({
+  t,
+  self,
+  email,
+  docs,
+  run,
+  onClose,
+  onDone,
+}: {
+  t: Team
+  self: string
+  email: string
+  docs: Reassigned[] | null
+  run: (f: () => Promise<unknown>) => Promise<void>
+  onClose: () => void
+  onDone: (kalkaID: string) => void
+}) {
+  const others = t.members.filter((m) => m.email !== email)
+  const first = others.find((m) => m.email === self)?.email ?? others[0]?.email ?? ''
+  const [to, setTo] = useState<Record<string, string>>({})
+  return (
+    <div className="banner">
+      <b>Reassign {email}’s documents</b>{' '}
+      {docs === null
+        ? 'Looking for their documents…'
+        : docs.length === 0
+          ? 'None of the team’s published documents in your folder are theirs.'
+          : 'The new owner’s kalka releases the next version; edits the old owner has not released are moved to their team trash, with a notice.'}
+      {docs && docs.length > 0 && (
+        <ul className="plain">
+          {docs.map((d) => {
+            const target = to[d.kalka_id] ?? first
+            return (
+              <li key={d.kalka_id} className="row">
+                <span className="grow">
+                  {d.title} <span className="muted small">({d.domain ? `domain ${d.domain}, ` : ''}{d.after > 0 ? `released up to v${d.after}` : 'not released yet'})</span>
+                </span>
+                <select value={target} onChange={(e) => setTo({ ...to, [d.kalka_id]: e.target.value })} aria-label={`New owner of ${d.title}`}>
+                  {others.map((m) => (
+                    <option key={m.email} value={m.email}>
+                      {m.email === self ? 'you' : m.email}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  {...act('doc.reassign')}
+                  disabled={!target}
+                  onClick={() =>
+                    run(async () => {
+                      await api.reassign(d.path, target)
+                      onDone(d.kalka_id)
+                    })
+                  }
+                >
+                  Reassign
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="row">
+        <button type="button" onClick={onClose}>
+          Done
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -301,6 +414,22 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
             .map((i) => (
               <li key={i.id}>
                 {i.email} · {i.state === 'open' ? `open until ${localTime(i.expires)}` : i.state === 'used' ? `joined ${i.used_at ? localTime(i.used_at) : ''}` : i.state}
+                {i.state === 'open' && i.token && i.link && (
+                  <>
+                    {' '}
+                    ·{' '}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => {
+                        setCopied('')
+                        setMade({ token: i.token!, link: i.link!, id: i.id, team: t.team, name: t.name, email: i.email, expires: i.expires })
+                      }}
+                    >
+                      Show link
+                    </button>
+                  </>
+                )}
                 {i.state === 'open' && (
                   <>
                     {' '}

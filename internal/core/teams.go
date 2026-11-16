@@ -409,6 +409,7 @@ type Reassigned struct {
 	Title   string `json:"title"`
 	Path    string `json:"path"`
 	After   int64  `json:"after"`
+	Domain  string `json:"domain,omitempty"` // a domain document moves with its owner like any other (6.12)
 	Plan    string `json:"-"`
 }
 
@@ -440,6 +441,9 @@ func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 			continue
 		}
 		r := Reassigned{KalkaID: id, Title: td.doc.Title(), Path: td.path}
+		if td.doc.IsDomain() {
+			r.Domain = td.doc.DomainName()
+		}
 		if head, ok := ch.Head(); ok {
 			r.After, r.Plan = head.Release.Version, head.Release.Plan
 		}
@@ -582,6 +586,10 @@ type InviteView struct {
 	Expires time.Time `json:"expires"`
 	State   string    `json:"state"` // open, used, expired, canceled
 	UsedAt  time.Time `json:"used_at,omitzero"`
+	// Token and Link only while the invite is open, so the owner can pass
+	// it on again (spec 11, Team: Copy link, Copy token).
+	Token string `json:"token,omitempty"`
+	Link  string `json:"link,omitempty"`
 }
 
 // HistoryLine is one operation of the log in words.
@@ -671,10 +679,18 @@ func (d *Node) teamView(t teamDir) TeamView {
 			iv.State = "canceled"
 		case !now.Before(r.Expires):
 			iv.State = "expired"
+		default:
+			iv.Token, iv.Link = r.Token, teamlog.LinkPrefix+r.Token
 		}
 		v.Invites = append(v.Invites, iv)
 	}
-	v.History = history(st, ops)
+	titles := map[string]string{}
+	for _, in := range d.Store.List() {
+		if in.KalkaID != "" && inDir(t.Dir, in.Path) {
+			titles[strings.ToLower(in.KalkaID)] = in.Title
+		}
+	}
+	v.History = history(st, ops, titles)
 	v.Replication = d.replStatus(t.Team)
 	v.Deleted = []DeletedDoc{}
 	h := &held{dir: t, st: st, ops: ops}
@@ -735,7 +751,18 @@ func (d *Node) notShared(h *held) []NotSharedDoc {
 }
 
 // history renders the log in causal order, oldest first.
-func history(st *teamlog.State, ops []teamlog.Op) []HistoryLine {
+// history renders the log; titles maps the kalka ids of the team's
+// documents held here to their titles, for operations that name one.
+func history(st *teamlog.State, ops []teamlog.Op, titles map[string]string) []HistoryLine {
+	doc := func(id string) string {
+		if t := titles[strings.ToLower(id)]; t != "" {
+			return fmt.Sprintf("%q", t)
+		}
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		return "document " + id
+	}
 	who := map[string]string{}
 	for email, keys := range st.Keys {
 		for _, k := range keys {
@@ -809,7 +836,11 @@ func history(st *teamlog.State, ops []teamlog.Op) []HistoryLine {
 		case teamlog.RemoveOwner:
 			text = "made " + a.Email + " a plain member"
 		case teamlog.ReassignDocument:
-			text = fmt.Sprintf("reassigned document %s from %s to %s from version %d", a.Doc, a.From, a.Owner, a.After+1)
+			text = fmt.Sprintf("reassigned %s from %s to %s from version %d", doc(a.Doc), a.From, a.Owner, a.After+1)
+		case teamlog.AcceptTransfer:
+			text = fmt.Sprintf("accepted %s from another team, owned by %s", doc(a.Doc), a.Owner)
+		case teamlog.DeclineTransfer:
+			text = fmt.Sprintf("declined %s, offered from another team", doc(a.Doc))
 		default:
 			text = o.Kind
 		}

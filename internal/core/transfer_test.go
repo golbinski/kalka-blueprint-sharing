@@ -13,6 +13,7 @@ import (
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/merge"
 	"github.com/golbinski/kalka/internal/syncproto"
+	"github.com/golbinski/kalka/internal/teamlog"
 )
 
 var w0 = time.Date(2026, 11, 12, 9, 30, 0, 0, time.UTC)
@@ -159,6 +160,7 @@ func TestCopyAccepted(t *testing.T) {
 	if err != nil || v.Status != TransferAccepted || v.Owner != x.jan.email {
 		t.Fatalf("accept %+v %v", v, err)
 	}
+	historySays(t, x.jan, "library-desk", teamlog.AcceptTransfer, `accepted "`, "from another team, owned by "+x.jan.email)
 	jp, jd := x.jan.fileIn(t, x.lib, r.ID)
 	if jd == nil {
 		t.Fatal("jan did not install the document")
@@ -328,6 +330,7 @@ func TestDeclines(t *testing.T) {
 	if err := x.jan.d.DeclineTransfer(c.ID); err != nil {
 		t.Fatal(err)
 	}
+	historySays(t, x.jan, "library-desk", teamlog.DeclineTransfer, "declined ", ", offered from another team")
 	if x.jan.pendingRaw(t, x.lib, c.ID) != nil || !x.jan.stubbed(t, x.lib, c.ID) {
 		t.Fatal("jan kept the declined offer")
 	}
@@ -708,4 +711,23 @@ func TestSeedParentAfterMove(t *testing.T) {
 	if v.Seed == nil || v.Seed.Parent != src || v.Seed.ParentTitle == "" || !strings.HasPrefix(v.Seed.ParentRel, "library-desk") {
 		t.Fatalf("seed %+v", v.Seed)
 	}
+}
+
+// historySays checks that the team's history renders the last op of kind
+// in words: it starts with prefix and holds part.
+func historySays(t *testing.T, n *node, team, kind, prefix, part string) {
+	t.Helper()
+	v, err := n.d.Team(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(v.History) - 1; i >= 0; i-- {
+		if h := v.History[i]; h.Op == kind {
+			if !strings.HasPrefix(h.Text, prefix) || !strings.Contains(h.Text, part) {
+				t.Fatalf("%s in words: %q", kind, h.Text)
+			}
+			return
+		}
+	}
+	t.Fatalf("no %s in %s's history", kind, team)
 }

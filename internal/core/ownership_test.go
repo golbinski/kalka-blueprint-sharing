@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/golbinski/kalka/internal/merge"
+	"github.com/golbinski/kalka/internal/teamlog"
 )
 
 // noticesOfKind keeps the notices of one kind.
@@ -129,6 +130,7 @@ func TestReassignmentWithoutConsent(t *testing.T) {
 	if v, _ := depot.d.Document(context.Background(), must(depot.teamFile(id))); v.Team.Pending != hub.email {
 		t.Fatalf("not shown as pending: %+v", v.Team)
 	}
+	historySays(t, depot, "", teamlog.ReassignDocument, `reassigned "`, "from "+courier.email+" to "+hub.email+" from version 2")
 	hubHeard := noticesOf(t, hub)
 	depot.replicate(hub)
 	waitOwner(t, hub, id, hub.email)
@@ -220,6 +222,10 @@ func TestDomainOwnership(t *testing.T) {
 		t.Fatalf("courier's release: %+v", r)
 	}
 	courier.replicate(depot)
+	// Removing courier would take the domain with the document.
+	if prev, err := depot.d.RemovalPreview("", courier.email); err != nil || len(prev) != 1 || prev[0].KalkaID != id || prev[0].Domain == "" || prev[0].Domain != f.Doc.DomainName() {
+		t.Fatalf("removal preview of the domain owner: %+v %v", prev, err)
+	}
 	if r, err := depot.d.Reassign(path, depot.email); err != nil || r.Version != 4 {
 		t.Fatalf("depot takes it back: %+v %v", r, err)
 	}
