@@ -32,6 +32,8 @@ export default defineConfig({
   },
   server: {
     proxy: { '/api': 'http://127.0.0.1:7717' },
+    // parity.test.ts reads internal/cli/parity.json (spec 12.2).
+    fs: { allow: [here, resolve(here, '../internal/cli/parity.json')] },
   },
   test: {
     environment: 'jsdom',

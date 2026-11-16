@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status } from './api'
+import { act } from './actions'
+import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status, type Team } from './api'
+import { PublishDialog } from './Dialogs'
+import { PERSONAL } from './scope'
 import { docHref, plural, setupFromInvite, useRoute } from './util'
 
 // Setup asks for the three required settings (spec 5).
@@ -99,7 +102,7 @@ export function Setup({ status }: { status: Status }) {
           <span className="muted small">Created if it does not exist. Received blueprints are saved here.</span>
         </label>
         {err && <div className="error-box">{err}</div>}
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className="primary" {...act('setup.save')} disabled={busy}>
           {busy ? 'Starting…' : invite ? 'Save and continue' : 'Save and start'}
         </button>
       </form>
@@ -110,15 +113,28 @@ export function Setup({ status }: { status: Status }) {
 const roleLabel = (b: BlueprintInfo, self: string) =>
   !b.kalka_id ? 'local' : b.owner && b.owner.toLowerCase() === self.toLowerCase() ? 'owner' : 'reviewer'
 
-export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: Status }) {
+/** Blueprints lists the files of the scope (spec 11.1). In Personal each
+ * offers Publish to team…; in a team folder a file that does not
+ * replicate says why. */
+export function Blueprints({ list, status, scope, team, reload }: { list: BlueprintInfo[]; status: Status; scope: string; team?: Team; reload: () => void }) {
+  const [publishing, setPublishing] = useState<BlueprintInfo | null>(null)
+  const personal = scope === PERSONAL
+  const notShared = new Map((team?.not_shared ?? []).map((n) => [n.rel, n.reason]))
+  const where = personal ? 'Personal' : team?.name ?? scope
   if (list.length === 0) {
     return (
       <div className="page">
-        <h1>Blueprints</h1>
+        <h1>Blueprints · {where}</h1>
         <div className="empty">
-          <p>No blueprints yet.</p>
+          <p>No blueprints here yet.</p>
           <p className="muted">
-            Put a Markdown file into <code>{status.folder}</code>, or join a team to receive its documents.
+            {personal ? (
+              <>
+                Put a Markdown file into <code>{status.folder}/personal</code>: what you write there stays yours until you publish it.
+              </>
+            ) : (
+              <>A team's documents arrive as its members publish them. Publish one of yours from Personal.</>
+            )}
           </p>
         </div>
       </div>
@@ -126,7 +142,7 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
   }
   return (
     <div className="page">
-      <h1>Blueprints</h1>
+      <h1>Blueprints · {where}</h1>
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -137,11 +153,13 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
               <th>Entries</th>
               <th>Problems</th>
               <th>File</th>
+              {personal && <th />}
             </tr>
           </thead>
           <tbody>
             {list.map((b) => {
               const role = roleLabel(b, status.email)
+              const why = notShared.get(b.rel)
               return (
                 <tr key={b.path}>
                   <td>
@@ -160,14 +178,31 @@ export function Blueprints({ list, status }: { list: BlueprintInfo[]; status: St
                         duplicate id
                       </span>
                     )}
+                    {why && (
+                      <span className="badge warn" title={why}>
+                        not shared: publish it or move it to Personal
+                      </span>
+                    )}
                   </td>
                   <td className="mono muted">{b.rel}</td>
+                  {personal && (
+                    <td>
+                      {b.errors === 0 && !b.parse_error && !b.duplicate && (
+                        <button type="button" className="link" {...act('doc.publish')} onClick={() => setPublishing(b)}>
+                          Publish to team…
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
+      {publishing && (
+        <PublishDialog doc={{ rel: publishing.rel, title: publishing.title || publishing.rel }} onClose={() => setPublishing(null)} onDone={reload} />
+      )}
     </div>
   )
 }
@@ -184,11 +219,11 @@ function age(active?: string): string {
 
 // PreBacklog lists every seed in the folder (spec 6.11): title, owner,
 // parent and age, newest activity first.
-export function PreBacklog({ self }: { self: string }) {
+export function PreBacklog({ self, scope }: { self: string; scope: string }) {
   const [rows, setRows] = useState<SeedRow[] | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
-  const load = useCallback(() => api.seeds().then(setRows, (e: Error) => setErr(e.message)), [])
+  const load = useCallback(() => api.seeds(scope).then(setRows, (e: Error) => setErr(e.message)), [scope])
   useEffect(() => {
     load()
   }, [load])
@@ -236,7 +271,7 @@ export function PreBacklog({ self }: { self: string }) {
                   <td title={r.active}>{age(r.active)}</td>
                   <td>
                     {r.mine && bpEq(r.owner, self) && (
-                      <button type="button" className="link" disabled={busy === r.rel} onClick={() => promote(r.rel)}>
+                      <button type="button" className="link" {...act('seed.promote')} disabled={busy === r.rel} onClick={() => promote(r.rel)}>
                         Promote to draft
                       </button>
                     )}

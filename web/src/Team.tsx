@@ -1,102 +1,39 @@
-// Team view (spec 11.1): members, owners, open invites and the log as a
-// readable history; Join, Invite, Remove (with a preview of the documents
-// to be reassigned), Add owner.
+// Team view (spec 11.1): the selected team's members with presence,
+// owners, open invites, transfers and the log as a readable history;
+// Invite, Remove (with a preview of the documents to be reassigned), Make
+// owner, Sync now. Creating and joining teams is in the switcher.
 import { useCallback, useEffect, useState } from 'react'
-import { PasteBox } from './Join'
-import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Join, type Reassigned, type Team, type TeamMember } from './api'
+import { act } from './actions'
+import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Reassigned, type Team, type TeamMember } from './api'
+import { findTeam } from './scope'
+import { Transfers } from './Transfer'
 import { docHref, localTime, plural } from './util'
 
-export function TeamPage({ self, reloadKey }: { self: string; reloadKey: number }) {
+export function TeamPage({ self, team, reloadKey }: { self: string; team: string; reloadKey: number }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
-  const [joins, setJoins] = useState<Join[]>([])
   const [err, setErr] = useState('')
   const load = useCallback(() => {
     api.teams().then(setTeams, (e: Error) => setErr(e.message))
-    api.joins().then(setJoins, () => {})
   }, [])
   useEffect(() => {
     load()
   }, [load, reloadKey])
-  const open = joins.filter((j) => j.state !== 'joined' || Date.now() - new Date(j.last_try ?? j.created).getTime() < 600_000)
+  const t = teams ? findTeam(team, teams) : undefined
   return (
     <div className="page">
-      <h1>Team</h1>
+      <h1>{t ? t.name : 'Team'}</h1>
       <p className="muted">
         A team is a signed log of who belongs and who may change the roster. It lives in your folder next to the team's
         documents. Members trust each other's keys through it, so they never compare codes.
       </p>
       {err && <div className="error-box">{err}</div>}
-      {open.length > 0 && <Joins joins={open} />}
-      {teams?.map((t) => <TeamCard key={t.team} t={t} self={self} reload={load} />)}
-      <div className="team-start">
-        <PasteBox heading />
-        {teams && (teams.length === 0 || teams.every((t) => t.me !== 'none')) && <CreateForm onDone={load} first={teams.length === 0} />}
-      </div>
+      {teams && !t && <div className="empty">No team “{team}” here. Choose one in the switcher, or create or join one there.</div>}
+      {t && <TeamCard key={t.team} t={t} self={self} reload={load} reloadKey={reloadKey} />}
     </div>
   )
 }
 
-function Joins({ joins }: { joins: Join[] }) {
-  return (
-    <section className="team-joins">
-      {joins.map((j) => (
-        <div key={j.id} className={'banner ' + (j.state === 'failed' ? 'danger' : j.state === 'joined' ? 'notice' : 'warn')}>
-          {j.state === 'pending' && (
-            <>
-              <b>Joining {j.name}…</b> {j.detail || 'Looking for the team owner.'} The invite is valid until {localTime(j.expires)}
-              {j.tries > 0 && <> · {plural(j.tries, 'attempt')}</>}.
-            </>
-          )}
-          {j.state === 'joined' && (
-            <>
-              <b>You joined {j.name}</b>
-              {j.owner && <> through {j.owner}</>}.
-            </>
-          )}
-          {j.state === 'failed' && (
-            <>
-              <b>Joining {j.name} failed:</b> {j.detail}
-            </>
-          )}
-        </div>
-      ))}
-    </section>
-  )
-}
-
-function CreateForm({ onDone, first }: { onDone: () => void; first: boolean }) {
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setErr('')
-    try {
-      await api.createTeam(name.trim())
-      setName('')
-      onDone()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-    setBusy(false)
-  }
-  return (
-    <form className="team-box" onSubmit={submit}>
-      <h2>{first ? 'Create a team' : 'Create another team'}</h2>
-      <p className="muted small">You become its first owner. The name is used for the team's folder: lower-case letters, digits and dashes.</p>
-      <div className="row">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="lending-desk" aria-label="Team name" pattern="[a-z0-9][a-z0-9-]*" />
-        <button type="submit" disabled={busy || !name.trim()}>
-          Create
-        </button>
-      </div>
-      {err && <div className="error-box">{err}</div>}
-    </form>
-  )
-}
-
-function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => void }) {
+function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reload: () => void; reloadKey: number }) {
   const owner = t.me === 'owner'
   const [err, setErr] = useState('')
   const [removing, setRemoving] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
@@ -113,7 +50,6 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
   return (
     <section className="team-card">
       <div className="team-head">
-        <h2>{t.name}</h2>
         <span className="muted small mono" title={t.team}>
           {t.team.slice(0, 12)}
         </span>
@@ -139,6 +75,7 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
             <tr>
               <th>Email</th>
               <th>Role</th>
+              <th>Presence</th>
               <th>Key fingerprint</th>
               <th>Since</th>
               {owner && <th />}
@@ -186,6 +123,7 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
             <button
               type="button"
               className="danger"
+              {...act('team.remove')}
               disabled={removing.docs === null}
               onClick={() => {
                 const email = removing.email
@@ -204,6 +142,8 @@ function TeamCard({ t, self, reload }: { t: Team; self: string; reload: () => vo
 
 
       {owner && <Invites t={t} run={run} />}
+
+      {t.me !== 'none' && <Transfers team={t.team} reloadKey={reloadKey} />}
 
       {(t.not_shared?.length ?? 0) > 0 && (
         <>
@@ -258,6 +198,7 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
         {m.you && <span className="muted small"> (you)</span>}
       </td>
       <td>{m.owner ? 'owner' : 'member'}</td>
+      <td className="small">{m.you ? '' : m.presence === 'online' ? <span className="presence on">online</span> : m.presence === 'offline' ? 'offline' : <span className="muted">not seen yet</span>}</td>
       <td>
         <span className="mono small">{m.fingerprint}</span>
       </td>
@@ -266,8 +207,8 @@ function MemberRow({ m, owner, onOwner, onRemove }: { m: TeamMember; owner: bool
         <td className="actions">
           {!m.you && (
             <>
-              <button type="button" className="link" onClick={() => onOwner(!m.owner)}>
-                {m.owner ? 'Make member' : 'Make owner'}
+              <button type="button" className="link" {...act('team.owner')} onClick={() => onOwner(!m.owner)}>
+                {m.owner ? 'Remove as owner' : 'Make owner'}
               </button>{' '}
               ·{' '}
               <button type="button" className="link" onClick={onRemove}>
@@ -318,7 +259,7 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
             </option>
           ))}
         </select>
-        <button type="submit" disabled={!email.trim()}>
+        <button type="submit" {...act('team.invite')} disabled={!email.trim()}>
           Invite
         </button>
       </form>
@@ -364,8 +305,8 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
                   <>
                     {' '}
                     ·{' '}
-                    <button type="button" className="link" onClick={() => run(() => api.cancelInvite(i.id))}>
-                      Withdraw
+                    <button type="button" className="link" {...act('team.uninvite')} onClick={() => run(() => api.cancelInvite(i.id))}>
+                      Cancel
                     </button>
                   </>
                 )}
@@ -379,7 +320,7 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
 }
 
 // Replication is the team's status line (spec 11.1, 20.3): the last round,
-// who was reached, what was refused and why, and Replicate now.
+// who was reached, what was refused and why, and Sync now.
 function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => Promise<unknown>) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const r = t.replication
@@ -405,6 +346,7 @@ function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => P
           <button
             type="button"
             className="link"
+            {...act('team.sync')}
             disabled={busy}
             onClick={async () => {
               setBusy(true)
@@ -412,7 +354,7 @@ function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => P
               setBusy(false)
             }}
           >
-            {busy ? 'Replicating…' : 'Replicate now'}
+            {busy ? 'Syncing…' : 'Sync now'}
           </button>
         )}
       </p>
@@ -432,12 +374,12 @@ function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => P
 
 // DomainsPage lists the team domain documents held here (spec 6.12, 11.1):
 // version, owner, open comments, kept versions.
-export function DomainsPage({ reloadKey, list }: { reloadKey: number; list: BlueprintInfo[] }) {
+export function DomainsPage({ team, reloadKey, list }: { team: string; reloadKey: number; list: BlueprintInfo[] }) {
   const [rows, setRows] = useState<DomainRow[] | null>(null)
   const [err, setErr] = useState('')
   useEffect(() => {
-    api.domains().then(setRows, (e) => setErr((e as Error).message))
-  }, [reloadKey, list])
+    api.domains(team).then(setRows, (e) => setErr((e as Error).message))
+  }, [team, reloadKey, list])
   return (
     <div className="page">
       <h1>Domains</h1>

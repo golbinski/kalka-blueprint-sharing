@@ -50,6 +50,16 @@ type Options struct {
 	// (before the setup form). Otherwise New takes it, before the core
 	// reads anything (spec 4.1). Run releases it when it returns.
 	Lock *lockfile.Lock
+	// About is the version line of Settings (GET /api/about).
+	About About
+}
+
+// About is what `kalka version` prints, for the page.
+type About struct {
+	Version        string `json:"version"`
+	WireProtocol   int    `json:"wire_protocol"`
+	PluginProtocol int    `json:"plugin_protocol"`
+	Reference      string `json:"reference"`
 }
 
 // LockFile is the single-daemon lock in the config directory (spec 4.1).

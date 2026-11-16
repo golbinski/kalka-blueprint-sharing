@@ -466,6 +466,7 @@ button.add.sel {
   color: var(--div-ink);
 }
 .entry-body {
+  overflow-wrap: anywhere;
   margin-top: 4px;
 }
 .entry-body p {
@@ -1529,4 +1530,130 @@ button.link.danger {
 .join-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* The team switcher (spec 11.1): the wordmark and the scope, a menu with
+   Personal and the teams, each with its waiting count. */
+.switcher {
+  position: relative;
+}
+.switcher-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+.switcher-button:hover,
+.switcher-button[aria-expanded='true'] {
+  border-color: var(--line);
+  background: var(--ground);
+}
+.switcher-scope {
+  font-weight: 600;
+}
+.caret {
+  color: var(--muted);
+  font-size: 11px;
+}
+.switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+}
+.switcher-menu hr {
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  margin: 6px 0;
+}
+.switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  min-height: 36px;
+  border-radius: 4px;
+}
+.switcher-row a:first-child {
+  flex-grow: 1;
+  color: var(--text);
+  text-decoration: none;
+  padding: 8px 0;
+}
+.switcher-row.current {
+  background: var(--panel);
+}
+.switcher-row.current a:first-child {
+  font-weight: 600;
+}
+.switcher-item {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  text-align: left;
+  padding: 8px !important;
+  font: inherit;
+  min-height: 36px;
+}
+.switcher-create {
+  padding: 4px 8px 8px;
+}
+.switcher-create input {
+  flex-grow: 1;
+  min-width: 0;
+}
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.switcher-row .count {
+  margin-left: 0;
+}
+
+/* The waiting list (spec 11.3). */
+.waiting-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.waiting-list li {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.waiting-list .row {
+  flex-wrap: wrap;
+}
+.presence.on {
+  color: var(--ok);
+  font-weight: 500;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Settings, type Summary } from "./api";
+import { act } from "./actions";
+import { api, referenceURL, type About, type Settings, type Summary } from "./api";
 import { localTime } from "./util";
 import { inDesktopWindow } from "./shell";
 
@@ -10,9 +11,12 @@ export function SettingsPage({ tick }: { tick: number }) {
   const [sum, setSum] = useState<Summary | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [about, setAbout] = useState<About | null>(null);
+  const [copied, setCopied] = useState("");
   const load = useCallback(() => {
     api.settings().then(setS, (e: Error) => setErr(e.message));
     api.summary().then(setSum, () => {});
+    api.about().then(setAbout, () => {});
   }, []);
   useEffect(() => {
     load();
@@ -59,6 +63,7 @@ export function SettingsPage({ tick }: { tick: number }) {
           <input
             type="checkbox"
             checked={!!s.paused}
+            {...act("sync.pause")}
             disabled={busy}
             onChange={(e) => change({ paused: e.target.checked })}
           />
@@ -75,6 +80,7 @@ export function SettingsPage({ tick }: { tick: number }) {
           <input
             type="checkbox"
             checked={!!s.notifications}
+            {...act("settings.save")}
             disabled={busy}
             onChange={(e) => change({ notifications: e.target.checked })}
           />
@@ -90,6 +96,7 @@ export function SettingsPage({ tick }: { tick: number }) {
           <input
             type="checkbox"
             checked={!!s.start_at_login}
+            {...act("settings.autostart")}
             disabled={busy || !s.start_at_login_available}
             onChange={(e) => change({ start_at_login: e.target.checked })}
           />
@@ -108,6 +115,7 @@ export function SettingsPage({ tick }: { tick: number }) {
             <input
               type="checkbox"
               checked={!!s.keep_running_on_close}
+              {...act("settings.save")}
               disabled={busy}
               onChange={(e) =>
                 change({ keep_running_on_close: e.target.checked })
@@ -123,6 +131,37 @@ export function SettingsPage({ tick }: { tick: number }) {
           </label>
         )}
       </div>
+      <h2>Blueprint reference</h2>
+      <p className="small">
+        The format of a blueprint, written for agents: drop it in as a skill or
+        an instruction file{about ? ` (${about.reference})` : ""}.{" "}
+        <a href={referenceURL} download {...act("reference.export")}>
+          Save a copy
+        </a>
+        {" · "}
+        <button
+          type="button"
+          className="link"
+          onClick={() =>
+            api
+              .reference()
+              .then((t) => navigator.clipboard?.writeText(t))
+              .then(
+                () => setCopied("Copied."),
+                () => setCopied("Could not copy; use kalka reference export."),
+              )
+          }
+        >
+          Copy
+        </button>{" "}
+        <span className="muted">{copied}</span>
+      </p>
+      {about && (
+        <p className="muted small">
+          kalka {about.version} · wire protocol {about.wire_protocol} · plugin
+          protocol {about.plugin_protocol} · reference {about.reference}
+        </p>
+      )}
     </div>
   );
 }

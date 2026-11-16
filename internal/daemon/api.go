@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/golbinski/kalka/internal/core"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/reference"
 )
 
 // DaemonFile tells the CLI where the API is and holds its token (spec 13).
@@ -118,6 +119,18 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		d.Bus().Publish(core.BusEvent{Type: "ui-show", Data: ev})
 		writeJSON(w, http.StatusOK, map[string]bool{"shown": true})
+	})
+	mux.HandleFunc("GET /api/about", func(w http.ResponseWriter, _ *http.Request) {
+		a := d.opts.About
+		a.Reference = reference.Version
+		writeJSON(w, http.StatusOK, a)
+	})
+	// The blueprint reference (spec 6.13) for Settings *save a copy*: the
+	// page offers it as a download, never writes it into the folder.
+	mux.HandleFunc("GET /api/reference", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+reference.FileName+`"`)
+		_, _ = w.Write(reference.Bytes())
 	})
 	mux.HandleFunc("GET /api/summary", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Summary()) })
 	mux.HandleFunc("GET /api/settings", d.apiSettings)

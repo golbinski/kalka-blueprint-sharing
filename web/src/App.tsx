@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Notice, type Status } from './api'
+import { act } from './actions'
+import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Join, type Notice, type Status, type Team } from './api'
 import { PublishDialog, SeedDialog } from './Dialogs'
 import { notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
@@ -9,7 +10,10 @@ import { Blueprints, PreBacklog, Setup } from './Views'
 import { JoinScreen } from './Join'
 import { TracePage } from './Trace'
 import { DomainsPage, TeamPage } from './Team'
-import { canvasHref, docHref, roleText, traceHref, useRoute } from './util'
+import { Switcher } from './Switcher'
+import { WaitingPage } from './Waiting'
+import { findTeam, PERSONAL, rememberedScope, rememberScope, resolveScope } from './scope'
+import { canvasHref, docHref, roleText, scopeHref, traceHref, useRoute, type ScopedView } from './util'
 
 type Toast = { id: number; text: string }
 
@@ -25,6 +29,14 @@ export function App() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [live, setLive] = useState(true)
   const [teamTick, setTeamTick] = useState(0)
+  const [teams, setTeams] = useState<Team[] | null>(null)
+  const [joins, setJoins] = useState<Join[]>([])
+  const [remembered, setRemembered] = useState(rememberedScope)
+  const routeScope = 'scope' in route ? route.scope : ''
+  const scope = resolveScope(routeScope, remembered, teams)
+  const team = scope === PERSONAL || !teams ? undefined : findTeam(scope, teams)
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
   const [notifyPerm, setNotifyPerm] = useState(permission)
   const [notifyAsked, setNotifyAsked] = useState(() => {
     try {
@@ -56,7 +68,15 @@ export function App() {
       if (e instanceof ApiError) setFatal(e)
     }
   }, [])
-  const loadList = useCallback(() => api.blueprints().then(setList, () => {}), [])
+  const loadList = useCallback(() => {
+    const sc = scopeRef.current
+    if (!sc) return
+    api.blueprints(sc).then((l) => scopeRef.current === sc && setList(l), () => {})
+  }, [])
+  const loadTeams = useCallback(() => {
+    api.teams().then(setTeams, () => {})
+    api.joins().then(setJoins, () => {})
+  }, [])
   const loadDoc = useCallback(async () => {
     const p = docPathRef.current
     const v = docVersionRef.current
@@ -77,9 +97,29 @@ export function App() {
   }, [loadStatus])
 
   const ready = status !== null && !status.setup
+  // The route's scope is remembered; opening a document switches to the
+  // document's scope (spec 11.1).
+  useEffect(() => {
+    if (routeScope) {
+      rememberScope(routeScope)
+      setRemembered(routeScope)
+    }
+  }, [routeScope])
+  useEffect(() => {
+    if (doc && !doc.domain?.viewing && doc.scope) {
+      rememberScope(doc.scope)
+      setRemembered(doc.scope)
+    }
+  }, [doc])
+  useEffect(() => {
+    if (ready) loadTeams()
+  }, [ready, teamTick, loadTeams])
+  useEffect(() => {
+    setList([])
+    if (ready) loadList()
+  }, [ready, scope, loadList])
   useEffect(() => {
     if (!ready) return
-    loadList()
     const stop = events(
       (type, data) => {
         switch (type) {
@@ -158,13 +198,19 @@ export function App() {
   if (status.setup) return <Setup status={status} />
 
   const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas'
+  const personal = scope === PERSONAL
+  const navLink = (view: ScopedView, label: string, extra?: React.ReactNode) => (
+    <a href={scopeHref(scope, view)} className={route.view === view ? 'active' : ''}>
+      {label}
+      {extra}
+    </a>
+  )
+  const waiting = team?.waiting ?? 0
 
   return (
     <>
       <header className="top">
-        <a className="brand" href="#/">
-          kalka
-        </a>
+        <Switcher teams={teams ?? []} joins={joins} scope={scope} onCreated={loadTeams} />
         <span className="sep" />
         {inDoc && doc ? (
           <>
@@ -173,18 +219,11 @@ export function App() {
           </>
         ) : (
           <nav className="nav">
-            <a href="#/" className={route.view === 'list' ? 'active' : ''}>
-              Blueprints
-            </a>
-            <a href="#/seeds" className={route.view === 'seeds' ? 'active' : ''}>
-              Pre-backlog
-            </a>
-            <a href="#/domains" className={route.view === 'domains' ? 'active' : ''}>
-              Domains
-            </a>
-            <a href="#/team" className={route.view === 'team' ? 'active' : ''}>
-              Team
-            </a>
+            {navLink('list', 'Blueprints')}
+            {navLink('seeds', 'Pre-backlog')}
+            {!personal && navLink('domains', 'Domains')}
+            {!personal && navLink('team', 'Team')}
+            {!personal && navLink('waiting', 'Waiting', waiting > 0 && <span className="count">{waiting}</span>)}
             <a href="#/settings" className={route.view === 'settings' ? 'active' : ''}>
               Settings
             </a>
@@ -223,7 +262,7 @@ export function App() {
           </>
         )}
         {inDoc && (
-          <a className="back" href="#/">
+          <a className="back" href={scopeHref(scope)}>
             All blueprints
           </a>
         )}
@@ -235,7 +274,7 @@ export function App() {
           <div className="banner warn">
             Sync is paused: kalka is offline and nothing reaches your teammates until you resume. Your own work is kept and sent
             then.{' '}
-            <button type="button" className="link" onClick={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))}>
+            <button type="button" className="link" {...act('sync.pause')} onClick={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))}>
               Resume sync
             </button>
           </div>
@@ -296,7 +335,7 @@ export function App() {
       </div>
 
       <main>
-        {route.view === 'list' && <Blueprints list={list} status={status} />}
+        {route.view === 'list' && scope && <Blueprints list={list} status={status} scope={scope} team={team} reload={loadList} />}
         {inDoc && docErr && (
           <div className="page">
             <div className="error-box">{docErr}</div>
@@ -304,11 +343,17 @@ export function App() {
         )}
         {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} />}
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
-        {route.view === 'seeds' && <PreBacklog self={status.email} />}
-        {route.view === 'team' && <TeamPage self={status.email} reloadKey={teamTick} />}
+        {route.view === 'seeds' && scope && <PreBacklog self={status.email} scope={scope} />}
+        {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} />}
+        {route.view === 'waiting' && !personal && scope && <WaitingPage team={scope} teamName={team?.name ?? scope} reloadKey={teamTick} />}
+        {(route.view === 'team' || route.view === 'waiting' || route.view === 'domains') && personal && (
+          <div className="page">
+            <div className="empty">Personal is yours alone: it has no team, domains or waiting list. Choose a team in the switcher.</div>
+          </div>
+        )}
         {route.view === 'settings' && <SettingsPage tick={teamTick} />}
         {route.view === 'join' && <JoinScreen token={route.token} />}
-        {route.view === 'domains' && <DomainsPage reloadKey={teamTick} list={list} />}
+        {route.view === 'domains' && !personal && scope && <DomainsPage team={scope} reloadKey={teamTick} list={list} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 

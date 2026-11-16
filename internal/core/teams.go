@@ -570,6 +570,9 @@ type MemberView struct {
 	Fingerprint string `json:"fingerprint"`
 	Since       string `json:"since,omitempty"` // the signer's clock at add-member
 	You         bool   `json:"you,omitempty"`
+	// Presence is what this daemon last saw of the member (spec 9.3):
+	// online, offline or unknown; empty for the local user.
+	Presence string `json:"presence,omitempty"`
 }
 
 // InviteView is an invite this installation issued for the team.
@@ -629,6 +632,9 @@ func (d *Node) teamView(t teamDir) TeamView {
 					v.Me = "owner"
 				}
 			}
+		}
+		if !mv.You {
+			mv.Presence = string(d.presenceOf(m.Email))
 		}
 		v.Members = append(v.Members, mv)
 	}

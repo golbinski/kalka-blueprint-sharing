@@ -8,16 +8,26 @@ export function localTime(utc: string): string {
   return isNaN(d.getTime()) ? utc : fmt.format(d)
 }
 
+/** The views that show one scope: a team, or Personal (spec 11.1). */
+export type ScopedView = 'list' | 'seeds' | 'team' | 'domains' | 'waiting'
+const scopedViews: ScopedView[] = ['seeds', 'team', 'domains', 'waiting']
+
 export type Route =
-  | { view: 'list' }
+  /** scope is the route's `#/t/<scope>/`; '' when the route names none. */
+  | { view: ScopedView; scope: string }
   | { view: 'doc'; path: string; version?: number }
   | { view: 'canvas'; path: string }
   | { view: 'trace'; path: string; index: number; node?: string }
-  | { view: 'seeds' }
-  | { view: 'team' }
-  | { view: 'domains' }
   | { view: 'settings' }
   | { view: 'join'; token: string }
+
+function decode(s: string): string | null {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return null
+  }
+}
 
 export function parseRoute(hash: string): Route {
   const [h, query] = hash.replace(/^#\/?/, '').split('?')
@@ -33,20 +43,23 @@ export function parseRoute(hash: string): Route {
     const index = Number(rest.slice(i + 1)) - 1
     return { view: 'trace', path: decodeURIComponent(rest.slice(0, i)), index: Number.isInteger(index) && index >= 0 ? index : 0, node: q.get('node') ?? undefined }
   }
-  if (h === 'seeds') return { view: 'seeds' }
-  if (h === 'team') return { view: 'team' }
-  if (h === 'domains') return { view: 'domains' }
+  if (h.startsWith('t/')) {
+    // #/t/<scope>/<view>: the tray opens #/t/<team>/waiting (spec 22.1).
+    const [raw, view = ''] = h.slice(2).split('/')
+    const scope = decode(raw) ?? ''
+    return { view: (scopedViews as string[]).includes(view) ? (view as ScopedView) : 'list', scope }
+  }
+  if ((scopedViews as string[]).includes(h)) return { view: h as ScopedView, scope: '' }
   if (h === 'settings') return { view: 'settings' }
   if (h === 'join' || h.startsWith('join/')) {
-    let token = h.slice(5)
-    try {
-      token = decodeURIComponent(token)
-    } catch {
-      token = ''
-    }
-    return { view: 'join', token }
+    return { view: 'join', token: decode(h.slice(5)) ?? '' }
   }
-  return { view: 'list' }
+  return { view: 'list', scope: '' }
+}
+
+/** scopeHref is a view of a scope: a team's key, or 'personal'. */
+export function scopeHref(scope: string, view: ScopedView = 'list'): string {
+  return '#/t/' + encodeURIComponent(scope) + '/' + (view === 'list' ? '' : view)
 }
 
 // docHref names a document; version names a kept domain version (spec 6.12).

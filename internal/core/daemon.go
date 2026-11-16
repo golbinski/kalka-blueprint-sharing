@@ -512,6 +512,16 @@ func (e *ErrOffline) Error() string {
 
 func newUUID() string { return bp.NewKalkaID() }
 
+// presenceOf is what was last seen of a member: unknown until probed.
+func (d *Node) presenceOf(email string) transport.Presence {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if p, ok := d.presence[strings.ToLower(email)]; ok && p.State != "" {
+		return p.State
+	}
+	return transport.Unknown
+}
+
 func (d *Node) markPresence(email string, p transport.Presence) {
 	d.mu.Lock()
 	old := d.presence[strings.ToLower(email)].State

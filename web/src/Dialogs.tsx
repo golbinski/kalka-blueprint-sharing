@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type Doc, type Entry, type PublishResult, type Team } from './api'
+import { act } from './actions'
 import { docHref } from './util'
 
 // SeedDialog splits a seed off a blueprint (spec 6.11), optionally from an
@@ -55,7 +56,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
               <>
                 <p className="error-text">The link back from “{doc.title}” could not be added: {made.backlinkError}</p>
                 <div className="row">
-                  <button type="button" className="primary" disabled={busy} onClick={retry}>
+                  <button type="button" className="primary" {...act('seed.backlink')} disabled={busy} onClick={retry}>
                     Add the backlink
                   </button>
                   <button type="button" onClick={onClose}>
@@ -91,7 +92,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
             </label>
             {err && <p className="error-text">{err}</p>}
             <div className="row">
-              <button type="submit" className="primary" disabled={busy || !title.trim()}>
+              <button type="submit" className="primary" {...act('seed.create')} disabled={busy || !title.trim()}>
                 Create seed
               </button>
               <button type="button" onClick={onClose}>
@@ -107,7 +108,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
 
 // PublishDialog publishes a document to a team (spec 20.1): the team, when
 // the user is in several, and a note for the release.
-export function PublishDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void; onDone: () => void }) {
+export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' | 'title'>; onClose: () => void; onDone: () => void }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [team, setTeam] = useState('')
   const [note, setNote] = useState('')
@@ -159,7 +160,7 @@ export function PublishDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () 
           </>
         ) : teams && teams.length === 0 ? (
           <>
-            <p>You are not a member of a team yet. Create one or join one on the <a href="#/team" onClick={onClose}>Team</a> page.</p>
+            <p>You are not a member of a team yet. Create one or join one from the switcher at the top left.</p>
             <div className="row">
               <button type="button" onClick={onClose}>
                 Close
@@ -191,7 +192,7 @@ export function PublishDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () 
             </label>
             {err && <p className="error-text">{err}</p>}
             <div className="row">
-              <button type="submit" className="primary" disabled={busy || !teams || !team}>
+              <button type="submit" className="primary" {...act('doc.publish')} disabled={busy || !teams || !team}>
                 Publish
               </button>
               <button type="button" onClick={onClose}>

@@ -189,9 +189,9 @@ func TestKeyIDProof(t *testing.T) {
 	if _, err := dial(t, info, "lending-desk-1"); err != nil {
 		t.Fatalf("an id that is not a key id: %v", err)
 	}
-	// A stock server takes the key id from anyone.
+	// A plain peerjs-server takes the key id from anyone.
 	loose := serve(t, &Server{NoKeyProof: true})
 	if _, err := dial(t, loose, id); err != nil {
-		t.Fatalf("stock-server mode: %v", err)
+		t.Fatalf("plain peerjs-server mode: %v", err)
 	}
 }

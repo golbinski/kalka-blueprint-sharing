@@ -160,6 +160,7 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
 		NoUI: *noUI, OpenExternal: openBrowser, Autostart: o.Autostart,
+		About:   daemon.About{Version: version, WireProtocol: wireProtocol, PluginProtocol: pluginProtocol},
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: stderr}}
 	var d *daemon.Daemon
 	if (*noNotes || *noUI) && o.OpenUI == nil {

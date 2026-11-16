@@ -3,8 +3,10 @@
 // come from the token and are claims until the join completes, so they
 // are only ever rendered as text.
 import { useEffect, useState } from 'react'
+import { act } from './actions'
 import { api, type JoinPreview } from './api'
-import { joinHref, localTime } from './util'
+import { joinState } from './scope'
+import { joinHref, localTime, scopeHref } from './util'
 
 export function JoinScreen({ token }: { token: string }) {
   const [p, setP] = useState<JoinPreview | null>(null)
@@ -31,7 +33,7 @@ export function JoinScreen({ token }: { token: string }) {
     setErr('')
     try {
       await api.join(p.token)
-      location.hash = '#/team'
+      setP(await api.joinPreview(p.token))
     } catch (e) {
       setErr((e as Error).message)
     }
@@ -56,18 +58,21 @@ export function JoinScreen({ token }: { token: string }) {
             <dt>Valid until</dt>
             <dd>{localTime(p.expires)}</dd>
           </dl>
-          {p.joining && p.joining.state !== 'failed' ? (
-            <div className={'banner ' + (p.joining.state === 'joined' ? 'notice' : 'warn')}>
-              {p.joining.state === 'joined' ? `You joined ${p.name}.` : `Joining ${p.name}… kalka keeps looking for ${p.inviter}.`}{' '}
-              <a href="#/team">Open Team</a>
+          {joinState(p) === 'joined' ? (
+            <div className="banner notice">
+              You joined {p.name}. <a href={scopeHref(p.name)}>Open {p.name}</a>
             </div>
-          ) : p.problem ? (
+          ) : joinState(p) === 'joining' ? (
+            <div className="banner warn">
+              Joining {p.name}… kalka keeps looking for {p.inviter}; the switcher shows it until then.
+            </div>
+          ) : joinState(p) === 'problem' ? (
             <div className="banner danger" role="status">
               {p.message}
             </div>
           ) : (
             <div className="row">
-              <button type="button" className="primary" onClick={join} disabled={busy}>
+              <button type="button" className="primary" {...act('team.join')} onClick={join} disabled={busy}>
                 {busy ? 'Joining…' : 'Join'}
               </button>
               <span className="muted small">kalka reaches {p.inviter}'s installation directly and keeps trying while it is offline.</span>

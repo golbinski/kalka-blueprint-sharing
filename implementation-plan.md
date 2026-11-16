@@ -813,6 +813,36 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - Desktop: the tray cases for the total and the oldest team.
 - **Left for T7:** `parity.json` with its Go and web tests, `actions.ts`, and the switcher, waiting list and tray route in the page.
 
+### T7. The app and parity (done)
+
+- **Parity (spec 12.2):**
+  - `internal/cli/parity.json` has one row per command line: a workflow names its action id, a view its place in the UI, and a process command why it is exempt.
+  - `web/src/actions.ts` declares the action ids. A control carries one with `{...act('id')}`, which renders `data-action`.
+  - Go: `TestParityTable` checks that every command has a row, rows name only commands in the table, and each command's class matches its rows. `TestParityJSONFlag` runs every non-process line with `--json --help` in process and checks its own flags list `-json`. The general usage text also mentions `--json`, so that text fails the test.
+  - Web: `parity.test.ts` checks the table, `actions.ts` and the controls are one set. It caught `Settings.tsx`, whose double quotes the first regex missed.
+- **The app:**
+  - `Switcher.tsx`: the wordmark and current scope at the top left. The menu lists Personal, then teams by name with waiting badges (a short hash when names clash), the pending joins, *Create team…* and *Join with link or token…*.
+  - Routes carry the scope: `#/t/<team or personal>/[seeds|team|domains|waiting]`. The scope is remembered in the page's storage, and opening a document switches to its scope. With nothing remembered, the first team by name is shown, else Personal. Personal hides Team, Domains and Waiting.
+  - `Waiting.tsx`: the team's items, oldest first, with *Accept* (optionally naming the owner), *Decline*, *Open* and *Reassign…*. The nav shows the team's count.
+  - `Transfer.tsx`: *Copy to team…* and *Move to team…* in the review's owner actions (a team owner's move takes the document over first), the "being moved" banner, the attested strip, and the Team view's transfers with *Accept*, *Decline* and *Withdraw*.
+  - Review: an "attested" badge on entries carried by a transfer.
+  - Blueprints: *Publish to team…* per file in Personal; "not shared" on team files that do not replicate.
+  - Team: the selected team only, with member presence, *Cancel* on invites, *Sync now*, *Make owner* and *Remove as owner*. The create and join forms moved to the switcher.
+  - Settings: *Blueprint reference: Save a copy* (a download) and *Copy*, and the version line.
+- **Go:**
+  - `MemberView.Presence`, from the daemon's probes.
+  - `GET /api/about` (from `daemon.Options.About`, set by the CLI) and `GET /api/reference`. The page never writes the reference into the folder, where it would be indexed as a blueprint.
+  - Spec 12.2 and 13 updated.
+- **Fixtures rule:** `TestFixturesStayInNeutralDomains` reads the string literals of every Go test file (not imports), the web tests and `testdata`, and fails on terms of the excluded domains. Library "loans" are allowed. It caught "stock-server" in a rendezvous test, now reworded.
+- **Tests:**
+  - Web: `scope.test.ts` covers routes with a scope and the tray's route, the scope choice, the switcher's order, badges and clashing names, the waiting rows, the join screen's four states, and the attested text.
+  - Daemon: `TestAppWorkflows` walks presence, *Sync now*, publish from Personal, handoff, seed and promote, settings, about and the reference through the page's endpoints.
+- **Checked in a browser** against a throwaway daemon: the switcher, Personal, the waiting list, accepting a copy from the Team view, the attested strip and Settings.
+- **Not done:**
+  - Open invites offer *Copy link* and *Copy token* only right after the invite is made. The daemon does not keep tokens of earlier invites.
+  - Team history shows `accept-transfer` and other new operations by their raw names.
+  - Reassigning from a member's row in the Team view is not built. Reassign is in Review and Waiting.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

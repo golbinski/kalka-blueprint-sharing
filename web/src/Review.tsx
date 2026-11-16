@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { act } from './actions'
 import { api, type Doc, type Entry, type Section } from './api'
 import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
 import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
 import { groupEntries } from './entries'
-import { docHref, localTime, plural } from './util'
+import { attestedBadge } from './scope'
+import { TransferDialog, TransferStrip } from './Transfer'
+import { docHref, localTime, plural, scopeHref } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -77,7 +80,7 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [err, setErr] = useState('')
   if (!doc.seed) return null
   const s = doc.seed
-  const act = async (f: () => Promise<unknown>) => {
+  const run = async (f: () => Promise<unknown>) => {
     setBusy(true)
     setErr('')
     try {
@@ -104,7 +107,7 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
           )}
         </span>
         {doc.role === 'owner' && (
-          <button type="button" className="link" disabled={busy} onClick={() => act(() => api.promote(doc.rel))}>
+          <button type="button" className="link" {...act('seed.promote')} disabled={busy} onClick={() => run(() => api.promote(doc.rel))}>
             Promote to draft
           </button>
         )}
@@ -112,7 +115,7 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
       {s.backlink_missing && (
         <div className="hint">
           <span className="hint-text">The parent has no link to this seed yet (its file could not be written).</span>
-          <button type="button" className="link" disabled={busy} onClick={() => act(() => api.backlink(doc.rel))}>
+          <button type="button" className="link" {...act('seed.backlink')} disabled={busy} onClick={() => run(() => api.backlink(doc.rel))}>
             Add the backlink
           </button>
         </div>
@@ -137,7 +140,7 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const t = doc.team
   if (!t) return null
-  const act = async (f: () => Promise<unknown>) => {
+  const run = async (f: () => Promise<unknown>) => {
     setBusy(true)
     setErr('')
     try {
@@ -167,7 +170,7 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
       <div className="hint">
         <span className="hint-label">team</span>
         <span className="hint-text">
-          Published to <a href="#/team">{t.team}</a>
+          Published to <a href={scopeHref(t.team, 'team')}>{t.team}</a>
           {t.version > 0 ? `, version ${t.version}` : ''}.
           {t.unreleased && t.can_act && ' Your edits since then are not released to the team yet.'}
           {t.unreleased && !t.can_act && ` This copy has edits that are not released; only ${t.releaser} releases versions.`}
@@ -181,7 +184,7 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
               disabled={busy}
               onChange={(e) => setNote(e.target.value)}
             />
-            <button type="button" className="link" disabled={busy} onClick={() => act(() => api.release(doc.rel, note, []))}>
+            <button type="button" className="link" {...act('doc.release')} disabled={busy} onClick={() => run(() => api.release(doc.rel, note, []))}>
               Release v{t.version + 1}
             </button>
           </>
@@ -190,7 +193,7 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
           (confirmDelete ? (
             <>
               <span className="hint-text">Delete for every member? The last copy goes to the team folder's trash.</span>
-              <button type="button" className="link danger" disabled={busy} onClick={() => act(() => api.deleteForTeam(doc.rel))}>
+              <button type="button" className="link danger" {...act('doc.delete')} disabled={busy} onClick={() => run(() => api.deleteForTeam(doc.rel))}>
                 Delete for the team
               </button>
               <button type="button" className="link" disabled={busy} onClick={() => setConfirmDelete(false)}>
@@ -262,7 +265,7 @@ function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
             </>
           ) : (
             <>
-              The {dm.name} domain of <a href="#/team">{dm.team}</a>
+              The {dm.name} domain of <a href={scopeHref(dm.team, 'team')}>{dm.team}</a>
               {dm.version > 0 ? `, version ${dm.version}.` : ': a draft, not released yet.'}
               {dm.version > 0 && t?.unreleased && ' Edits since then are a draft until the owner releases them.'}{' '}
               {dm.owner && <>Owner: {dm.owner === doc.self ? 'you' : dm.owner}.</>}
@@ -333,6 +336,7 @@ function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
 function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
   const t = doc.team
   const [mode, setMode] = useState<'' | 'handoff' | 'reassign' | 'take-release' | 'take-delete'>('')
+  const [transfer, setTransfer] = useState<'' | 'copy' | 'move'>('')
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -376,7 +380,25 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
               </button>
             </>
           )}
+          {!t.disputed && !doc.transfer?.moving_to && (
+            <>
+              <button type="button" className="link" onClick={() => setTransfer('copy')}>
+                Copy to team…
+              </button>
+              <button type="button" className="link" onClick={() => setTransfer('move')}>
+                Move to team…
+              </button>
+            </>
+          )}
         </>
+      )}
+      {transfer && (
+        <TransferDialog
+          doc={doc}
+          mode={transfer}
+          onClose={() => setTransfer('')}
+          onDone={reload}
+        />
       )}
       {(mode === 'handoff' || mode === 'reassign') && (
         <form
@@ -393,9 +415,15 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
               : 'Make any member the owner from the next version, without the current owner’s consent.'}
           </span>
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="member's email" aria-label="Member" />
-          <button type="submit" disabled={busy || !email.trim()}>
-            {mode === 'handoff' ? 'Hand off' : 'Reassign'}
-          </button>
+          {mode === 'handoff' ? (
+            <button type="submit" {...act('doc.handoff')} disabled={busy || !email.trim()}>
+              Hand off
+            </button>
+          ) : (
+            <button type="submit" {...act('doc.reassign')} disabled={busy || !email.trim()}>
+              Reassign
+            </button>
+          )}
           <button type="button" className="link" onClick={() => setMode('')}>
             Cancel
           </button>
@@ -407,16 +435,15 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
             You will become the owner first: a reassignment to you, then{' '}
             {mode === 'take-release' ? 'a release of the plan as you hold it.' : 'the deletion for every member.'}
           </span>
-          <button
-            type="button"
-            className={mode === 'take-delete' ? 'link danger' : 'link'}
-            disabled={busy}
-            onClick={() =>
-              go(() => (mode === 'take-release' ? api.release(doc.rel, '', [], true) : api.deleteForTeam(doc.rel, true)))
-            }
-          >
-            {mode === 'take-release' ? 'Take over and release' : 'Take over and delete'}
-          </button>
+          {mode === 'take-release' ? (
+            <button type="button" className="link" {...act('doc.release')} disabled={busy} onClick={() => go(() => api.release(doc.rel, '', [], true))}>
+              Take over and release
+            </button>
+          ) : (
+            <button type="button" className="link danger" {...act('doc.delete')} disabled={busy} onClick={() => go(() => api.deleteForTeam(doc.rel, true))}>
+              Take over and delete
+            </button>
+          )}
           <button type="button" className="link" onClick={() => setMode('')}>
             Cancel
           </button>
@@ -487,7 +514,7 @@ function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void
           )}
           {err && <p className="error-text">{err}</p>}
           <div className="row">
-            <button type="submit" className="primary" disabled={busy}>
+            <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
               Release v{next}
             </button>
             <button type="button" onClick={onClose}>
@@ -623,6 +650,11 @@ function Badges({ e }: { e: Entry }) {
       {e.valid && e.team_state === 'local-only' && e.sig !== 'unsigned' && e.sig !== 'invalid' && (
         <span className="badge" title="signed by someone the team log does not know: it stays in this file and does not replicate to the team">
           local only
+        </span>
+      )}
+      {e.valid && e.sig === 'attested' && (
+        <span className="badge" title={attestedBadge(e.author)}>
+          attested
         </span>
       )}
       {e.incorporated_in && (
@@ -821,7 +853,7 @@ export function Composer({
         <button type="button" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button type="submit" className="primary" disabled={busy || !body.trim()}>
+        <button type="submit" className="primary" {...act('entry.add')} disabled={busy || !body.trim()}>
           Add {kind}
         </button>
       </div>
@@ -925,6 +957,7 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
 
   return (
     <RefLayer doc={doc} className="review">
+      <TransferStrip doc={doc} />
       <TeamStrip doc={doc} reload={reload} />
       <DomainRefStrip doc={doc} />
       <SeedStrip doc={doc} reload={reload} />

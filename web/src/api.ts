@@ -123,13 +123,13 @@ export interface Entry {
   orphaned?: boolean
   valid: boolean
   /** Signature state (spec 6.5). */
-  sig?: 'unsigned' | 'invalid' | 'unknown' | 'verified'
+  sig?: 'unsigned' | 'invalid' | 'unknown' | 'verified' | 'attested'
   budded_seed?: string
   budded_title?: string
   budded_rel?: string
   unparsed?: string
   /** For a published document: signed by a member, a removed member, or only in this file (spec 11.1). */
-  team_state?: 'member' | 'removed-member' | 'local-only'
+  team_state?: 'member' | 'removed-member' | 'local-only' | 'attested'
   /** The domain version whose release took this comment up (spec 6.12). */
   incorporated_in?: number
 }
@@ -234,6 +234,44 @@ export interface Doc {
   team?: TeamDocState
   domain?: DomainInfo
   domain_ref?: DomainRefView
+  /** A document that came by a copy or a move, or is being moved away (spec 20.7). */
+  transfer?: TransferInfo
+}
+
+export interface TransferInfo {
+  mode?: 'copy' | 'move'
+  /** <team>/<kalka_id> of the source. */
+  from?: string
+  /** Who offered it and who accepted it: the two who attest its history. */
+  actor?: string
+  by?: string
+  moving_to?: string
+}
+
+/** A pending or decided transfer into a team (spec 20.7). */
+export interface TransferView {
+  id: string
+  team: string
+  mode: 'copy' | 'move'
+  from: string
+  title: string
+  actor: string
+  at: string
+  status: 'pending' | 'accepted' | 'withdrawn'
+  mine?: boolean
+  can_decide?: boolean
+  owner?: string
+  path?: string
+  /** The attested entries the offer brings. */
+  entries: number
+}
+
+/** The version line of Settings (GET /api/about). */
+export interface About {
+  version: string
+  wire_protocol: number
+  plugin_protocol: number
+  reference: string
 }
 
 /** A domain document in the document view (spec 6.12). */
@@ -378,6 +416,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 const enc = encodeURIComponent
 
+/** GET /api/reference downloads BLUEPRINT-REFERENCE.md. */
+export const referenceURL = '/api/reference'
+
 // openExternal asks the daemon to open an http(s) address in the system
 // browser (the desktop window, spec 22).
 export function openExternal(url: string): Promise<object> {
@@ -391,6 +432,8 @@ export interface TeamMember {
   fingerprint: string
   since?: string
   you?: boolean
+  /** What this kalka last saw of the member (spec 9.3); absent for you. */
+  presence?: 'online' | 'offline' | 'unknown'
 }
 export interface TeamInvite {
   id: string
@@ -506,6 +549,18 @@ export const api = {
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
+  transfers: (team = '') => call<TransferView[] | null>('GET', '/api/transfers' + scope(team)).then((l) => l ?? []),
+  startTransfer: (path: string, team: string, mode: 'copy' | 'move', takeOver = false) =>
+    call<{ id: string; team: string }>('POST', '/api/transfers', { path, team, mode, take_over: takeOver }),
+  decideTransfer: (id: string, action: 'accept' | 'decline' | 'withdraw', owner = '') =>
+    call<TransferView | { id: string }>('POST', `/api/transfers/${enc(id)}/${action}`, { owner }),
+  about: () => call<About>('GET', '/api/about'),
+  /** The blueprint reference as text (spec 6.13). */
+  reference: async () => {
+    const r = await fetch(referenceURL, { credentials: 'same-origin' })
+    if (!r.ok) throw new ApiError(r.statusText, r.status)
+    return r.text()
+  },
   status: () => call<Status>('GET', '/api/status'),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: (team = '') => call<BlueprintInfo[] | null>('GET', '/api/blueprints' + scope(team)).then((l) => l ?? []),
