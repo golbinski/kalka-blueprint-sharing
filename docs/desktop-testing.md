@@ -51,8 +51,8 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 - [ ] Start kalka again from the Start menu: the same window comes forward,
       no second tray icon. Bare `kalka` in a terminal does the same.
 - [ ] `kalka open` opens a browser tab with the same page; both stay live.
-- [ ] Switcher (top left) → *Create team…* → `lending-desk`. The page
-      switches to it; the switcher lists Personal, then `lending-desk`.
+- [ ] Switcher (top left) → *Create team…* → `kalka-core`. The page
+      switches to it; the switcher lists Personal, then `kalka-core`.
 - [ ] Settings: *Start at login* is on (first start turns it on once);
       *Keep running when the window is closed* is shown in the window and
       absent in the browser tab. The version line is at the bottom.
@@ -72,7 +72,7 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 - [ ] A link for another email, an expired one (`--expires 1m`, wait), and
       one for another rendezvous each show their line instead of *Join*.
 - [ ] B: *Join*. While A is reached, B's switcher shows "joining
-      lending-desk…"; then the team appears, and A gets a "joined" notice.
+      kalka-core…"; then the team appears, and A gets a "joined" notice.
 - [ ] B: *Join with link or token…* in the switcher, paste the token of a
       fresh invite: the same join screen.
 - [ ] A: reload the page, then *Show link* on an open invite made earlier:
@@ -86,23 +86,28 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 - [ ] A: copy the sample folder in, in one go (Explorer, or
       `Copy-Item samples\blueprints <folder>\personal\samples -Recurse`).
       All six show in *Blueprints · Personal* within a second,
-      `interlibrary-requests.md` as a local blueprint, each with *Publish to
+      `relay-indicator.md` as a local blueprint, each with *Publish to
       team…*.
-- [ ] A: publish `lending-desk-circulation-domain.md` to `lending-desk`.
-      *Domains* lists `circulation` v1.
-- [ ] `hold-shelf-expiry.md`: *Publish to team…* → `lending-desk`. The file
+- [ ] A: publish `kalka-core-sync-domain.md` to `kalka-core`.
+      *Domains* lists `sync` v1.
+- [ ] `push-during-round.md`: *Publish to team…* → `kalka-core`. The file
       moves to the team folder at version 1. Its Mermaid diagram and trace
-      render (one divergence: C3), its domain reference resolves to v1,
+      render (one divergence: C4), its domain reference resolves to v1,
       and it reaches B within seconds (*Sync now* on *Team* forces a
       round).
+- [ ] With `gh` installed and signed in (`gh auth login`), the `gh:` links
+      in `push-during-round.md` and the trace nodes of `join-flow-trace.md`
+      show the lines from this repository beside the text, each "unchanged
+      on main since …" or with a warning that the file changed. Without
+      `gh`, they show as unresolved and nothing else breaks.
 - [ ] A: edit the domain document and release v2. B's copy of
-      `hold-shelf-expiry.md` shows "newer domain version available (v2)".
+      `push-during-round.md` shows "newer domain version available (v2)".
 - [ ] B: comment on a section. A, window hidden: one notification for the
       new comment; clicking it opens the document.
 - [ ] A: edit the plan; the review strip offers *Release v2*. Release it; B
       gets v2.
 - [ ] A: *Hand off…* to B. B's switcher badge and the tray read "1 waiting
-      for you"; the tray item opens B's waiting list for `lending-desk`.
+      for you"; the tray item opens B's waiting list for `kalka-core`.
 - [ ] B: *Open* the item. It clears, and the badge goes.
 - [ ] A (team owner): *Reassign…* the document back to A from its review.
       B's copy says it was reassigned, and A releases on its own.
@@ -113,14 +118,14 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 
 ## 5. Transfers between teams (A)
 
-- [ ] A: create a second team `returns-desk` from the switcher; B joins it.
-- [ ] A: on the published document, *Copy to team…* → `returns-desk`. B, as
+- [ ] A: create a second team `packaging` from the switcher; B joins it.
+- [ ] A: on the published document, *Copy to team…* → `packaging`. B, as
       a member but not an owner, sees nothing waiting; A (owner of
-      `returns-desk`) has a *Transfer* in its waiting list.
-- [ ] A: *Accept*. The copy appears in `returns-desk` with the "attested"
+      `packaging`) has a *Transfer* in its waiting list.
+- [ ] A: *Accept*. The copy appears in `packaging` with the "attested"
       strip naming who offered and who accepted it; its old comments carry
       an "attested" badge.
-      *Team → History* of `returns-desk` reads "accepted "<title>" from
+      *Team → History* of `packaging` reads "accepted "<title>" from
       another team, owned by …"; a declined one later reads "declined …".
 - [ ] A: *Move to team…* another document. Until it is decided the review
       shows "being moved to …; comments added now will not travel".

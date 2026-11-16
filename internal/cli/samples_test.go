@@ -17,12 +17,12 @@ import (
 func TestSamples(t *testing.T) {
 	root := filepath.Join("..", "..", "samples", "blueprints")
 	want := map[string][]string{
-		"hold-shelf-expiry.md":               nil,
-		"renewal-reminders.md":               {"hint-no-critical-sections", "hint-no-operations", "hint-no-verification-plan"},
-		"interlibrary-requests.md":           nil,
-		"import-pipeline-trace.md":           nil,
-		"lending-desk-circulation-domain.md": nil,
-		"returns-desk/book-drop-sorting.md":  {"hint-no-critical-sections", "hint-no-domain-reference"},
+		"kalka-core-sync-domain.md":      nil,
+		"push-during-round.md":           nil,
+		"retry-first-release.md":         {"hint-no-critical-sections", "hint-no-operations", "hint-no-verification-plan"},
+		"relay-indicator.md":             nil,
+		"join-flow-trace.md":             nil,
+		"packaging/windows-installer.md": {"hint-no-critical-sections", "hint-no-domain-reference"},
 	}
 	var seen []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {

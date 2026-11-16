@@ -68,24 +68,24 @@ The same from the command line:
 ```sh
 # You
 kalka setup --email ewa@example.org --rendezvous peerjs-cloud --folder ~/blueprints
-kalka team create lending-desk
+kalka team create kalka-core
 kalka team invite marek@example.org        # prints a kalka://join/… link; send it any way you like
 
 # Your teammate, after their own setup
 kalka join 'kalka://join/…'
 
 # You: share a blueprint, then release your edits
-kalka publish ~/blueprints/personal/hold-shelf-expiry.md --team lending-desk
-kalka release ~/blueprints/lending-desk/hold-shelf-expiry.md -m "Per-branch midnight"
+kalka publish ~/blueprints/personal/push-during-round.md --team kalka-core
+kalka release ~/blueprints/kalka-core/push-during-round.md -m "Keep the flag for a paused daemon"
 
 # Your teammate: review it
-kalka comment ~/blueprints/lending-desk/hold-shelf-expiry.md --anchor plan -m "What if the branch is closed that day?"
+kalka comment ~/blueprints/kalka-core/push-during-round.md --anchor plan -m "What if the round fails halfway?"
 
 # Either of you: what needs you
 kalka waiting
 ```
 
-`samples/` holds blueprints to try this with ([samples/README.md](samples/README.md)).
+`samples/` holds blueprints to try this with, about kalka's own code ([samples/README.md](samples/README.md)).
 
 ## For agents
 

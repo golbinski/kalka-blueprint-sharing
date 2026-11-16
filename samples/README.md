@@ -1,22 +1,31 @@
 # Sample blueprints
 
 Blueprints for trying kalka by hand: the desktop pass in
-`docs/desktop-testing.md`, a demo, or a first look. Most describe an
-invented library's lending desk; one is a trace example from a document
-service. None holds a `kalka_id`, owner or review log: kalka adds those
-as you publish them and comment on them, under your own identity.
+`docs/desktop-testing.md`, a demo, or a first look. They describe kalka
+itself: real changes and ideas, written as the plans a team working on
+kalka would review. None holds a `kalka_id`, owner or review log: kalka
+adds those as you publish them and comment on them, under your own
+identity.
+
+Most of them link to kalka's own code with `gh:` references, pinned by
+`repo: golbinski/kalka-blueprint-sharing` and `base_sha` in their
+frontmatter. With the GitHub CLI installed and signed in (`gh auth
+login`), the bundled `kalka-plugin-gh` shows the referenced lines beside
+the text, as they were at `base_sha`, and warns when a file has changed on
+`main` since. The repository is public, so any GitHub login can read it.
+Without `gh`, the references show as unresolved and everything else works.
 
 `TestSamples` (`internal/cli/samples_test.go`) keeps each one passing
 `kalka check` with the hints listed below.
 
 | File | What it exercises |
 |---|---|
-| `lending-desk-circulation-domain.md` | A domain document (`kind: domain`, `domain: circulation`): glossary table, invariants, events. Publishing it to `lending-desk` makes version 1, which the two blueprints below refer to (`lending-desk/circulation@v1`). |
-| `hold-shelf-expiry.md` | A full blueprint opted into the reference: every section, so no hints; a Mermaid diagram; a trace block with one divergence to review (C3, implementation-only); a critical section. |
-| `renewal-reminders.md` | A short opted-in plan: hints for no verification plan, no critical sections and no operations. |
-| `interlibrary-requests.md` | No frontmatter at all: listed in Personal as a local blueprint until published. |
-| `import-pipeline-trace.md` | Trace blocks with code references (`gh:` refs, with `repo` and `base_sha` for the GitHub plugin), two and three lanes, a labelled branch, and the divergence classes implementation-only, merged and expanded. The refs point at an invented repository, so without access they show as unverified. |
-| `returns-desk/book-drop-sorting.md` | For a second team, `returns-desk`, to copy or move between teams; hints for no domain reference and no critical sections. |
+| `kalka-core-sync-domain.md` | A domain document (`kind: domain`, `domain: sync`): glossary table, invariants, the team log's operations. Publishing it to `kalka-core` makes version 1, which the two blueprints below refer to (`kalka-core/sync@v1`). |
+| `push-during-round.md` | A full blueprint opted into the reference: every section, so no hints; a Mermaid diagram; `gh:` links in the text; a trace block whose code nodes link to their lines, with one divergence to review (C4, implementation-only); a critical section. |
+| `retry-first-release.md` | A short opted-in plan with `gh:` links: hints for no verification plan, no critical sections and no operations. |
+| `relay-indicator.md` | No frontmatter at all: listed in Personal as a local blueprint until published. |
+| `join-flow-trace.md` | Trace blocks over kalka's join flow, every code node linked to its lines: two and three lanes, a labelled branch, and the divergence classes implementation-only, merged and expanded. |
+| `packaging/windows-installer.md` | For a second team, `packaging`, to copy or move between teams; `gh:` links to the CI workflow and the release tool; hints for no domain reference and no critical sections. |
 
 ## Using them
 
@@ -33,16 +42,18 @@ Copy-Item samples\blueprints "<your kalka folder>\personal\samples" -Recurse
 
 All six appear in *Blueprints · Personal* within a second. Then:
 
-1. Create the team `lending-desk`. Publish the domain document to it
-   first (*Publish to team…*, or `kalka publish <file> --team
-   lending-desk`): that is version 1. Then publish `hold-shelf-expiry.md`
-   and `renewal-reminders.md`; their domain reference resolves to v1.
-2. Have a teammate comment on sections; record a deviation on
-   `hold-shelf-expiry.md` and split a seed from it.
-3. Edit the domain document and release v2 (*Release v2…*, or `kalka
+1. Create the team `kalka-core`. Publish the domain document to it first
+   (*Publish to team…*, or `kalka publish <file> --team kalka-core`):
+   that is version 1. Then publish `push-during-round.md` and
+   `retry-first-release.md`; their domain reference resolves to v1.
+2. Open `push-during-round.md` and `join-flow-trace.md`: with `gh` signed
+   in, the referenced code shows beside the text and in the trace.
+3. Have a teammate comment on sections; record a deviation on
+   `push-during-round.md` and split a seed from it.
+4. Edit the domain document and release v2 (*Release v2…*, or `kalka
    release <file>`): the two blueprints show "newer domain version
    available (v2)".
-4. Create `returns-desk`, publish `book-drop-sorting.md` to it, and copy
-   or move documents between the two teams.
+5. Create `packaging`, publish `windows-installer.md` to it, and copy or
+   move documents between the two teams.
 
 To start over, delete what you copied; nothing else holds the samples.
