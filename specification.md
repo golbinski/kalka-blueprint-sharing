@@ -522,7 +522,7 @@ Order of precedence:
 2. `GET <rendezvous-http-origin>/kalka/ice` — served by `kalka-rendezvous`, returns ICE servers with short-lived TURN credentials. A 404 is normal for other servers.
 3. Built-in default: a public STUN server; for `peerjs-cloud`, also whatever ICE defaults the current PeerJS client library ships.
 
-TURN over TCP/TLS on 443 must be supported; corporate networks commonly block UDP.
+TURN over TCP/TLS on 443 must be supported; many managed networks block UDP.
 
 ### 9.5 Wire protocol (data channel)
 
@@ -546,11 +546,11 @@ The responder dispatches on the first message after `auth`: `team_sync` starts a
 
 ### 9.6 `kalka-rendezvous`
 
-A separate binary for corporate hosting, with no client code, no configuration directory and no UI:
+A separate binary for a team or organisation to host, with no client code, no configuration directory and no UI:
 
 - PeerJS-compatible signaling, state in memory only.
 - Embedded TURN relay (`pion/turn`) with time-limited credentials exposed at `/kalka/ice`.
-- `--allow-origin` / reverse-proxy friendly, so corporate SSO or network policy can sit in front. No built-in user database.
+- `--allow-origin` / reverse-proxy friendly, so SSO or network policy can sit in front. No built-in user database.
 - TLS via flags or behind a proxy.
 - **Key-ID proof.** A client registering a key ID (9.2) adds the query parameter `kproof = base64url(pubkey) "." unix-seconds "." base64url(sig)`, where `sig` signs `"kalka-keyid-v1\n" + id + "\n" + unix-seconds`. The server checks that the ID matches the key, the signature verifies and the timestamp is within a few minutes, and refuses the registration otherwise. Other servers ignore the parameter.
 
@@ -886,7 +886,7 @@ Choices that are not obvious from the rules alone, and why they were made.
 
 ### Residual risks
 
-- **Corporate security review.** A tool moving design documents between machines over WebRTC may need sign-off even though nothing is stored centrally. Hosting `kalka-rendezvous` on corporate infrastructure is the mitigating position.
+- **Security review.** An organisation may want to sign off a tool that moves design documents between machines over WebRTC, even though nothing is stored centrally. Hosting `kalka-rendezvous` on its own infrastructure is the mitigating position.
 - **Networks that block WebRTC entirely.** TURN over TLS/443 covers most; some proxies will still defeat it.
 - **Other writers of the same file.** Agents or editors may modify a blueprint while it sits in the folder. `kalka` tolerates this by construction (pass-through frontmatter, unparsed log content preserved, re-read before write), and stray plan edits never travel (7.5).
 - **Team log rules are hard to change later.** Logs created under one rule set must replay the same way forever. Each operation carries a rule version (19.1), and no real team should be created before the harness passes for the current version.
@@ -902,7 +902,7 @@ Choices that are not obvious from the rules alone, and why they were made.
 Each question has the answer kalka currently implements.
 
 1. **Multi-repo blueprints.** One `repo`/`base_sha` pair or a list? This only affects the `gh` plugin. *Default: single pair.*
-2. **Access control at the rendezvous.** Which mechanism will sit in front of `kalka-rendezvous` in the corporate deployment (SSO proxy, network policy)? *Default: network policy.*
+2. **Access control at the rendezvous.** Which mechanism will sit in front of a hosted `kalka-rendezvous` (SSO proxy, network policy)? *Default: network policy.*
 3. **Showing the planned change in a trace.** Should nodes be markable as new, modified or removed? *Default: not in v1; unknown node keys are already preserved, so a `change:` key can be added later.*
 4. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
 5. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*

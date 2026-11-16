@@ -57,8 +57,8 @@ func StartTURN(c TURNConfig) (*turn.Server, error) {
 	return turn.NewServer(cfg)
 }
 
-// TLSListener wraps a TCP listener for TURN over TLS (port 443 behind
-// corporate firewalls).
+// TLSListener wraps a TCP listener for TURN over TLS (port 443, for
+// networks whose firewalls let only HTTPS out).
 func TLSListener(l net.Listener, cert tls.Certificate) net.Listener {
 	return tls.NewListener(l, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 }
