@@ -944,8 +944,8 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
                     Comment on the selected text
                   </button>
                 ) : (
-                  <button type="button" className="add" onClick={() => open(slug)}>
-                    + Comment on §{slug}
+                  <button type="button" className="add" onClick={() => open(slug)} aria-label={`Comment on §${slug}`}>
+                    + Comment
                   </button>
                 )))}
             </>

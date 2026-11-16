@@ -36,19 +36,19 @@ flowchart LR
 ### The nightly job
 
 ```trace
-lanes: [desk, code]
+lanes: [business, code]
 nodes:
-  - {id: D1, lane: desk, text: Find holds past their pickup window, next: [D2]}
-  - {id: D2, lane: desk, text: Offer the item to the next member, next: [D3]}
-  - {id: D3, lane: desk, text: Tell staff what to pull}
+  - {id: B1, lane: business, text: Find holds past their pickup window, next: [B2]}
+  - {id: B2, lane: business, text: Offer the item to the next member, next: [B3]}
+  - {id: B3, lane: business, text: Tell staff what to pull}
 
-  - {id: C1, lane: code, text: Query expired holds per branch, realizes: [D1], next: [C2],
+  - {id: C1, lane: code, text: Query expired holds per branch, realizes: [B1], next: [C2],
      why: branches close at different hours, so "today" is per branch}
   - {id: C2, lane: code, text: Emit HoldExpired and ready the next hold in one transaction,
-     realizes: [D2], next: [C3]}
+     realizes: [B2], next: [C3]}
   - {id: C3, lane: code, text: Skip holds with a pull already pending, next: [C4],
      why: a job rerun after a failure must not ready the same item twice}
-  - {id: C4, lane: code, text: Build the pull list from unconfirmed expiries, realizes: [D3]}
+  - {id: C4, lane: code, text: Build the pull list from unconfirmed expiries, realizes: [B3]}
 ```
 
 ## Verification plan
