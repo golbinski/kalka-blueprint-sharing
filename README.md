@@ -108,6 +108,10 @@ reader's own credentials, into a snippet shown beside the text. Resolved
 content is never written into the file or sent to anyone. kalka ships
 `kalka-plugin-gh` for GitHub; the protocol is in the specification (§10).
 
+The repository and commit come from the blueprint's frontmatter (`repo`,
+`base_sha`). A plan that spans several repositories names the others under
+`repos:` and picks one per link: `[form](gh:web:src/upload/Form.tsx#L10-L60)`.
+
 ## Documentation
 
 | Document | What it covers |

@@ -57,7 +57,7 @@ func call(t *testing.T, gh *fakeGH, fm map[string]any, payloads ...string) []res
 	in, _ := json.Marshal(req)
 	var out, errb bytes.Buffer
 	if code := run(bytes.NewReader(in), &out, &errb, func(host string) api {
-		if host != "" && host != "ghe.corp.com" {
+		if host != "" && host != "github.example.org" {
 			t.Errorf("host %q", host)
 		}
 		return gh
@@ -98,7 +98,7 @@ func TestResolve(t *testing.T) {
 	if r := res[4]; !r.OK || r.Title != "src/" || r.Snippet != nil || !strings.Contains(r.URL, "/tree/") {
 		t.Fatalf("dir %+v", r)
 	}
-	if r := res[5]; r.OK || r.Error != "src/missing.py does not exist at 3f9c2a1" {
+	if r := res[5]; r.OK || r.Error != "src/missing.py does not exist in org/doc-service at 3f9c2a1" {
 		t.Fatalf("missing %+v", r)
 	}
 	// One compare per batch; one contents call per path.
@@ -161,9 +161,102 @@ func TestFrontmatter(t *testing.T) {
 	}
 	// GitHub Enterprise: the host is used for links and handed to gh.
 	gh := newFake()
-	r = call(t, gh, map[string]any{"repo": "org/doc-service", "base_sha": "3f9c2a1", "host": "ghe.corp.com"}, "src/import/parse.py")[0]
-	if !strings.HasPrefix(r.URL, "https://ghe.corp.com/org/doc-service/") {
+	r = call(t, gh, map[string]any{"repo": "org/doc-service", "base_sha": "3f9c2a1", "host": "github.example.org"}, "src/import/parse.py")[0]
+	if !strings.HasPrefix(r.URL, "https://github.example.org/org/doc-service/") {
 		t.Fatalf("ghe %+v", r)
+	}
+}
+
+// Named repositories (spec 10.4): gh:<name>:<path> reads from the entry
+// of repos, each repository with its own base_sha, host and compare call;
+// references without a name read from the top-level keys.
+func TestNamedRepos(t *testing.T) {
+	gh := newFake()
+	const apiSHA = "9b07e44bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for k, v := range map[string]string{
+		"repos/org/api":                                 `200 {"default_branch":"trunk"}`,
+		"repos/org/api/commits/9b07e44":                 `200 {"sha":"` + apiSHA + `"}`,
+		"repos/org/api/compare/" + apiSHA + "...trunk":  `200 {"ahead_by":1,"files":[{"filename":"cmd/old.go"}]}`,
+		"repos/org/api/contents/cmd/x.go?ref=" + apiSHA: "200 package main\nfunc main() {}\n",
+		"repos/org/web/contents/src/Form.tsx?ref=main":  "200 export {}\n",
+		"repos/org/web":                                 `200 {"default_branch":"main"}`,
+	} {
+		gh.resp[k] = v
+	}
+	named := map[string]any{
+		"repo": "org/doc-service", "base_sha": "3f9c2a1",
+		"repos": map[string]any{
+			"api": map[string]any{"repo": "org/api", "base_sha": "9b07e44", "host": "github.example.org"},
+			"web": map[string]any{"repo": "org/web"},
+			"bad": map[string]any{"repo": "org/api", "base_sha": "HEAD; ls"},
+		},
+	}
+	var hosts sync.Map
+	payloads := []string{"src/import/parse.py#L1", "api:cmd/x.go#L1-L2", "api:cmd/missing.go", "web:src/Form.tsx",
+		"docs:a.md", "bad:a.go", "Api:x.go", "api:../x.go"}
+	in, _ := json.Marshal(map[string]any{"protocol": 1, "op": "resolve", "context": map[string]any{"frontmatter": named},
+		"refs": func() (r []map[string]string) {
+			for _, p := range payloads {
+				r = append(r, map[string]string{"ref": "gh:" + p, "payload": p})
+			}
+			return r
+		}()})
+	var out, errb bytes.Buffer
+	if run(bytes.NewReader(in), &out, &errb, func(h string) api { hosts.Store(h, true); return gh }) != 0 {
+		t.Fatal(errb.String())
+	}
+	var resp struct{ Results []result }
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.Results) != len(payloads) {
+		t.Fatalf("%s %v", out.String(), err)
+	}
+	res := resp.Results
+	if r := res[0]; !r.OK || r.Title != "src/import/parse.py · L1" || !strings.HasSuffix(r.URL, "/src/import/parse.py#L1") || !strings.Contains(r.URL, "github.com/org/doc-service/") {
+		t.Errorf("default repo %+v", r)
+	}
+	if r := res[1]; !r.OK || r.Title != "api: cmd/x.go · L1–2" || r.Snippet.Text != "package main\nfunc main() {}\n" ||
+		r.URL != "https://github.example.org/org/api/blob/"+apiSHA+"/cmd/x.go#L1-L2" || r.Status != "unchanged on trunk since 9b07e44" || r.Ref != "gh:api:cmd/x.go#L1-L2" {
+		t.Errorf("api %+v", r)
+	}
+	if r := res[2]; r.OK || r.Error != "cmd/missing.go does not exist in org/api at 9b07e44" {
+		t.Errorf("api missing %+v", r)
+	}
+	if r := res[3]; !r.OK || r.Title != "web: src/Form.tsx" || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0].Text, "no base_sha") {
+		t.Errorf("web %+v", r)
+	}
+	if r := res[4]; r.OK || r.Error != "gh:docs: repos: has no entry docs (it has: api, bad, web)" {
+		t.Errorf("unknown name %+v", r)
+	}
+	if r := res[5]; r.OK || !strings.Contains(r.Error, "repos.bad.base_sha") {
+		t.Errorf("bad entry %+v", r)
+	}
+	if r := res[6]; r.OK || !strings.Contains(r.Error, "not allowed") {
+		t.Errorf("not a name, so a path with ':' %+v", r)
+	}
+	if r := res[7]; r.OK || !strings.Contains(r.Error, "not allowed") {
+		t.Errorf("api:../ %+v", r)
+	}
+	if _, ok := hosts.Load("github.example.org"); !ok {
+		t.Error("the api entry's host was not handed to gh")
+	}
+	compares := map[string]int{}
+	for _, c := range gh.calls {
+		if repo, _, ok := strings.Cut(c, "/compare/"); ok {
+			compares[repo]++
+		}
+	}
+	if compares["repos/org/doc-service"] != 1 || compares["repos/org/api"] != 1 || len(compares) != 2 {
+		t.Errorf("compare calls %v", compares)
+	}
+
+	// No top-level repo: references without a name fail, named ones work.
+	r := call(t, newFake(), map[string]any{"repos": map[string]any{"svc": map[string]any{"repo": "org/doc-service", "base_sha": "3f9c2a1"}}},
+		"src/import/parse.py", "svc:src/import/parse.py")
+	if r[0].OK || !strings.Contains(r[0].Error, "no repo") || !r[1].OK {
+		t.Errorf("no default %+v", r)
+	}
+	// repos: that is not a map.
+	if r := call(t, newFake(), map[string]any{"repos": "org/api"}, "api:a.go")[0]; r.OK || !strings.Contains(r.Error, "no repos: map") {
+		t.Errorf("repos not a map %+v", r)
 	}
 }
 

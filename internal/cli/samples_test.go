@@ -23,6 +23,7 @@ func TestSamples(t *testing.T) {
 		"relay-indicator.md":             nil,
 		"join-flow-trace.md":             nil,
 		"packaging/windows-installer.md": {"hint-no-critical-sections", "hint-no-domain-reference"},
+		"packaging/windows-app-icon.md":  {"hint-no-domain-reference"},
 	}
 	var seen []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {

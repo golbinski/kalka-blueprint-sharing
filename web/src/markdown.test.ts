@@ -69,6 +69,7 @@ describe('plugin references', () => {
     const html = render('See [parse](gh:src/a.py#L1-L9) and <jira:ABC-12>, [js](javascript:alert(1)), [d](data:text/html,x), [JS](JavaScript:alert(1)).')
     expect(html).toContain('<span class="ref" data-ref="gh:src/a.py#L1-L9">parse</span>')
     expect(html).toContain('<span class="ref" data-ref="jira:ABC-12">jira:ABC-12</span>')
+    expect(render('[form](gh:web:src/Form.tsx#L1-L9)')).toContain('<span class="ref" data-ref="gh:web:src/Form.tsx#L1-L9">form</span>')
     expect(html).not.toMatch(/href="(javascript|data|JavaScript):/i)
     expect(html).not.toContain('data-ref="javascript')
     expect(html).not.toContain('data-ref="data')

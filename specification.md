@@ -212,7 +212,7 @@ Moved the weight check into the intake handler because …
 | `reference` | `kalka-blueprint@v<N>` | Opts the document into hints (6.13) | Never |
 
 - Key names are bare, as above. A team whose own pipeline already uses one of these names with another meaning must rename its key, or accept that `kalka` reads it when the shape matches.
-- The `repo` and `base_sha` keys in the example above are an instance of this: they mean something to the `gh` plugin only.
+- The `repo` and `base_sha` keys in the example above are an instance of this: they mean something to the `gh` plugin only. So does `repos`, its map of further repositories (10.4).
 - A file without `kalka_id` is a *local* blueprint: listed in Personal, not yet in any team.
 - **Publish** adds `kalka_id`, `owner: <config email>` if absent, and `team:`, creating the frontmatter block if the file has none. Whenever `kalka` edits frontmatter it must change only the lines it writes and must not re-serialize the rest (key order and comments stay intact).
 
@@ -568,6 +568,8 @@ A reference is a Markdown link whose target has a non-web scheme: `[label](schem
 
 Blueprints carry references only. Resolved content is never written into the file and never sent to a peer; each peer resolves with their own plugins and credentials.
 
+**Context from the frontmatter.** Where a reference needs context that is not in the reference itself (which repository, at which commit; which site), the plugin reads it from the frontmatter, which every request carries. A blueprint that spans several such places names each one in a map in the frontmatter, and a reference picks one with a `<name>:` prefix on its payload; a reference without a prefix uses the plugin's default keys. `gh` does this with `repos` (10.4). Plugins for other services should follow the same convention, so that one blueprint can reference several of them.
+
 ### 10.2 Discovery
 
 Executable named `kalka-plugin-<scheme>` (plus `.exe`, `.cmd` on Windows), searched in `<config>/plugins`, then the folder of the running executable, then `PATH`.
@@ -600,10 +602,21 @@ The core renders `title`, `url` (http/https only), `status`, `snippet` and `warn
 
 Separate binary in the same repository, shipped alongside `kalka`. Uses the user's `gh` CLI authentication (`gh api`); no token handling of its own.
 
-- Frontmatter keys it reads: `repo`, `base_sha`, optional `host` (GitHub Enterprise).
-- `gh:<path>[#L<a>[-L<b>]]` → permalink at `base_sha` and snippet via the contents API.
-- Staleness: one compare call `base_sha...<default branch>` per batch; any referenced path among the changed files gets a warning.
-- If `base_sha` is unknown to the remote (unpushed spike), every result carries a warning saying so.
+- Frontmatter keys it reads: `repo`, `base_sha`, optional `host` (GitHub Enterprise), the default repository; and `repos`, a map from names to entries with the same three keys, for further repositories. A name is `[a-z][a-z0-9_-]{0,31}`.
+- `gh:[<name>:]<path>[#L<a>[-L<b>]]` → permalink at that repository's `base_sha` and snippet via the contents API. Without a name, the default repository; with one, the entry of `repos`, and the result's title starts with the name. A path segment cannot contain `:`, so a prefix is never mistaken for a path.
+- A reference whose repository is missing or invalid fails on its own, with the frontmatter key at fault (`repos.api.base_sha`); the other references resolve.
+- Staleness: one compare call `base_sha...<default branch>` per repository and batch; any referenced path among that repository's changed files gets a warning.
+- If `base_sha` is unknown to the remote (unpushed spike), every result for that repository carries a warning saying so.
+
+```yaml
+repo: org/doc-service
+base_sha: 3f9c2a1
+repos:
+  web: {repo: org/web-app, base_sha: 8d0e5b2}
+  api: {repo: org/api, base_sha: 9b07e44, host: github.example.org}
+```
+
+`[parser](gh:src/import/parse.py#L120-L180)` reads `org/doc-service`; `[form](gh:web:src/upload/Form.tsx#L10-L60)` reads `org/web-app` at `8d0e5b2`.
 - Paths and line numbers from the payload are validated and passed as API parameters, never through a shell.
 
 ---
@@ -901,15 +914,14 @@ Choices that are not obvious from the rules alone, and why they were made.
 
 Each question has the answer kalka currently implements.
 
-1. **Multi-repo blueprints.** One `repo`/`base_sha` pair or a list? This only affects the `gh` plugin. *Default: single pair.*
-2. **Access control at the rendezvous.** Which mechanism will sit in front of a hosted `kalka-rendezvous` (SSO proxy, network policy)? *Default: network policy.*
-3. **Showing the planned change in a trace.** Should nodes be markable as new, modified or removed? *Default: not in v1; unknown node keys are already preserved, so a `change:` key can be added later.*
-4. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
-5. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
-6. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
-7. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
-8. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
-9. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
+1. **Access control at the rendezvous.** Which mechanism will sit in front of a hosted `kalka-rendezvous` (SSO proxy, network policy)? *Default: network policy.*
+2. **Showing the planned change in a trace.** Should nodes be markable as new, modified or removed? *Default: not in v1; unknown node keys are already preserved, so a `change:` key can be added later.*
+3. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
+4. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
+5. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
+6. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
+7. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
+8. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
 
 ---
 

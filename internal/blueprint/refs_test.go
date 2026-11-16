@@ -15,6 +15,9 @@ func TestPluginRef(t *testing.T) {
 		if s != want || ok != (want != "") {
 			t.Errorf("%q: %q %v", in, s, ok)
 		}
+	} // A named repository (spec 10.4) stays in the payload.
+	if s, p, ok := PluginRef("gh:api:src/a.go#L1"); !ok || s != "gh" || p != "api:src/a.go#L1" {
+		t.Errorf("named: %q %q %v", s, p, ok)
 	}
 }
 

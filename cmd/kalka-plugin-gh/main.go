@@ -1,12 +1,14 @@
 // kalka-plugin-gh resolves gh: references (spec 10.4) with the user's own
 // `gh` CLI login; it keeps no token of its own.
 //
-//	gh:<path>[#L<a>[-L<b>]]
+//	gh:[<name>:]<path>[#L<a>[-L<b>]]
 //
 // Frontmatter keys it reads: repo (owner/name), base_sha, optional host
-// (GitHub Enterprise). Results link to the file at base_sha and show the
-// lines; a path changed on the default branch since base_sha gets a
-// warning, found with one compare call per batch.
+// (GitHub Enterprise), for references without a name; and repos, a map
+// of names to the same three keys, for references to other repositories
+// (spec 10.4). Results link to the file at the repository's base_sha and
+// show the lines; a path changed on the default branch since base_sha
+// gets a warning, found with one compare call per repository and batch.
 //
 // Everything taken from a blueprint is validated and passed to gh as API
 // path or query parameters of a fixed endpoint, never through a shell.
@@ -23,6 +25,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,7 +117,62 @@ var (
 	hostRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?$`)
 	segmentRe = regexp.MustCompile(`^[A-Za-z0-9._@+=,~ -]+$`)
 	linesRe   = regexp.MustCompile(`^L([0-9]{1,7})(?:-L?([0-9]{1,7}))?$`)
+	nameRe    = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 )
+
+// source is the repository a group of references reads from: the
+// top-level keys (name "") or an entry of repos.
+type source struct {
+	name, repo, base, host string
+	key                    string // where its keys are, for messages: "" or "repos.<name>."
+}
+
+// splitName takes the repository name off a payload: "api:src/x.go"
+// names api. A path segment cannot hold ':', so a payload whose text
+// before the first ':' is not a name is left whole, and fails as a path.
+func splitName(p string) (name, rest string) {
+	if n, r, ok := strings.Cut(p, ":"); ok && nameRe.MatchString(n) {
+		return n, r
+	}
+	return "", p
+}
+
+// sourceOf reads the source of name from the frontmatter.
+func sourceOf(fm map[string]any, name string) (source, error) {
+	src := source{name: name}
+	keys := fm
+	if name != "" {
+		src.key = "repos." + name + "."
+		repos, ok := fm["repos"].(map[string]any)
+		if !ok {
+			return src, fmt.Errorf("gh:%s: the frontmatter has no repos: map naming %s", name, name)
+		}
+		entry, ok := repos[name].(map[string]any)
+		if !ok {
+			var names []string
+			for n := range repos {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			return src, fmt.Errorf("gh:%s: repos: has no entry %s (it has: %s)", name, name, strings.Join(names, ", "))
+		}
+		keys = entry
+	}
+	src.repo, src.base, src.host = str(keys, "repo"), str(keys, "base_sha"), str(keys, "host")
+	switch {
+	case src.repo == "" && name == "":
+		return src, errors.New("the frontmatter has no repo: (owner/name)")
+	case src.repo == "":
+		return src, fmt.Errorf("%srepo is missing (owner/name)", src.key)
+	case !repoRe.MatchString(src.repo):
+		return src, fmt.Errorf("%srepo %q is not owner/name", src.key, src.repo)
+	case src.base != "" && !shaRe.MatchString(src.base):
+		return src, fmt.Errorf("%sbase_sha %q is not a commit hash", src.key, src.base)
+	case src.host != "" && !hostRe.MatchString(src.host):
+		return src, fmt.Errorf("%shost %q is not a host name", src.key, src.host)
+	}
+	return src, nil
+}
 
 func str(fm map[string]any, k string) string {
 	v, ok := fm[k]
@@ -134,7 +192,7 @@ func parsePayload(p string) (target, error) {
 	file, frag, _ := strings.Cut(p, "#")
 	var t target
 	if file == "" || len(file) > 400 || strings.HasPrefix(file, "/") || strings.HasSuffix(file, "/") {
-		return t, errors.New("expected gh:<path>[#L<a>[-L<b>]] with a path relative to the repository")
+		return t, errors.New("expected gh:[<name>:]<path>[#L<a>[-L<b>]] with a path relative to the repository")
 	}
 	for _, s := range strings.Split(file, "/") {
 		if s == "." || s == ".." || !segmentRe.MatchString(s) {
@@ -167,31 +225,63 @@ func escapePath(p string) string {
 	return strings.Join(parts, "/")
 }
 
+// resolve groups the references by repository and resolves each group
+// against its source, the groups in parallel.
 func resolve(req request, newAPI func(string) api, stderr io.Writer) []result {
-	fm := req.Context.Frontmatter
-	repo, base, host := str(fm, "repo"), str(fm, "base_sha"), str(fm, "host")
 	out := make([]result, len(req.Refs))
-	failAll := func(msg string) []result {
-		for i, r := range req.Refs {
-			out[i] = result{Ref: r.Ref, Error: msg}
+	groups := map[string][]int{}
+	var order []string
+	for i, r := range req.Refs {
+		name, _ := splitName(r.Payload)
+		if _, ok := groups[name]; !ok {
+			order = append(order, name)
 		}
-		return out
+		groups[name] = append(groups[name], i)
 	}
-	switch {
-	case repo == "":
-		return failAll("the frontmatter has no repo: (owner/name)")
-	case !repoRe.MatchString(repo):
-		return failAll(fmt.Sprintf("repo %q is not owner/name", repo))
-	case base != "" && !shaRe.MatchString(base):
-		return failAll(fmt.Sprintf("base_sha %q is not a commit hash", base))
-	case host != "" && !hostRe.MatchString(host):
-		return failAll(fmt.Sprintf("host %q is not a host name", host))
+	var wg sync.WaitGroup
+	for _, name := range order {
+		idx := groups[name]
+		refs := make([]ref, len(idx))
+		for j, i := range idx {
+			_, rest := splitName(req.Refs[i].Payload)
+			refs[j] = ref{Ref: req.Refs[i].Ref, Payload: rest}
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var res []result
+			if src, err := sourceOf(req.Context.Frontmatter, name); err != nil {
+				res = failRefs(refs, err.Error())
+			} else {
+				res = resolveRepo(src, refs, newAPI(src.host), stderr)
+			}
+			for j, i := range idx {
+				out[i] = res[j]
+			}
+		}()
 	}
+	wg.Wait()
+	return out
+}
+
+func failRefs(refs []ref, msg string) []result {
+	out := make([]result, len(refs))
+	for i, r := range refs {
+		out[i] = result{Ref: r.Ref, Error: msg}
+	}
+	return out
+}
+
+// resolveRepo resolves references to one repository; their payloads no
+// longer carry its name.
+func resolveRepo(src source, refs []ref, gh api, stderr io.Writer) []result {
+	repo, base, host := src.repo, src.base, src.host
+	out := make([]result, len(refs))
+	failAll := func(msg string) []result { return failRefs(refs, msg) }
 	web := "github.com"
 	if host != "" {
 		web = host
 	}
-	gh := newAPI(host)
 
 	// Round 1, in parallel: the default branch (for staleness and as a
 	// fallback) and whether the remote has base_sha.
@@ -259,7 +349,7 @@ func resolve(req request, newAPI func(string) api, stderr io.Writer) []result {
 			}
 			st, body, err := gh.get("repos/"+repo+"/compare/"+url.PathEscape(at)+"..."+url.PathEscape(branch), "")
 			if err != nil || st != 200 || json.Unmarshal(body, &cmp) != nil {
-				fmt.Fprintf(stderr, "compare %s...%s: status %d %v\n", short, branch, st, err)
+				fmt.Fprintf(stderr, "compare %s %s...%s: status %d %v\n", repo, short, branch, st, err)
 				return
 			}
 			compared, ahead, truncated = true, cmp.AheadBy, len(cmp.Files) >= 300
@@ -283,9 +373,9 @@ func resolve(req request, newAPI func(string) api, stderr io.Writer) []result {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
-	targets := make([]target, len(req.Refs))
-	errs := make([]error, len(req.Refs))
-	for i, r := range req.Refs {
+	targets := make([]target, len(refs))
+	errs := make([]error, len(refs))
+	for i, r := range refs {
 		targets[i], errs[i] = parsePayload(r.Payload)
 		if errs[i] != nil {
 			continue
@@ -316,7 +406,7 @@ func resolve(req request, newAPI func(string) api, stderr io.Writer) []result {
 	if short != "" {
 		where = short
 	}
-	for i, r := range req.Refs {
+	for i, r := range refs {
 		res := result{Ref: r.Ref}
 		t := targets[i]
 		f := files[t.path]
@@ -326,19 +416,25 @@ func resolve(req request, newAPI func(string) api, stderr io.Writer) []result {
 		case f.err != nil:
 			res.Error = f.err.Error()
 		case f.status == 404:
-			res.Error = fmt.Sprintf("%s does not exist at %s", t.path, where)
+			res.Error = fmt.Sprintf("%s does not exist in %s at %s", t.path, repo, where)
 		case f.status != 200:
 			res.Error = fmt.Sprintf("GitHub answered %d for %s", f.status, t.path)
 		default:
 			res.OK = true
 			res.Title = t.path
+			if src.name != "" {
+				res.Title = src.name + ": " + t.path
+			}
 			res.URL = "https://" + web + "/" + repo + "/blob/" + url.PathEscape(at) + "/" + escapePath(t.path)
 			if f.dir {
 				res.Title += "/"
 				res.URL = "https://" + web + "/" + repo + "/tree/" + url.PathEscape(at) + "/" + escapePath(t.path)
 			} else {
 				res.Snippet, res.Warnings = cut(f.body, t)
-				if t.from > 0 {
+				if t.from > 0 && t.from == t.to {
+					res.Title += fmt.Sprintf(" · L%d", t.from)
+					res.URL += fmt.Sprintf("#L%d", t.from)
+				} else if t.from > 0 {
 					res.Title += fmt.Sprintf(" · L%d–%d", t.from, t.to)
 					res.URL += fmt.Sprintf("#L%d-L%d", t.from, t.to)
 				}
