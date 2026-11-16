@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -121,10 +122,21 @@ type wailsUI struct {
 	state    TrayState
 	noNotes  bool
 	quitOnce sync.Once
+	// webReady closes once the window's WebView has started. On Windows,
+	// Wails ends the process with status 1 when the app quits while
+	// WebView2 is still starting, so a quit waits for it (see Quit).
+	webReady     chan struct{}
+	webReadyOnce sync.Once
 }
 
+// webStartWait is how long a quit waits for a starting WebView.
+const webStartWait = 10 * time.Second
+
 func run(plan Plan, dir string, hidden bool, logw io.Writer) int {
-	ui := &wailsUI{}
+	ui := &wailsUI{webReady: make(chan struct{})}
+	if runtime.GOOS != "windows" {
+		close(ui.webReady)
+	}
 	s := &Shell{UI: ui, Dir: dir, Log: logw, Hidden: hidden, TrayHost: TrayHost()}
 	var services []application.Service
 	// macOS posts notifications only from an app bundle; elsewhere the
@@ -166,6 +178,12 @@ func run(plan Plan, dir string, hidden bool, logw io.Writer) int {
 	ui.win = ui.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: name.Product, Width: 1200, Height: 820, Hidden: true, URL: "about:blank",
 	})
+	if runtime.GOOS == "windows" {
+		// The first navigation completes only once WebView2 has started.
+		ui.win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
+			ui.webReadyOnce.Do(func() { close(ui.webReady) })
+		})
+	}
 	ui.win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if s.isQuitting() {
 			return
@@ -314,4 +332,16 @@ func (u *wailsUI) Info(title, message string) {
 	application.InvokeAsync(func() { u.app.Dialog.Info().SetTitle(title).SetMessage(message).Show() })
 }
 
-func (u *wailsUI) Quit() { u.quitOnce.Do(func() { application.InvokeAsync(u.app.Quit) }) }
+func (u *wailsUI) Quit() {
+	u.quitOnce.Do(func() {
+		go func() {
+			// The daemon has stopped already; only the window may still be
+			// starting. Without WebView2 it never starts, hence the bound.
+			select {
+			case <-u.webReady:
+			case <-time.After(webStartWait):
+			}
+			application.InvokeAsync(u.app.Quit)
+		}()
+	})
+}
