@@ -127,7 +127,17 @@ jobs:
         with:
           name: ui-dist
           path: internal/ui/dist
+      # NSIS for the Windows installer; GTK 4 and WebKitGTK for the Linux
+      # desktop package. Kalka.app needs a Mac and is skipped here.
+      - name: Packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nsis libgtk-4-dev libwebkitgtk-6.0-dev
       - run: go run ./tools/release -version "${GITHUB_REF_NAME#v}"
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+      # A version with a hyphen (v0.1.0-rc1) is published as a pre-release.
+      - run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
         env:
           GH_TOKEN: ${{ github.token }}
