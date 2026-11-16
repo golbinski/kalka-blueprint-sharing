@@ -234,7 +234,7 @@ function nodeName(t: Trace, id: string): string {
 }
 
 // DivCard explains one divergence in words, using the block's own lane
-// names (implementation plan M7: nothing hard-coded about "business").
+// names (spec 6.10: nothing hard-coded about "business").
 function divCard(t: Trace, d: Divergence): { head: string; title: string; text: string } {
   const n = node(t, d.node)
   const lanes = t.lanes ?? []

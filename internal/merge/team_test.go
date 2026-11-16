@@ -116,7 +116,7 @@ func mustTeam(t *testing.T, local, in *bp.Document, team Team) Result {
 }
 
 // v1 published by dana; v2 released by dana is relayed by carol (not the
-// owner): it is taken (D4).
+// owner): it is taken.
 func TestRelayOfReleaseAccepted(t *testing.T) {
 	team := newFakeTeam()
 	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)

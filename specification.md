@@ -1,14 +1,10 @@
 # kalka — blueprint sharing in teams
 
-*Kalka* (Polish: tracing paper, carbon copy) is the working name. It appears in the binaries, the plugin prefix (`kalka-plugin-<scheme>`), the frontmatter key (`kalka_id`), the URL scheme (`kalka://`) and protocol strings. Keep the name in one constant per component so a later rename is cheap; availability of the name has not been checked.
+*Kalka* (Polish: tracing paper, carbon copy). The name appears in the binaries, the plugin prefix (`kalka-plugin-<scheme>`), the frontmatter key (`kalka_id`), the URL scheme (`kalka://`) and protocol strings; each component keeps it in one constant.
 
-Specification v0.6 · 2026-11-15 · status: ready for implementation
+Specification v0.6 · 2026-11-15
 
-This document is the hand-over to the implementation agent. Sections 1–15 and 19–23 are normative. Section 16 gives milestones and acceptance criteria. Section 17 records what changed during reviews and why. Section 18 lists open questions and the decisions taken on them; each open question has a default so work is not blocked.
-
-v0.4 added teams with roles and a signed operation log (19), replication between members (20), a threat model (21), seeds (6.11), domain documents (6.12) and the blueprint reference (6.13). v0.5 made kalka a background desktop app with a first-class CLI (4, 22, 23).
-
-v0.6 makes teams the only way to share. One-to-one syncs, key pinning, verification codes, accept prompts and conflict files are gone; every peer is a member of a team you share (8). A person belongs to any number of teams plus a local Personal space (14, 20.1). There are two roles, team owner and member (19.3). Handoff is immediate, and a team owner can reassign any document (7). Documents can be copied or moved between teams, with the destination's acceptance and a countersigned history (20.7). Invites can be opened as `kalka://join/` links (19.7). The app does every workflow, and the CLI does every one too (11, 12). The rendezvous server is its own binary, `kalka-rendezvous` (9.6). The triage behind v0.6 is `docs/plan-teams-only.md`. Section numbers the code cites are kept where the section survives.
+This document describes kalka as built. Sections 1–15 and 19–23 are normative. Section 16 gives the end-to-end scenarios the test suite runs, 17 the reasoning behind choices that are not obvious and the risks that remain, 18 open questions. Before version 1, the wire protocol and the file formats may change between releases without a migration.
 
 Wording: **must** is a requirement, **should** is a strong default the implementer may deviate from with a written reason, **may** is optional.
 
@@ -405,7 +401,7 @@ A blueprint's reference to a version that is not kept here is shown as such ("no
 
 `kalka` ships `BLUEPRINT-REFERENCE.md`, embedded in the binary and versioned as `kalka-blueprint@v<N>` (v1 at first). `kalka reference export` writes it out. It is written to be dropped in unchanged as an agent skill or instruction file: it opens with frontmatter holding `name` and `description`.
 
-It describes what a blueprint useful to agents usually contains, as guidance, never as a requirement. Each section comes with a short reason it helps agents, and examples use a neutral domain (parcel logistics, library lending):
+It describes what a blueprint useful to agents usually contains, as guidance, never as a requirement. Each section comes with a short reason it helps agents, and examples use invented everyday services (parcel logistics, library lending):
 
 1. **Domain reference**: which domain document and version applies (`domain:`, 6.12).
 2. **Scope**: the bounded contexts and modules expected to be touched. Work beyond the scope becomes a seed (6.11), not a larger change.
@@ -776,7 +772,7 @@ A test checks this list against the kinds the code declares, and that each is re
 
 ## 13. Local HTTP API
 
-One local API, used by the web UI (in the desktop window or a browser tab), the desktop shell's tray, and the CLI. There is no second transport (18.3, decision 7).
+One local API, used by the web UI (in the desktop window or a browser tab), the desktop shell's tray, and the CLI. There is no second transport.
 
 - Bind to `127.0.0.1` only, on `ui_port` (default 7717). The port is fixed so that the page's per-origin storage survives restarts.
 - Validate the `Host` header against the loopback address and port (defeats DNS rebinding).
@@ -825,7 +821,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 ## 15. Technology
 
 - Go. The `kalka` binary (CLI and headless daemon) has no CGO: a single static binary per platform, `windows/amd64` first, then `darwin/arm64`, `linux/amd64`.
-- Desktop shell: Wails v3, pinned to an exact release (18.3, decision 8). It is built only with the `desktop` build tag, so `go build ./...`, `go vet ./...` and `go test ./...` never need it. On Windows it needs no CGO; on macOS and Linux it does (23).
+- Desktop shell: Wails v3, pinned to an exact release. It is built only with the `desktop` build tag, so `go build ./...`, `go vet ./...` and `go test ./...` never need it. On Windows it needs no CGO; on macOS and Linux it does (23).
 - `kalka-rendezvous` (`cmd/kalka-rendezvous`) imports only the signaling, peer ID and TURN packages; a test keeps it free of the core, the daemon, the UI and WebRTC.
 - URL scheme registration lives in `internal/urlscheme`, beside `internal/autostart`, with the registry, data directory and command runner as parameters so tests use fakes (23).
 - What the user installs is one product per platform (23.1): on Windows a per-user installer holding `kalka.exe` and `kalka-desktop.exe`; on macOS `Kalka.app` with one executable that is also the CLI; on Linux one archive with `kalka` and `kalka-desktop`.
@@ -838,44 +834,9 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 
 ---
 
-## 16. Milestones and acceptance criteria
+## 16. Scenarios
 
-M0–M7 (format and merge, transport, daemon, web UI, plugins, rendezvous, canvas, trace), R1–R8 (reference, team log, signed entries and releases, seeds, key IDs, teams and invites, replication, domains) and D1–D7 (the daemon, the local API, the CLI classes, settings and notices, the desktop shell, packaging) are done. Their acceptance criteria are kept in `implementation-plan.md`; where they named one-to-one syncs, v0.6 replaces them by the criteria below. The work order and sizes are in `docs/plan-teams-only.md`.
-
-### T1 — Remove one-to-one sharing
-- A connection from a peer that shares no team is closed with `not-member`, and no file is read. A member presenting another key than the log binds is refused. One signaling registration per daemon; the transport suite runs on key IDs; the public-cloud check still passes. Nothing refers to the deleted commands, messages, files or prompts.
-
-### T2 — Personal and team folders
-- **Isolation:** Ewa and Marek share `parcel-ops`; Ewa and Olga share `library-desk`. Over full rounds in both directions, Marek receives no byte, id or title of a `library-desk` document or log, and Olga none of `parcel-ops`; a request for a foreign id is answered like an unknown one. Two teams with one name on one machine exchange nothing across.
-- **Personal never leaves:** with Personal files present, including one that carries `team:` and one with a forged release, no inventory line, content or id of them appears on any channel.
-- Publish moves the file and reports the new path; mismatches are listed and not replicated; `personal` is refused as a team name.
-
-### T3 — Roles and ownership
-- **Immediate handoff:** with the recipient offline, the owner hands off; the release names the recipient; the recipient's first round delivers it with a notice and no question; the recipient hands it back. Handoff to a non-member and of a Personal file is refused.
-- **Reassignment without consent:** a team owner reassigns a present member's document while that member is offline; previous and new owner each get one notice; a member's attempt fails with `not-team-owner`.
-- **The race:** a former owner releases version n+1 concurrently with a reassignment at cut-off n. Over every delivery order of the operation and the releases to three peers (enumerated, not sampled), all peers end with the same chain, plan and owner. Two team owners reassigning one document concurrently converge. A document reassigned twice keeps a valid chain through both cut-offs. A dispute is ended by a reassignment.
-- The team log harness holds for 100 000 histories under rule version 2, with reassignments generated at random. Displaced edits land in the trash with a notice. A domain document is released by its owner, handed off and reassigned; a second document for one domain is refused locally and flagged when concurrent.
-
-### T4 — Transfers between teams
-- Copy accepted: new id, `copied-from`, source unchanged byte for byte, the accepting owner is the owner and can hand it off. Move accepted: no source tombstone before the accept, the `moved:` tombstone after it, and the source team sees the document gone.
-- Decline of a copy: every destination peer discards it, and a lagging peer cannot bring it back. Decline of a move: the source keeps the document, no tombstone.
-- **Countersigned history:** a destination member who is not in the source team takes the pending document, shows its entries as attested by the actor and then by both; a document with one attested entry altered, removed or added is refused.
-- **Non-member:** a transfer by someone who is not a member of the destination is refused on their machine with `not-member`, and a pending document whose `transfer` entry is signed by a key the destination log does not bind is refused by every receiving peer, with the reason listed.
-- The actor goes offline right after starting; an owner reached only through a third member still gets the item. Two owners accept concurrently: one version 1 everywhere. Accept beats decline and withdrawal. A move whose actor lost the source document ends as a copy with a notice.
-
-### T5 — Join links
-- `kalka://join/<token>` and a bare token parse, in any case, with whitespace or angle brackets; another scheme or path, extra parts, a query, more than 4 KiB or a damaged checksum are refused.
-- With a shell attached, a start with a link calls `ui/show` with the join route and exits 0; without one, the shell starts on the route; `kalka open --print <link>` prints the join URL. The preview reports a wrong email, an expired invite, another rendezvous and an existing membership, and never joins.
-- Registration is tested against a fake registry, a temporary data directory and a recording command runner; the installer script, `Info.plist` and `.desktop` text carry the scheme. No test registers a real handler.
-
-### T6 — Waiting items, scoped API, commands
-- Each waiting item appears for the right people only and clears as 11.3 says; the summary's total, per-team counts and oldest target are right over three teams; the tray opens the oldest team. Every command of 12.1 runs with `--json`. Each error kind of 12.3 is produced by at least one command.
-
-### T7 — The app
-- The parity tests of 12.2 pass. The switcher, scoped routes, waiting list, join screen and attested badge have unit tests. One workflow of each family runs through the API the page uses. No fixture or mockup holds a term from the excluded domains (finance, trading).
-
-### T8 — Rendezvous binary and packaging
-- `kalka-rendezvous` passes the signaling, TURN and key-ID proof tests; the import test holds; the release lists its archives and `SHA256SUMS` covers them.
+The test suite runs each of these between several daemons (`internal/core/scenario_test.go` and the tests beside it).
 
 ### 16.1 End-to-end scenarios
 
@@ -897,40 +858,31 @@ M0–M7 (format and merge, transport, daemon, web UI, plugins, rendezvous, canva
 
 ---
 
-## 17. Review findings — what changed and why
+## 17. Design notes
 
-A final pass over the design found the following. Items 1–4 change earlier agreements.
+Choices that are not obvious from the rules alone, and why they were made.
 
-1. **The byte-prefix rule does not survive two reviewers.** After Ewa merges Marek's comments, her file is no longer a prefix of Olga's reply, which was written on the original base. Replaced by: *the plan may change only by its owner; the entry set may only grow* (20.4). Same intent, still one file, still no history.
-2. **Server-side email→key binding dropped.** It would give the rendezvous server state and is impossible on stock PeerServer or the public cloud. Trust rested on client-side pinning until v0.6, and now on team logs (8, item 20).
+1. **Only the owner changes the plan; everyone else adds entries.** A rule such as "a reply must extend the file it answers" does not survive two reviewers: once the owner merges one reviewer's comments, the file is no longer a prefix of the other's reply (7, 20.4).
+2. **The rendezvous server binds no email to a key.** That would give it state, and it is impossible on a stock PeerJS server or the public cloud. Trust rests on team logs (8).
 3. **`kalka` writes a few frontmatter keys.** A blueprint needs an identity that survives renaming, an owner and a team. This is the one exception to "the tool does not author blueprints" (6.2).
-4. **Handoff must be recognisable by peers who missed it.** Overtaken by v0.6: a handoff is a release naming the new owner, so the chain carries it (7.2, item 20).
-5. **Entry ids are content hashes.** Gives de-duplication and corruption detection; signatures (6.5) add authorship.
-6. **Timestamps order the log.** Clock skew can reorder entries slightly; it cannot lose them.
-7. **Three settings stay three.** ICE configuration is discovered from the rendezvous server (9.4); teams are created and joined, not configured (5).
-8. **Public PeerJS cloud.** It provides a TURN server. It remains demo-only: no SLA, IDs anyone holding a public key can claim, and a reported history of rejecting Go WebSocket clients.
-9. **Presence has no directory.** PeerJS servers do not list peers; presence is learned from replication (9.3).
-10. **One device per email.** A second device gets `ID-TAKEN`. Multi-device needs a different ID scheme; deferred.
-11. **The UI renders hostile input.** A received blueprint is untrusted Markdown displayed by a page that can write files, so sanitization and localhost-API hardening are requirements, not polish (11.2, 13).
-12. **No offline queue on a server.** Team documents travel through whichever members are online (20.3).
-13. **Workflow-agnostic.** All references to a specific pipeline were removed. The core interprets the frontmatter keys of 6.2 and one section heading; everything else in the file is pass-through.
-14. **Trace blocks added (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge. Lane names are free-form. All examples in this document use neutral, invented domains.
-15. **Handoff entries were signed (v0.3).** Overtaken by v0.6: there are no handoff entries.
-16. **Unparsed log content moves with the entry before it (v0.3).** "Preserved in place" and "rewritten in canonical order" could not both hold literally (6.4).
-17. **Teams, replication and signatures (v0.4).** Four points of the v0.4 request could not work as written:
-    - *A key-derived peer ID does not stop posing on a stock server*: any holder of the public key can register it. Channel binding prevents posing; on `kalka-rendezvous` a proof of the key prevents squatting (9.2, 9.6).
-    - *A signature over the 12-hex entry id does not bind the text*: 48 bits can be matched by brute force. All signatures cover the full digest (6.5).
-    - *"Body edits only by the owner" judged by the sender refuses every relay.* Team documents carry signed releases instead, and the sender no longer matters (20.4).
-    - *"The lower hash wins" lets a removed owner undo the removal*, by back-dating an operation and grinding its hash. Replaced by "removal wins; the senior owner wins a mutual removal" (19.4).
-18. **Two IDs per daemon (v0.4).** Overtaken by v0.6: key IDs only (9.2).
-19. **Replication overrode "manual only" for team documents (v0.4).** Overtaken by v0.6: there is nothing else.
-20. **Teams only (v0.6).** The v0.6 request was triaged against the code (`docs/plan-teams-only.md`). What it changed, and the points where the spec takes its own route:
-    - *Two trust sources and two merge rules* (pins and the handoff chain for one-to-one, team logs and releases for teams) became one: team logs and releases.
-    - *"A team owner can do anything a document owner can"*, taken literally, lets two people sign one version and makes disputes ordinary. Team owners act by taking the document over (7.4).
-    - *"Releases not causally before a reassignment are rejected"*: document releases are not in the team log's graph. The reassignment cites the version its signer saw, and everything above it by anyone else is void (7.3, 20.4).
-    - *Replay kept only the last reassignment of a document*, so a document reassigned twice lost its chain at the first cut-off. Every reassignment is now an anchor (20.4).
-    - *Replication chose documents by team name anywhere in the folder*, so two teams with one name would have leaked into each other. Location now decides (14).
-    - *Countersigned history is attested, not verified*: the destination cannot check source signatures. The badge says who vouches (20.7, 21).
+4. **Entry ids are content hashes.** They give de-duplication and corruption detection; signatures add authorship (6.5). Signatures cover the full digest: the 12-hex id is short enough to be matched by brute force.
+5. **Timestamps order the log.** Clock skew can reorder entries slightly; it cannot lose them.
+6. **Three settings stay three.** ICE configuration is discovered from the rendezvous server (9.4); teams are created and joined, not configured (5).
+7. **The public PeerJS cloud is for trying kalka out.** It provides a TURN server, but has no SLA, and any holder of a public key can claim that key's id there (9.7).
+8. **Presence has no directory.** PeerJS servers do not list peers; presence is learned from probes and replication (9.3).
+9. **One device per identity.** A second device is a second identity (1).
+10. **The UI renders hostile input.** A received blueprint is untrusted Markdown shown by a page that can write files, so sanitization and the hardening of the local API are requirements, not polish (11.2, 13).
+11. **No offline queue on a server.** Team documents travel through whichever members are online (20.3).
+12. **Workflow-agnostic.** The core interprets the frontmatter keys of 6.2 and one section heading; everything else in the file is pass-through.
+13. **Trace blocks (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge instead of trusting the author to say so.
+14. **Unparsed log content moves with the entry before it.** "Preserved in place" and "rewritten in canonical order" cannot both hold literally (6.4).
+15. **A key-derived peer id does not stop posing on a stock server:** any holder of the public key can register it. Channel binding prevents posing; on `kalka-rendezvous` a proof of the key also prevents squatting (8.3, 9.2, 9.6).
+16. **Team documents carry signed releases,** so whoever relays a document does not matter (20.4). Judging "body edits only by the owner" by the sender would refuse every relay.
+17. **"Removal wins; the senior owner wins a mutual removal."** A rule like "the lower hash wins" would let a removed owner undo the removal by back-dating an operation and grinding its hash (19.4).
+18. **Team owners act by taking a document over** (7.4). Letting a team owner do anything a document owner can would let two people sign one version and make disputes ordinary.
+19. **A reassignment cites the version its signer saw.** Document releases are not in the team log's graph, so "releases not causally before a reassignment" cannot be decided; everything above the cited version by anyone else is void, and every reassignment is an anchor (7.3, 20.4).
+20. **Location decides what replicates** (14). Choosing documents by the `team:` name anywhere in the folder would let two teams with one name leak into each other.
+21. **Countersigned history is attested, not verified.** The destination of a transfer cannot check source signatures; the badge says who vouches (20.7, 21).
 
 ### Residual risks
 
@@ -943,11 +895,11 @@ A final pass over the design found the following. Items 1–4 change earlier agr
 
 ---
 
-## 18. Open questions and decisions
+## 18. Open questions
 
 ### 18.1 Open questions
 
-Defaults apply unless answered.
+Each question has the answer kalka currently implements.
 
 1. **Multi-repo blueprints.** One `repo`/`base_sha` pair or a list? This only affects the `gh` plugin. *Default: single pair.*
 2. **Access control at the rendezvous.** Which mechanism will sit in front of `kalka-rendezvous` in the corporate deployment (SSO proxy, network policy)? *Default: network policy.*
@@ -956,70 +908,8 @@ Defaults apply unless answered.
 5. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
 6. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
 7. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
-8. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (18.4, decision 18).*
-9. **From a team back to Personal.** *Default: not in this work; "delete for the team" keeps the last copy in the team's trash.*
-
-### 18.2 Decisions (v0.4, answered by the product owner 2026-11-13)
-
-| # | Question | Decision |
-|---|---|---|
-| 1 | Peer IDs | Reversed in v0.6: key ID only (18.4, decision 2). |
-| 2 | Team log conflicts | "Removal wins; the senior owner wins a mutual removal; hash as the last tiebreak" (19.4). |
-| 3 | Automatic replication | Team documents replicate in the background between members, with no click, accept prompt or code, into `<folder>/<team>/` (20). |
-| 4 | Installed peers | None needed before the first release: every milestone up to v1 may change the wire protocol and formats without keeping older builds working. |
-| 5 | Joining | No manual accept; an invite names the invitee's email (19.7). |
-| 6 | Blueprint updates | An owner's edits reach the team on *Release*, not on save (20.4). |
-| 7 | Entries by removed members | Accepted if signed by a key the log ever bound to the author, and marked (6.5). |
-| 8 | Reassignment power | Reversed in v0.6: any document, at any time (18.4, decision 6). |
-| 9 | Domain comments | Kept forever, folded when incorporated (6.12). |
-| 10 | Snapshots | Beside the live document, ignored by the index; a late joiner lacks older versions (6.12). |
-| 11 | Frontmatter key names | Bare, read only when the value has the expected shape (6.2). |
-| 12 | Deviation log | The set of `deviation` entries, not a body section (6.13). |
-| 13 | Team log format | `<team>-team.log`, one JSON operation per line; the team is identified by the hash of `create-team` (19.1). |
-| 14 | Publishing | A `team:` frontmatter key plus a first release, by the owner, one team per document (20.1). |
-| 15 | Deletion | A tombstone is a final release; the stub and the last full copy are kept under `.kalka/` (20.6). |
-
-### 18.3 Decisions (v0.5, desktop app, product owner 2026-11-14)
-
-| # | Question | Decision |
-|---|---|---|
-| 1 | Networking in the front end | None: WebRTC, signaling and replication are in Go; the web UI only calls the local API and its event stream. |
-| 2 | Shell and daemon | The shell runs the daemon in process when it takes the lock, and attaches when a headless daemon holds it (4.1). Wails' own single-instance feature is not used; the lock answers the question, and links are handed over through `ui/show` (19.7). |
-| 3 | Commands and the daemon | Four run classes (12). File commands never need a daemon. |
-| 4 | Pause | Fully offline: the rendezvous registration closed, replication, joins and probes stopped. It survives a restart and is always visible (22.3). |
-| 5 | Invite joins | No approval step; the invite is the approval. The owner is told someone joined with their invite, the joiner that the join completed or failed (22.4). |
-| 6 | One product per platform | One per-user installer or bundle per platform (23.1). On Windows it holds two executables built from the same code, because Windows fixes a program as console or GUI at link time. On Linux the desktop shell links WebKitGTK and would not start where it is missing, so the static `kalka` stays separate. |
-| 7 | Local IPC | The same loopback HTTP API for the page, the shell and the CLI, with token, `Host`, `Origin` and `Sec-Fetch-Site` checks (13). |
-| 8 | Wails version | v3, pinned to an exact release. Reasoning and sources: `docs/plan-desktop-app.md` §3. |
-| 9 | Signing | No certificates yet. Signing is a configuration step; unsigned builds succeed and say so (23.5). |
-| 10 | Windows testing | Done by the product owner on a real Windows PC after the work; until then Windows-specific code is compiled and unit tested only. |
-| 11 | Updates | No auto-updater until builds are signed. |
-
-### 18.4 Decisions (v0.6, teams only, product owner 2026-11-15)
-
-| # | Question | Decision |
-|---|---|---|
-| 1 | Sharing | Teams only. One-to-one sync, pins, verification codes, accept prompts and conflict files are deleted. |
-| 2 | Peer IDs | Key ID only, on one signaling connection; the email ID and the config `team` salt are deleted (9.2). |
-| 3 | Roles | Team owner and member; no domain owner (19.3). |
-| 4 | Owner tiebreak | The seniority chain: an appointee directly below the appointer; siblings by causal depth of the grant, then hash (19.4 rule 5). |
-| 5 | Handoff | A release naming the new owner; immediate; no connection (7.2). |
-| 6 | Reassignment | Any document, any time, by a team owner; an anchor with a cut-off (7.3, 20.4). |
-| 7 | Race rule | A release above a reassignment's cut-off by anyone but its new owner is void (20.4). |
-| 8 | Team owner as document owner | By take-over: reassign to oneself, then act; one signer per version (7.4). |
-| 9 | Disputes | Only two different valid releases of one version; settled by a reassignment (20.4). |
-| 10 | Displaced edits | Kept in the team's trash, with a notice (7.5). |
-| 11 | Layout | Location decides; Personal; publish moves the file and reports the new path (14, 20.1). |
-| 12 | Transfers | The offer is a pending document; the decision is in the destination log; copy and move get a new id; the move's tombstone comes after acceptance (20.7). |
-| 13 | Attestation | A `transfer` entry by the actor and `accept-transfer` by the owner; the badge names both (20.7). |
-| 14 | Who sees a pending transfer | It replicates to every destination member so it can be relayed; only the team's owners and the actor see it in the app. |
-| 15 | Source entries during a pending move | Not carried; the source shows a banner (20.7). |
-| 16 | Waiting items | Transfers, documents handed or reassigned to you, disputes, documents whose owner left (11.3). Handed-to-you items count until opened. |
-| 17 | Join links | `kalka://join/<token>`, registered per user; the link only opens the join screen (19.7, 23). |
-| 18 | Invite scope | Named and single use, as before (18.1 question 8). |
-| 19 | Rendezvous | Its own binary, `kalka-rendezvous` (9.6). |
-| 20 | Parity | A tested table; stable error kinds (12.2, 12.3). |
-| 21 | Windows pass | Once, after the v0.6 work, with a rewritten `docs/desktop-testing.md`. |
+8. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
+9. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
 
 ---
 
@@ -1031,7 +921,7 @@ A team is a **signed, append-only set of operations**, not an editable document.
 
 - File: `<folder>/<team>/<team>-team.log`, one operation per line, as JSON. It is not Markdown, because hashes must cover exact bytes and editors change whitespace. It is not meant to be edited; the UI and `kalka team log` render it as a readable history. The index ignores it (it is not `*.md`).
 - One operation: `{v, team, op, args, prev, signer, at, sig}`.
-  - `v`: the rule version that replays it. All operations of v0.6 are `v: 2`. A later rule change uses a new version and never changes how an existing operation replays.
+  - `v`: the rule version that replays it. All current operations are `v: 2`. A later rule change uses a new version and never changes how an existing operation replays.
   - `team`: the team hash (19.2); empty in `create-team` itself.
   - `op` and `args`: one of the operations below.
   - `prev`: the hashes of the operations it builds on: the heads of the signer's log when it was made. These links make the log a causal graph.

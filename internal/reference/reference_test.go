@@ -38,7 +38,8 @@ func TestVersionAndShape(t *testing.T) {
 	}
 }
 
-// The reference must not use financial or trading examples (product rule).
+// The reference's examples stay out of finance, like every example here
+// (internal/cli/fixtures_test.go).
 func TestNoFinancialExamples(t *testing.T) {
 	bad := regexp.MustCompile(`(?i)\b(payments?|invoices?|trad(e|es|ing)|stocks?|shares|banks?|bank account|prices?|money|loans?|credit card|portfolio|ledger|billing|fraud|purchase orders?|checkout|currency)\b`)
 	if m := bad.FindAllString(string(Bytes()), -1); m != nil {

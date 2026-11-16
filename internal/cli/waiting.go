@@ -1,6 +1,6 @@
 package cli
 
-// The commands T6 adds (plan 4.2): teams, waiting, promote, seed
+// Commands of spec 12.1: teams, waiting, promote, seed
 // backlink, settings. `team uninvite` and `team sync` are in team.go.
 
 import (

@@ -20,6 +20,7 @@ func TestSamples(t *testing.T) {
 		"hold-shelf-expiry.md":               nil,
 		"renewal-reminders.md":               {"hint-no-critical-sections", "hint-no-operations", "hint-no-verification-plan"},
 		"interlibrary-requests.md":           nil,
+		"import-pipeline-trace.md":           nil,
 		"lending-desk-circulation-domain.md": nil,
 		"returns-desk/book-drop-sorting.md":  {"hint-no-critical-sections", "hint-no-domain-reference"},
 	}

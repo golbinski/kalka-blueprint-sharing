@@ -1,6 +1,6 @@
 package core
 
-// The race of spec 7.3, enumerated (T3): a former owner releases version
+// The race of spec 7.3, enumerated: a former owner releases version
 // n+1 concurrently with a reassignment at cut-off n. Every delivery order
 // of the operation and the two releases ends with the same chain on every
 // peer; after one settling round, the same plan and owner too.

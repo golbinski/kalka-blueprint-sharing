@@ -29,7 +29,7 @@ func findEntry(v *DocView, anchor string) *EntryView {
 }
 
 // A comment on a trace node round-trips through replication and becomes
-// orphaned when the owner removes the node (M7 acceptance).
+// orphaned when the owner removes the node.
 func TestNodeCommentRoundTrip(t *testing.T) {
 	_, ns := teamOfN(t, "alice@library.example", "bob@library.example")
 	alice, bob := ns[0], ns[1]

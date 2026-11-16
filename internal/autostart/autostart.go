@@ -1,5 +1,5 @@
-// Package autostart starts kalka when the user logs in (implementation
-// plan Q3): per user, never as a system service, so the daemon can reach
+// Package autostart starts kalka when the user logs in (spec
+// 22.2): per user, never as a system service, so the daemon can reach
 // the user's desktop, profile and browser.
 //
 //   - Windows: a value under HKCU\...\CurrentVersion\Run that starts the

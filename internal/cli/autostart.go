@@ -13,7 +13,7 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 )
 
-// cmdAutostart turns starting at logon on or off (implementation plan Q3).
+// cmdAutostart turns starting at logon on or off (spec 22.2).
 func cmdAutostart(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("autostart", flag.ContinueOnError)
 	fs.SetOutput(stderr)

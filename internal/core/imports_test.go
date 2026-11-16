@@ -79,7 +79,7 @@ func imports(t *testing.T, dir string) []string {
 	return out
 }
 
-// TestNoOneToOneLeft (spec 16, T1): nothing in the code or the page refers
+// TestNoOneToOneLeft: nothing in the code or the page refers
 // to the deleted one-to-one sharing: its messages, endpoints, files,
 // prompts, flags or handoff entries.
 func TestNoOneToOneLeft(t *testing.T) {

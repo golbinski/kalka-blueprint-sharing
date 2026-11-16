@@ -198,7 +198,7 @@ func TestDesktopEntry(t *testing.T) {
 // TestReleaseArtifacts runs a release for one target with placeholder
 // binaries: the headless archive and kalka-rendezvous's own archive are
 // written, the server's holds nothing of the client, and SHA256SUMS
-// covers every artifact (plan T8).
+// covers every artifact.
 func TestReleaseArtifacts(t *testing.T) {
 	t.Chdir(filepath.Join("..", ".."))
 	if _, err := os.Stat(filepath.Join("internal", "ui", "dist", "index.html")); err != nil {

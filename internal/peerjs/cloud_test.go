@@ -17,7 +17,7 @@ import (
 // between two registered ids. It talks to 0.peerjs.com, so it runs only
 // with KALKA_CLOUD_TEST=1. The cloud closes the sender's socket on an
 // OFFER whose payload lacks label or serialization, or whose SDP is not
-// well-formed (docs/m1-transport.md).
+// well-formed (docs/peerjs.md).
 func TestCloudRelay(t *testing.T) {
 	if os.Getenv("KALKA_CLOUD_TEST") == "" {
 		t.Skip("set KALKA_CLOUD_TEST=1 to probe the public PeerJS cloud")

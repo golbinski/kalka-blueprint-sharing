@@ -42,7 +42,7 @@ type RefView struct {
 // keyed by ref and frontmatter hash (spec 10.3). The document view never
 // waits for a plugin: it shows what is known and a "resolving" state, and
 // the UI is told when more is known. A slow or broken plugin therefore
-// cannot affect the UI (spec M4).
+// cannot affect the UI (spec 10).
 type refCache struct {
 	plugins Plugins
 	now     func() time.Time

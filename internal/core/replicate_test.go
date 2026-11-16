@@ -1,6 +1,6 @@
 package core
 
-// Team replication scenarios (spec 20, R7 acceptance criteria), with three
+// Team replication scenarios (spec 20), with three
 // or four daemons over the in-process rendezvous and real WebRTC.
 
 import (

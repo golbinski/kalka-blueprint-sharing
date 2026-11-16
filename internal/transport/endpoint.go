@@ -69,7 +69,7 @@ type sigPayload struct {
 	Reliable     bool                       `json:"reliable,omitempty"`
 	// Serialization is meaningless to kalka, but the public PeerJS cloud
 	// closes the sender's socket on an OFFER without label and
-	// serialization (found 2026-11-12, docs/m1-transport.md).
+	// serialization (found 2026-11-12, docs/peerjs.md).
 	Serialization string `json:"serialization,omitempty"`
 }
 

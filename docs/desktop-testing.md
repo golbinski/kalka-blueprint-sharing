@@ -1,11 +1,12 @@
-# Desktop app: the manual pass
+# Desktop app: the manual test pass
 
 The automated tests cover the shell's decisions without a display
 (`internal/desktop`), the daemon's side (`internal/daemon`), the page's
 models (`web/src/*.test.ts`) and one smoke run of the real shell (`go test
 -tags desktop ./cmd/kalka-desktop`). This script is what only a person at
-the machine can check. It is written as one pass, in order, for Windows
-(T9); on macOS and Linux run the same pass with the items marked for them.
+the machine can check: run it before a release. It is written as one
+pass, in order, for Windows; on macOS and Linux run the same pass with the
+items marked for them.
 
 **What you need**
 
@@ -23,8 +24,7 @@ the machine can check. It is written as one pass, in order, for Windows
   then set `http://<host>:9000`), or the public PeerJS cloud for a quick
   run.
 - Test content: the blueprints in `samples/blueprints` (see
-  `samples/README.md`), copied into the folder's `personal\`. Anything you
-  add yourself: library lending or parcel logistics, nothing financial.
+  `samples/README.md`), copied into the folder's `personal\`.
 
 Write down anything that differs from what an item says, with the time and
 the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
@@ -85,7 +85,7 @@ the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 
 - [ ] A: copy the sample folder in, in one go (Explorer, or
       `Copy-Item samples\blueprints <folder>\personal\samples -Recurse`).
-      All five show in *Blueprints · Personal* within a second,
+      All six show in *Blueprints · Personal* within a second,
       `interlibrary-requests.md` as a local blueprint, each with *Publish to
       team…*.
 - [ ] A: publish `lending-desk-circulation-domain.md` to `lending-desk`.

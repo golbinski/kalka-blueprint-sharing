@@ -415,8 +415,8 @@ func TestProbe(t *testing.T) {
 	}
 }
 
-// TestKalkaRendezvous runs the M1 handshake and a transfer through the
-// assembled `kalka rendezvous` server (spec M5): real listeners, ICE from
+// TestKalkaRendezvous runs the handshake and a transfer through the
+// assembled `kalka rendezvous` server (spec 9.6): real listeners, ICE from
 // /kalka/ice, both peers forced onto its TURN relay; then the offline and
 // id-taken cases.
 func TestKalkaRendezvous(t *testing.T) {

@@ -4,7 +4,7 @@
 // by the server, queueing for absent ids and EXPIRE after ExpireTimeout.
 //
 // It also enforces what the public PeerJS cloud enforces and stock
-// peerjs-server does not (docs/m1-transport.md): an OFFER without label
+// peerjs-server does not (docs/peerjs.md): an OFFER without label
 // and serialization, or with SDP that does not parse, closes the sender's
 // socket and is not relayed. A client that works here works on the cloud.
 // Limits on clients and queued messages keep one misbehaving client from

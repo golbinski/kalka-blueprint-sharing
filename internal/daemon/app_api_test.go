@@ -14,7 +14,7 @@ import (
 )
 
 // One workflow of each family, through the endpoints and bodies the page
-// sends (plan T7): the team with presence and Sync now, a Personal
+// sends: the team with presence and Sync now, a Personal
 // document published and handed off, a seed budded and promoted, the
 // settings, and the version line with the reference.
 func TestAppWorkflows(t *testing.T) {

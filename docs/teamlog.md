@@ -1,6 +1,6 @@
 # The team log: encoding and replay rules (rule version 2)
 
-This note fixes what the specification (§19.1, §19.4, §20.4) leaves to the implementation: the exact encoding of an operation, and the replay rules as `internal/teamlog` implements them. It also records what the convergence harness found while the rules were being settled. Where this note and the specification disagree, the code and this note describe the intended behaviour, and the specification has been updated to match.
+This note fixes what the specification (§19.1, §19.4, §20.4) leaves to the implementation: the exact encoding of an operation, and the replay rules as `internal/teamlog` implements them. It also records what the convergence harness found while the rules were being settled. The specification and this note agree; where the specification leaves a detail open, this note and `internal/teamlog` settle it.
 
 ## 1. Encoding
 
@@ -29,8 +29,6 @@ One operation per line of `<team>-team.log`, as JSON:
 
 `reassign-document` names `from`, the owner the signer saw. It is kept for the history and for notices; replay does not judge it (rule 9). `after` and `plan` name the document state the signer held: that is how a reassignment establishes which releases came before it (spec §20.4). `transfer` is the digest of the offer's `transfer` entry (spec §20.7).
 
-Rule version 2 deleted `assign-domain` and the requirement that a reassignment rest on a removal of `from`. Logs of rule version 1 need no handling: there are none.
-
 - **Unsupported versions.** An operation with `v` other than 2 decodes, is kept and passed on, and is *pending* (with everything that builds on it). It never makes a peer diverge from a newer peer by being discarded.
 
 ## 2. Terms and views
@@ -48,7 +46,7 @@ The state is a pure function of the set of known operations (operations with a v
 3. **Seniority decides between removals.** Removals are decided in order of their signers' seniority (rule 5). A removal is blocked if an already accepted removal ended its signer's term without having seen it. Otherwise it is accepted, and it stands even if a *less* senior owner removes its signer concurrently. So:
    - In a mutual removal, the senior owner stays.
    - A junior owner can still remove a senior owner who did not counter-remove them. In that case a concurrent removal by the senior owner, of someone else, still holds.
-4. **Support, not ancestry.** Spec v0.4 said "an operation with a discarded predecessor is discarded". That rule is gone (see §5, finding 1). An operation stands or falls on its own support: the signer's owner term and the target's member term. Both must be effective and in its view.
+4. **Support, not ancestry.** A tempting rule, "an operation with a discarded predecessor is discarded", is not used (see §5, finding 1). An operation stands or falls on its own support: the signer's owner term and the target's member term. Both must be effective and in its view.
 5. **Seniority** is a chain. The creator's is empty. An owner appointed by grant `g` has the appointer's chain followed by `(depth(g), hash(g))`. Chains compare lexicographically, and a prefix comes first. An owner therefore always ranks above everyone they appointed, and no owner can create someone senior to themselves. With several grants or terms, the best chain counts. A new term after a removal starts a new chain (re-adding).
 6. **Never without an owner.** A removal that would leave no owner is discarded. If the effective removals together empty the owner set, the least senior of them is discarded, and replay runs again. The harness shows that this case occurs (§5, finding 3).
 7. **No self-removal.** An owner cannot remove themselves. Stepping down means asking another owner, which also keeps the last owner from leaving.
@@ -90,7 +88,7 @@ Rules 2, 3 and 6 refer to each other: whether a removal holds depends on the rem
 
 Findings while the rules were settled. Findings 2 and 3 came from the harness. Findings 1, 4 and 5 came from working through attacks on the draft rules, and the harness now guards them:
 
-1. **"Dependants fall with their parent" lets a removed owner poison the log.** A removed owner signs a back-dated operation. Honest peers merge it, and their next operations name it in `prev`. Under spec v0.4 rule 4, every later honest operation would be discarded, removals included. The rule was replaced by support checks (rule 4). The scenario test `TestBackdatedOperationLoses` keeps it fixed.
+1. **"Dependants fall with their parent" lets a removed owner poison the log.** A removed owner signs a back-dated operation. Honest peers merge it, and their next operations name it in `prev`. Under that rule every later honest operation would be discarded, removals included; replay uses support checks instead (rule 4). The scenario test `TestBackdatedOperationLoses` keeps it fixed.
 2. **Concurrent grants to one person made the owner order depend on visiting order.** Two owners promoted the same member at the same time, and the member's rank came from whichever grant was visited first. Seniority now takes the best over all of an owner's terms (rule 5).
 3. **The greedy decision alone can empty the owner set.** In 44 of 100 000 histories, the removals accepted in seniority order left no owner. Rule 6 is therefore a necessary part of the replay, not only a check on single operations.
 4. **Seniority by depth alone could be gamed.** An owner could back-date a grant to a sock puppet, giving it a small depth and so a high rank. The chain form of rule 5 makes an appointee always rank below their appointer.

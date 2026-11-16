@@ -1,6 +1,6 @@
 package core
 
-// Team domain documents (spec 6.12, R8 acceptance criteria), with three
+// Team domain documents (spec 6.12), with three
 // daemons over the in-process rendezvous.
 
 import (

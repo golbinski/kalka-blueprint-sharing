@@ -1,6 +1,6 @@
 package core
 
-// Required tests of T4: transfers between teams (spec 20.7, D6).
+// Transfers between teams (spec 20.7).
 
 import (
 	"context"

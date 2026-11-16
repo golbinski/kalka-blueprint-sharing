@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-// The convergence harness (R2): random histories of honest and hostile
+// The convergence harness (docs/teamlog.md): random histories of honest and hostile
 // operations, delivered in random order with partitions, checked against
 // the invariants of docs/teamlog.md. KALKA_SIM_N sets the number of
-// histories (the R2 exit run uses 100000); KALKA_SIM_SEED the first seed.
+// histories (a full run uses 100000); KALKA_SIM_SEED the first seed.
 
 type simActor struct {
 	actor

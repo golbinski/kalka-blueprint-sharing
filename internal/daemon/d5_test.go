@@ -70,7 +70,7 @@ func holds(n *node, want string) bool {
 	return false
 }
 
-// TestSyncWithNoWindow is the required area of D5: replication runs with
+// TestSyncWithNoWindow: replication runs with
 // no API listener and no page, and still after a page came and went.
 func TestSyncWithNoWindow(t *testing.T) {
 	noAPI := func(o *Options) { o.APIAddr = "-" }

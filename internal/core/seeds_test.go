@@ -9,7 +9,7 @@ import (
 
 const seedParent = "# Redelivery scheduling\n\n## Scope\nThe redelivery module.\n"
 
-// R4 acceptance: budding from a reviewer's copy gives a seed with its
+// Budding from a reviewer's copy gives a seed with its
 // keys; the parent gains one signed budded entry with its plan unchanged;
 // the backlink and the seed survive replication both ways.
 func TestBudFromReviewerAndSync(t *testing.T) {
@@ -95,7 +95,7 @@ func TestBacklinkRetry(t *testing.T) {
 	}
 }
 
-// Promotion by the owner only (handing a seed off returns with T3).
+// Promotion by the owner only.
 func TestPromoteSeed(t *testing.T) {
 	_, ns := teamOfN(t, "alice@parcels.example", "bob@parcels.example")
 	alice, bob := ns[0], ns[1]

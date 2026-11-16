@@ -1,8 +1,9 @@
 package cli
 
-// Product rule: no financial or trading examples in fixtures, mockups or
-// tests (plan T7). This reads the text tests feed the code: the string
-// literals of every Go test file, the web tests, testdata and samples.
+// Examples in fixtures, mockups, tests and samples stay in invented
+// everyday services (library lending, parcel logistics) and out of
+// finance. This reads the text tests feed the code: the string literals
+// of every Go test file, the web tests, testdata and samples.
 
 import (
 	"go/ast"

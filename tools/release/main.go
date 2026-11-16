@@ -180,7 +180,7 @@ func (r *release) target(goos, goarch string) error {
 }
 
 // rendezvous archives kalka-rendezvous on its own: one static binary and
-// a README, with nothing of the client (plan D13).
+// a README, with nothing of the client (spec 9.6).
 func (r *release) rendezvous(goos, goarch, exe string) error {
 	base := fmt.Sprintf("kalka-rendezvous_%s_%s_%s", r.version, goos, goarch)
 	stage := filepath.Join(r.tmp, base)

@@ -1,4 +1,4 @@
-// Hardening tests for spec 11.2 and M3: content from a received blueprint
+// Hardening tests for spec 11.2: content from a received blueprint
 // must not run script or produce dangerous links.
 import { describe, expect, it } from 'vitest'
 import { render } from './markdown'

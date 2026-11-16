@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// TestSmoke (plan D6): the shell starts hidden, the CLI answers, the
+// TestSmoke: the shell starts hidden, the CLI answers, the
 // window can be asked to show, and `kalka stop` ends the shell.
 func TestSmoke(t *testing.T) {
 	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {

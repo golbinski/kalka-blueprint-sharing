@@ -150,7 +150,7 @@ func (d *Node) domainRef(doc *bp.Document) *DomainRefView {
 		}
 	}
 	docs := d.Store.FindDomain(ref.Team, ref.Domain)
-	// Two teams of that name, or two documents claiming the domain (D4).
+	// Two teams of that name, or two documents claiming the domain (spec 6.12).
 	v.Ambiguous = n > 1 || len(docs) > 1
 	if len(docs) == 0 {
 		return v

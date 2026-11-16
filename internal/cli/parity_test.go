@@ -1,6 +1,6 @@
 package cli
 
-// Parity (spec 12.2, plan D12): parity.json against the command table.
+// Parity (spec 12.2): parity.json against the command table.
 // The web side (web/src/parity.test.ts) checks it against the controls.
 
 import (

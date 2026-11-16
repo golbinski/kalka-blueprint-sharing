@@ -18,7 +18,7 @@ const MaxTraceNodes = 40
 
 // Divergence classes (spec 6.10). The library computes the graph classes;
 // Unverified and Stale depend on the reader's plugins and are added by the
-// daemon (implementation plan M7).
+// daemon.
 const (
 	DivImplementationOnly = "implementation-only"
 	DivUnrealized         = "unrealized"

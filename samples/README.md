@@ -1,10 +1,10 @@
 # Sample blueprints
 
 Blueprints for trying kalka by hand: the desktop pass in
-`docs/desktop-testing.md`, a demo, or a first look. They describe an
-invented library's lending desk, and hold no `kalka_id`, owner or review
-log: kalka adds those as you publish them and comment on them, under your
-own identity.
+`docs/desktop-testing.md`, a demo, or a first look. Most describe an
+invented library's lending desk; one is a trace example from a document
+service. None holds a `kalka_id`, owner or review log: kalka adds those
+as you publish them and comment on them, under your own identity.
 
 `TestSamples` (`internal/cli/samples_test.go`) keeps each one passing
 `kalka check` with the hints listed below.
@@ -15,6 +15,7 @@ own identity.
 | `hold-shelf-expiry.md` | A full blueprint opted into the reference: every section, so no hints; a Mermaid diagram; a trace block with one divergence to review (C3, implementation-only); a critical section. |
 | `renewal-reminders.md` | A short opted-in plan: hints for no verification plan, no critical sections and no operations. |
 | `interlibrary-requests.md` | No frontmatter at all: listed in Personal as a local blueprint until published. |
+| `import-pipeline-trace.md` | Trace blocks with code references (`gh:` refs, with `repo` and `base_sha` for the GitHub plugin), two and three lanes, a labelled branch, and the divergence classes implementation-only, merged and expanded. The refs point at an invented repository, so without access they show as unverified. |
 | `returns-desk/book-drop-sorting.md` | For a second team, `returns-desk`, to copy or move between teams; hints for no domain reference and no critical sections. |
 
 ## Using them
@@ -30,7 +31,7 @@ cp -R samples/blueprints "<your kalka folder>/personal/samples"
 Copy-Item samples\blueprints "<your kalka folder>\personal\samples" -Recurse
 ```
 
-All five appear in *Blueprints · Personal* within a second. Then:
+All six appear in *Blueprints · Personal* within a second. Then:
 
 1. Create the team `lending-desk`. Publish the domain document to it
    first (*Publish to team…*, or `kalka publish <file> --team

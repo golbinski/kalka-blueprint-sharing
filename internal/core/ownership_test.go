@@ -1,6 +1,6 @@
 package core
 
-// Required tests of T3: handoff, reassignment, displaced edits and domain
+// Ownership tests (spec 7): handoff, reassignment, displaced edits and domain
 // documents (spec 7, 6.12).
 
 import (
@@ -204,7 +204,7 @@ func TestDisplacedEdits(t *testing.T) {
 
 // A domain document is released by its owner, handed off and reassigned
 // like any document; a second document for the same domain is refused
-// locally and flagged when published concurrently (spec 6.12, D4).
+// locally and flagged when published concurrently (spec 6.12).
 func TestDomainOwnership(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
 	depot, courier := ns[0], ns[1]

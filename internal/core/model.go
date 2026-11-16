@@ -20,7 +20,7 @@ const (
 	RoleLocal    = "local" // never sent: no kalka_id yet
 )
 
-// DocView is the parsed document the UI renders (implementation plan A1):
+// DocView is the parsed document the UI renders:
 // the UI never computes slugs, revs or derived states itself.
 type DocView struct {
 	Path        string       `json:"path"`

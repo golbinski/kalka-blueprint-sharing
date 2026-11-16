@@ -11,7 +11,7 @@ import (
 
 const module = "github.com/golbinski/kalka/"
 
-// The server holds none of the client (plan D13): nothing it reaches in
+// The server holds none of the client (spec 9.6, 15): nothing it reaches in
 // this module imports the core, the daemon, the UI or WebRTC.
 func TestServerImports(t *testing.T) {
 	banned := []string{

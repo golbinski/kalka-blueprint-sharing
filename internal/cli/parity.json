@@ -1,5 +1,5 @@
 {
-  "about": "CLI and app parity (spec 12.2, plan D12). One row per command line: a workflow names the action id a control in the web UI carries (web/src/actions.ts); a view names its place in the UI; a process command says why it is exempt. internal/cli/parity_test.go and web/src/parity.test.ts check this file against both sides.",
+  "about": "CLI and app parity (spec 12.2). One row per command line: a workflow names the action id a control in the web UI carries (web/src/actions.ts); a view names its place in the UI; a process command says why it is exempt. internal/cli/parity_test.go and web/src/parity.test.ts check this file against both sides.",
   "rows": [
     { "command": "setup", "class": "workflow", "action": "setup.save" },
     { "command": "status", "class": "view", "place": "Header status line, tray" },

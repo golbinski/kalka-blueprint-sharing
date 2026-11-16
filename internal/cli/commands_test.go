@@ -1,6 +1,6 @@
 package cli
 
-// T6: the commands added (teams, waiting, promote, seed backlink, team
+// The commands (teams, waiting, promote, seed backlink, team
 // uninvite, team sync, settings), each with --json, views without a
 // daemon, and the error kinds of the spec.
 
@@ -187,7 +187,7 @@ func TestCommandTable(t *testing.T) {
 }
 
 // The error kinds: every kind the code declares is in the spec's list,
-// and every one in the list is declared (plan 4.3, spec 12.3).
+// and every one in the list is declared (spec 12.3).
 func TestErrorKinds(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", "core", "errors.go"))
 	if err != nil {
@@ -254,7 +254,7 @@ func specKinds(t *testing.T, spec string) map[string]bool {
 	return out
 }
 
-// The server moved to its own binary (plan D13): the old command says
+// The server moved to its own binary (spec 9.6): the old command says
 // where, with the usage exit code, and is in no table.
 func TestRendezvousMoved(t *testing.T) {
 	var out, errs strings.Builder

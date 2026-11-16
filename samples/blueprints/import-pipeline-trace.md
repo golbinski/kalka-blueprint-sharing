@@ -1,6 +1,4 @@
 ---
-kalka_id: 5f0c1a7e-8b2d-4c3e-9a1f-2b3c4d5e6f70
-owner: alice@corp.com
 repo: org/doc-service
 base_sha: 3f9c2a1
 ---

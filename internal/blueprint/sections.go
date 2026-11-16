@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Section is a piece of the body for display (implementation plan A1): the
+// Section is a piece of the body for display: the
 // UI renders each section's Markdown on its own and places the entries
 // anchored to any of its Slugs next to it.
 type Section struct {

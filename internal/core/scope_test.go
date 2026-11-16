@@ -1,6 +1,6 @@
 package core
 
-// Required tests of T2: Personal and team folders (spec 14, 20.1, 20.5).
+// Personal and team folders (spec 14, 20.1, 20.5).
 
 import (
 	"context"

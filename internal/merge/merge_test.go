@@ -17,7 +17,7 @@ var t0 = time.Date(2026, 11, 11, 17, 40, 3, 0, time.UTC)
 
 const body = "# Branch return routing\n\n## Context\nWhy.\n\n## Plan\nSteps  \nwith a hard break.\n"
 
-// fm is frontmatter with unknown keys of every shape (spec 16, M0).
+// fm is frontmatter with unknown keys of every shape (spec 6.2).
 const fm = "---\n" +
 	"kalka_id: " + kid + "\n" +
 	"owner: dana@example.org\n" +

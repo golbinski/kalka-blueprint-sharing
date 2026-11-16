@@ -1,4 +1,4 @@
-// Trace layout (implementation plan A5: divergences come from Go, layout is
+// Trace layout (spec 6.10: divergences come from Go, layout is
 // presentation and lives here). Lanes are columns, most abstract on the
 // left; flow runs top to bottom on a grid of rows.
 //

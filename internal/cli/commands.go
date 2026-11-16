@@ -1,6 +1,6 @@
 package cli
 
-// The command table (plan D12, spec 12). Every command has a class:
+// The command table (spec 12). Every command has a class:
 //
 //   - workflow: changes something; the app has an action for it;
 //   - view: shows something; the app has a place for it;

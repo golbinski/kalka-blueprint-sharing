@@ -18,7 +18,7 @@ func runCLI(args ...string) (int, string, string) {
 	return code, out.String(), errb.String()
 }
 
-// `kalka reference export` (spec 6.13, R1 acceptance).
+// `kalka reference export` (spec 6.13).
 func TestReferenceExport(t *testing.T) {
 	// To stdout: exactly the embedded bytes.
 	code, out, _ := runCLI("reference", "export")

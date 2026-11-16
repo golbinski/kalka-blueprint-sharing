@@ -60,7 +60,7 @@ func waitAnswering(t *testing.T, dir string) {
 	}
 }
 
-// TestSingleDaemon is the required area of D2: one daemon per config
+// TestSingleDaemon: one daemon per config
 // directory, across processes, ports and a crash.
 func TestSingleDaemon(t *testing.T) {
 	if testing.Short() {
@@ -248,7 +248,7 @@ func (w *cliWorld) kalka(args ...string) (int, string, string) {
 // running reports whether a daemon holds the lock.
 func (w *cliWorld) running() bool { return lockHolder(w.dir) != 0 }
 
-// TestCLIClasses is the required area of D4: each class of command with
+// TestCLIClasses: each class of command with
 // and without a running daemon (spec 12).
 func TestCLIClasses(t *testing.T) {
 	if testing.Short() {
