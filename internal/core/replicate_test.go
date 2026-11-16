@@ -617,3 +617,58 @@ func TestReplicationPush(t *testing.T) {
 	}
 	t.Fatal("the published document was not pushed")
 }
+
+// Sync now while a round of the team runs waits for that round to end and
+// then runs its own, instead of reporting that no round ran.
+func TestSyncNowDuringRound(t *testing.T) {
+	fastJoins(t)
+	w := newWorld(t)
+	depot := &node{w: w, email: "depot@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir()}
+	depot.start()
+	courier := &node{w: w, email: "courier@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir()}
+	courier.start()
+	waitKeyOnline(t, depot)
+	waitKeyOnline(t, courier)
+	depot.d.CreateTeam("parcels")
+	inv, _ := depot.d.Invite("", courier.email, 0)
+	j, _ := courier.d.Join(context.Background(), inv.Token)
+	waitJoin(t, courier, j.ID, JoinDone)
+	team, err := depot.d.TeamHash("parcels")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := depot.d.repl
+	r.mu.Lock()
+	if r.running[team] {
+		r.mu.Unlock()
+		t.Fatal("a round is already running")
+	}
+	r.running[team], r.ended[team] = true, make(chan struct{}) // a round, stood in for
+	delete(r.status, team)
+	r.mu.Unlock()
+
+	type answer struct {
+		st  TeamStatus
+		err error
+	}
+	got := make(chan answer, 1)
+	go func() {
+		st, err := depot.d.ReplicateNow(context.Background(), team)
+		got <- answer{st, err}
+	}()
+	select {
+	case a := <-got:
+		t.Fatalf("returned while the round ran: %+v %v", a.st, a.err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	depot.d.endRound(context.Background(), team)
+	select {
+	case a := <-got:
+		if a.err != nil || len(a.st.Reached) != 1 {
+			t.Fatalf("after the round: %+v %v", a.st, a.err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Sync now did not run after the round ended")
+	}
+}

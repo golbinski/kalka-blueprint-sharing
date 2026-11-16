@@ -820,11 +820,13 @@ type replication struct {
 	kick    chan string
 	pushed  map[string]time.Time // documents written by replication, to not push them back at once
 	running map[string]bool
+	ended   map[string]chan struct{} // closed when the team's running round ends
 }
 
 func newReplication() *replication {
 	return &replication{status: map[string]*TeamStatus{}, lastRun: map[string]time.Time{}, push: map[string]bool{},
-		kick: make(chan string, 64), pushed: map[string]time.Time{}, running: map[string]bool{}}
+		kick: make(chan string, 64), pushed: map[string]time.Time{}, running: map[string]bool{},
+		ended: map[string]chan struct{}{}}
 }
 
 func (d *Node) notePushed(id string) {
@@ -914,7 +916,20 @@ func (d *Node) ReplicateNow(ctx context.Context, team string) (TeamStatus, error
 	if d.Paused() {
 		return TeamStatus{}, ErrPaused
 	}
-	d.round(ctx, team, true)
+	// A round of the team already running (a push, the periodic round)
+	// would make this one a no-op with no status yet: wait for it to end,
+	// then run.
+	for {
+		busy := d.round(ctx, team, true)
+		if busy == nil {
+			break
+		}
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return TeamStatus{}, ctx.Err()
+		}
+	}
 	d.repl.mu.Lock()
 	defer d.repl.mu.Unlock()
 	st := d.repl.status[team]
@@ -931,6 +946,10 @@ func (d *Node) endRound(ctx context.Context, team string) {
 	r := d.repl
 	r.mu.Lock()
 	r.running[team] = false
+	if ch := r.ended[team]; ch != nil {
+		close(ch)
+		delete(r.ended, team)
+	}
 	again := r.push[team]
 	r.mu.Unlock()
 	if again && ctx.Err() == nil && !d.isStopping() {
@@ -939,24 +958,32 @@ func (d *Node) endRound(ctx context.Context, team string) {
 }
 
 // round reaches up to RoundPeers online members (PushPeers for a push).
-func (d *Node) round(ctx context.Context, team string, force bool) {
+// When a round of the team is already running it does nothing and
+// returns a channel closed when that round ends; otherwise nil.
+func (d *Node) round(ctx context.Context, team string, force bool) (busy <-chan struct{}) {
 	if d.Paused() {
-		return // a queued push stays queued for the resume
+		return nil // a queued push stays queued for the resume
 	}
 	r := d.repl
 	r.mu.Lock()
 	push := r.push[team]
-	if r.running[team] || (!force && !push && time.Since(r.lastRun[team]) < RoundGap) {
+	if r.running[team] {
+		ch := r.ended[team]
 		r.mu.Unlock()
-		return
+		return ch
+	}
+	if !force && !push && time.Since(r.lastRun[team]) < RoundGap {
+		r.mu.Unlock()
+		return nil
 	}
 	r.running[team], r.push[team], r.lastRun[team] = true, false, time.Now()
+	r.ended[team] = make(chan struct{})
 	r.mu.Unlock()
 	defer d.endRound(ctx, team)
 
 	h, err := d.heldTeam(team)
 	if err != nil || !h.isMember(d.self.Email, d.pub) {
-		return
+		return nil
 	}
 	limit := RoundPeers
 	if push {
@@ -1014,6 +1041,7 @@ func (d *Node) round(ctx context.Context, team string, force bool) {
 	r.status[team] = &st
 	r.mu.Unlock()
 	d.bus.Publish(BusEvent{Type: "teams"})
+	return nil
 }
 
 // replicateWith runs one session with a member, dialing the key the log
