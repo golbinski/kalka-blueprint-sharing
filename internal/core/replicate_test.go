@@ -15,6 +15,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/store"
 	"github.com/golbinski/kalka/internal/syncproto"
 	"github.com/golbinski/kalka/internal/transport"
 )
@@ -533,6 +534,58 @@ func TestReplicationRelayAndEntries(t *testing.T) {
 	if _, doc := hub.teamFile(id); strings.Contains(doc.Body(), "Remove lockers") {
 		t.Fatal("an unreleased edit by a non-owner was taken")
 	}
+}
+
+// A push asked for while a round of the team runs is not lost: the round
+// kicks it when it ends, instead of leaving it to the periodic round.
+func TestPushDuringRound(t *testing.T) {
+	old := PushDelay
+	PushDelay = 100 * time.Millisecond
+	t.Cleanup(func() { PushDelay = old })
+	fastJoins(t)
+	w := newWorld(t)
+	depot := &node{w: w, email: "depot@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), autoRepl: true}
+	depot.start()
+	courier := &node{w: w, email: "courier@parcels.example", cfgDir: t.TempDir() + "/c", folder: t.TempDir(), autoRepl: true}
+	courier.start()
+	waitKeyOnline(t, depot)
+	waitKeyOnline(t, courier)
+	depot.d.CreateTeam("parcels")
+	inv, _ := depot.d.Invite("", courier.email, 0)
+	j, _ := courier.d.Join(context.Background(), inv.Token)
+	waitJoin(t, courier, j.ID, JoinDone)
+	depot.write("lockers.md", lockers)
+	waitIndexed(t, depot, 1)
+	depot.publish("lockers.md")
+	id := mustID(t, depot, "lockers.md")
+	waitFor(t, "version 1 at the courier", func() bool { _, doc := courier.teamFile(id); return doc != nil })
+	team, err := depot.d.TeamHash("parcels")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A round is running (stood in for here) when the release asks for
+	// a push: the kick finds it running and returns.
+	waitFor(t, "no round running", func() bool {
+		depot.d.repl.mu.Lock()
+		defer depot.d.repl.mu.Unlock()
+		if depot.d.repl.running[team] {
+			return false
+		}
+		depot.d.repl.running[team] = true
+		return true
+	})
+	path, _ := depot.teamFile(id)
+	editFile(t, depot, path, "by the loading bay.", "by the loading bay and the side gate.")
+	depot.release(path, "side gate too")
+	// Both pushes, the release's and the one for its write once the watcher
+	// reports it, find the round running.
+	time.Sleep(store.Debounce + 10*PushDelay)
+	depot.d.endRound(context.Background(), team)
+	waitFor(t, "the push after the round", func() bool {
+		_, doc := courier.teamFile(id)
+		return doc != nil && strings.Contains(doc.Body(), "the side gate")
+	})
 }
 
 // A local change is pushed by the replication loop without a click.

@@ -924,6 +924,20 @@ func (d *Node) ReplicateNow(ctx context.Context, team string) (TeamStatus, error
 	return *st, nil
 }
 
+// endRound marks the team's round finished. A push asked for while it
+// ran found it running and returned; it is kicked again here, or it would
+// wait for the next periodic round (ReplicateEvery).
+func (d *Node) endRound(ctx context.Context, team string) {
+	r := d.repl
+	r.mu.Lock()
+	r.running[team] = false
+	again := r.push[team]
+	r.mu.Unlock()
+	if again && ctx.Err() == nil && !d.isStopping() {
+		d.kickTeam(team)
+	}
+}
+
 // round reaches up to RoundPeers online members (PushPeers for a push).
 func (d *Node) round(ctx context.Context, team string, force bool) {
 	if d.Paused() {
@@ -938,11 +952,7 @@ func (d *Node) round(ctx context.Context, team string, force bool) {
 	}
 	r.running[team], r.push[team], r.lastRun[team] = true, false, time.Now()
 	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		r.running[team] = false
-		r.mu.Unlock()
-	}()
+	defer d.endRound(ctx, team)
 
 	h, err := d.heldTeam(team)
 	if err != nil || !h.isMember(d.self.Email, d.pub) {

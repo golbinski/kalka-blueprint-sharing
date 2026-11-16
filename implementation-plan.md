@@ -886,6 +886,12 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
 - **`docs/desktop-testing.md`:** section 4 copies the folder in in one go (which also exercises T9a's watcher fix) and walks the samples. It adds checks for the T9a items: *Show link* on an older invite, *Reassign…* from a member's row, and the history wording for transfers.
 - Walked through with a throwaway daemon: the folder copied into Personal, the domain published as v1 and listed in *Domains*, and both blueprints' `domain_ref` resolved to it.
 
+### T9c. Two bugs found by flaky tests (done)
+
+- **A push during a running round waited up to 10 minutes.** A push kick that found the team's round still running returned. The push flag stayed set, but nothing started another round before the periodic one (`ReplicateEvery`, 10 minutes). Saving an edit and releasing a moment later hit it: the release travelled only at the next periodic round. `endRound` now kicks the team again when a push was asked for meanwhile. `TestPushDuringRound` stands in for a running round and fails on the old code. Found as a one-in-six failure of the daemon's `TestSyncWithNoWindow`.
+- **The key id check moved ahead of `auth` (spec 8.3 step 4).** It needs only the `hello`, so a squatter fails before this side signs anything for it. The result also no longer depends on reading the peer's last message. CI caught `TestKeyIDSquatter` failing on macOS and Linux: the squatter closed the connection right after its handshake, and the dialer's read of its `auth` was aborted. The spec says when the check is made.
+- **Seen once, not fixed:** `TestTURNOverTCPRelayOnly` timed out on a Linux runner (a 20 s handshake deadline over TURN over TCP). It passed on every other run. Watch for it.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |
