@@ -552,11 +552,15 @@ func (s *Store) Watch(ctx context.Context) error {
 		return err
 	}
 	defer w.Close()
-	var dirs []string
-	s.scan(s.dir, &dirs)
-	for _, d := range dirs {
+	// Watch first, then scan, as for a new folder below: a file written
+	// between Open's scan and this point is caught by the scan and
+	// announced, and one written after it by the watch.
+	for _, d := range dirsUnder(s.dir) {
 		_ = w.Add(d)
 	}
+	s.scan(s.dir, nil, func(p string, external bool) {
+		s.publish(Event{Path: p, External: external})
+	})
 
 	timers := map[string]*time.Timer{}
 	fire := make(chan string, 64)

@@ -93,6 +93,27 @@ func TestCreateNames(t *testing.T) {
 	}
 }
 
+// A file written after Open and before the watcher starts is announced
+// when it starts, not lost.
+func TestWatchCatchesUpAtStart(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	ev, stop := s.Subscribe()
+	defer stop()
+	os.WriteFile(filepath.Join(dir, "early.md"), []byte(doc1), 0o644)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Watch(ctx)
+	select {
+	case e := <-ev:
+		if filepath.Base(e.Path) != "early.md" || !e.External {
+			t.Fatalf("event %+v", e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("no event; index %+v", s.List())
+	}
+}
+
 // A folder that arrives with files inside, as a copied or unpacked sample
 // folder does, has each of its files indexed and announced, nested ones too.
 func TestWatchFolderMovedIn(t *testing.T) {
