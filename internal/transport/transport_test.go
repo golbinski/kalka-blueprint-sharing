@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -420,12 +421,7 @@ func TestProbe(t *testing.T) {
 // /kalka/ice, both peers forced onto its TURN relay; then the offline and
 // id-taken cases.
 func TestKalkaRendezvous(t *testing.T) {
-	l, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	port := turnPort(t)
 	r, err := rendezvous.Start(rendezvous.Options{
 		Listen: "127.0.0.1:0", Path: "/rdv/", Key: "corp",
 		TURNIP: net.ParseIP("127.0.0.1"), TURNListen: "127.0.0.1", RelayBind: "127.0.0.1", TURNPort: port,
@@ -470,4 +466,26 @@ func TestKalkaRendezvous(t *testing.T) {
 	if _, err := alice.ep.Dial(ctx, KeyPeerID(newKey().Public().(ed25519.PublicKey))); !errors.Is(err, ErrOffline) {
 		t.Fatalf("offline: %v", err)
 	}
+}
+
+// turnPort finds a loopback port free for both TCP and UDP, as TURN
+// listens on both. A port free for TCP alone is not enough on Windows,
+// which reserves port ranges per protocol.
+func turnPort(t *testing.T) int {
+	t.Helper()
+	for range 50 {
+		l, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		u, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		l.Close()
+		if err == nil {
+			u.Close()
+			return port
+		}
+	}
+	t.Fatal("no loopback port free for both TCP and UDP")
+	return 0
 }
