@@ -1,11 +1,17 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -187,4 +193,96 @@ func TestDesktopEntry(t *testing.T) {
 			t.Errorf("kalka.desktop lacks %q:\n%s", want, desktopEntry)
 		}
 	}
+}
+
+// TestReleaseArtifacts runs a release for one target with placeholder
+// binaries: the headless archive and kalka-rendezvous's own archive are
+// written, the server's holds nothing of the client, and SHA256SUMS
+// covers every artifact (plan T8).
+func TestReleaseArtifacts(t *testing.T) {
+	t.Chdir(filepath.Join("..", ".."))
+	if _, err := os.Stat(filepath.Join("internal", "ui", "dist", "index.html")); err != nil {
+		t.Skip("the web UI is not built")
+	}
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+	out := t.TempDir()
+	var built []string
+	r := &release{version: "0.3.0", out: out, log: io.Discard,
+		build: func(goos, goarch string, b build, dst string, _ bool) error {
+			built = append(built, b.pkg+" "+b.version)
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(dst, []byte(b.bin), 0o755)
+		}}
+	if err := r.run([]string{"linux/amd64"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(built, "./cmd/kalka-rendezvous main.version") {
+		t.Fatalf("built %v", built)
+	}
+	sums, err := os.ReadFile(filepath.Join(out, "SHA256SUMS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, l := range strings.Split(strings.TrimSpace(string(sums)), "\n") {
+		sum, name, _ := strings.Cut(l, "  ")
+		listed[name] = sum
+	}
+	entries, _ := os.ReadDir(out)
+	var names []string
+	for _, e := range entries {
+		if e.Name() == "SHA256SUMS" {
+			continue
+		}
+		names = append(names, e.Name())
+		data, _ := os.ReadFile(filepath.Join(out, e.Name()))
+		h := sha256.Sum256(data)
+		if listed[e.Name()] != hex.EncodeToString(h[:]) {
+			t.Errorf("SHA256SUMS does not cover %s", e.Name())
+		}
+	}
+	if len(listed) != len(names) {
+		t.Errorf("SHA256SUMS lists %d, the directory holds %d: %v", len(listed), len(names), names)
+	}
+	for _, want := range []string{"kalka_0.3.0_linux_amd64.tar.gz", "kalka-rendezvous_0.3.0_linux_amd64.tar.gz"} {
+		if _, ok := listed[want]; !ok {
+			t.Errorf("no %s in %v", want, names)
+		}
+	}
+	got := tarNames(t, filepath.Join(out, "kalka-rendezvous_0.3.0_linux_amd64.tar.gz"))
+	want := []string{"kalka-rendezvous_0.3.0_linux_amd64/README.txt", "kalka-rendezvous_0.3.0_linux_amd64/kalka-rendezvous"}
+	if !slices.Equal(got, want) {
+		t.Errorf("the server's archive holds %v", got)
+	}
+	if head := tarNames(t, filepath.Join(out, "kalka_0.3.0_linux_amd64.tar.gz")); slices.ContainsFunc(head, func(n string) bool { return strings.Contains(n, "rendezvous") }) {
+		t.Errorf("the headless archive holds the server: %v", head)
+	}
+}
+
+func tarNames(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(zr)
+	var names []string
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, h.Name)
+	}
+	return names
 }

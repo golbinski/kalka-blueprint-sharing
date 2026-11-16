@@ -55,7 +55,6 @@ var commands = []command{
 	{"settings", ClassWorkflow, plain(cmdSettings)},
 	{"autostart", ClassWorkflow, plain(cmdAutostart)},
 	{"setup", ClassWorkflow, plain(cmdSetup)},
-	{"rendezvous", ClassProcess, plain(cmdRendezvous)}, // runs a rendezvous server (moves to kalka-rendezvous in T8)
 	{"check", ClassView, plain(cmdCheck)},
 	{"comment", ClassWorkflow, func(_ string, a []string, in io.Reader, o, e io.Writer, now func() time.Time) int {
 		return cmdComment(a, in, o, e, now)

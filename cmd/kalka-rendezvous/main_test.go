@@ -1,4 +1,4 @@
-package cli
+package main
 
 import (
 	"bytes"
@@ -41,13 +41,13 @@ func TestRendezvousFlags(t *testing.T) {
 		{[]string{"--turn-ip", "127.0.0.1", "--relay-ports", "9-1"}, "want min-max"},
 	} {
 		var out, errb bytes.Buffer
-		if code := runRendezvous(context.Background(), c.args, &out, &errb, nil); code != exitUsage || !strings.Contains(errb.String(), c.want) {
+		if code := run(context.Background(), c.args, &out, &errb, nil); code != exitUsage || !strings.Contains(errb.String(), c.want) {
 			t.Errorf("%v: exit %d, %q", c.args, code, errb.String())
 		}
 	}
 	t.Setenv(secretEnv, "short")
 	var errb bytes.Buffer
-	if code := runRendezvous(context.Background(), []string{"--turn-ip", "127.0.0.1"}, io.Discard, &errb, nil); code != exitUsage || !strings.Contains(errb.String(), "shorter than 16") {
+	if code := run(context.Background(), []string{"--turn-ip", "127.0.0.1"}, io.Discard, &errb, nil); code != exitUsage || !strings.Contains(errb.String(), "shorter than 16") {
 		t.Errorf("short secret: %d %q", code, errb.String())
 	}
 }
@@ -66,7 +66,7 @@ func TestRendezvousTLS(t *testing.T) {
 	var out bytes.Buffer
 	exit := make(chan int, 1)
 	go func() {
-		exit <- runRendezvous(ctx, []string{
+		exit <- run(ctx, []string{
 			"--listen", "127.0.0.1:0", "--json",
 			"--tls-cert", filepath.Join(dir, "cert.pem"), "--tls-key", filepath.Join(dir, "key.pem"),
 			"--turn-ip", "127.0.0.1", "--turn-host", "localhost", "--relay-bind", "127.0.0.1", "--relay-ports", "40000-40100",

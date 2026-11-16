@@ -5,6 +5,8 @@
 //     Windows), the headless archive of spec 15. On Windows it also holds
 //     kalka-desktop.exe, the shell, which with arguments is the console-less
 //     CLI (pure Go, so it builds on any host);
+//   - every target: kalka-rendezvous alone in its own archive, for the
+//     host a team runs its rendezvous server on (spec 9.6);
 //   - Windows: a per-user NSIS installer, when makensis is on the PATH;
 //   - macOS: Kalka.app in a zip, built on a Mac (cgo);
 //   - Linux: a desktop archive (kalka, kalka-desktop, a .desktop file and an
@@ -84,6 +86,9 @@ type release struct {
 	tmp   string
 	mtime time.Time
 	sums  []string
+
+	// build, if set, replaces go build (tests).
+	build func(goos, goarch string, b build, dst string, cgo bool) error
 }
 
 func (r *release) run(targets []string) error {
@@ -160,6 +165,9 @@ func (r *release) target(goos, goarch string) error {
 	if err := r.archive(name, files); err != nil {
 		return err
 	}
+	if err := r.rendezvous(goos, goarch, exe); err != nil {
+		return err
+	}
 	switch goos {
 	case "windows":
 		return r.installer(stage, goarch)
@@ -171,7 +179,52 @@ func (r *release) target(goos, goarch string) error {
 	return nil
 }
 
-type build struct{ pkg, bin, tags, ldflags string }
+// rendezvous archives kalka-rendezvous on its own: one static binary and
+// a README, with nothing of the client (plan D13).
+func (r *release) rendezvous(goos, goarch, exe string) error {
+	base := fmt.Sprintf("kalka-rendezvous_%s_%s_%s", r.version, goos, goarch)
+	stage := filepath.Join(r.tmp, base)
+	b := build{pkg: "./cmd/kalka-rendezvous", bin: "kalka-rendezvous" + exe, version: "main.version"}
+	if err := r.gobuild(goos, goarch, b, filepath.Join(stage, b.bin)); err != nil {
+		return err
+	}
+	if goos == "windows" {
+		if err := r.sign.windows(filepath.Join(stage, b.bin), base+"/"+b.bin, r.log); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(stage, "README.txt"), []byte(rendezvousReadme(r.version, exe)), 0o644); err != nil {
+		return err
+	}
+	files, err := collect(stage, base)
+	if err != nil {
+		return err
+	}
+	name := base + ".tar.gz"
+	if goos == "windows" {
+		name = base + ".zip"
+	}
+	return r.archive(name, files)
+}
+
+func rendezvousReadme(version, exe string) string {
+	return "kalka-rendezvous " + version + `
+
+The rendezvous server a team runs on its own host: signaling for kalka
+clients, the /kalka/ice endpoint and, with --turn-ip, a TURN relay. It
+needs no configuration directory, identity or blueprint folder.
+
+  ./kalka-rendezvous` + exe + ` --listen :9000
+  ./kalka-rendezvous` + exe + ` -h        every flag
+
+Clients set "rendezvous" to the URL it prints, with the public host name.
+Full guide: docs/rendezvous.md in the source.
+`
+}
+
+// build is one binary; version is the variable -X sets to the release
+// version (default: the CLI's).
+type build struct{ pkg, bin, tags, ldflags, version string }
 
 // gobuild compiles one binary; cgo is off unless the build needs it.
 func (r *release) gobuild(goos, goarch string, b build, dst string) error {
@@ -179,8 +232,16 @@ func (r *release) gobuild(goos, goarch string, b build, dst string) error {
 }
 
 func (r *release) gobuildCgo(goos, goarch string, b build, dst string, cgo bool) error {
+	if r.build != nil {
+		fmt.Fprintf(r.log, "build %s/%s %s\n", goos, goarch, b.bin)
+		return r.build(goos, goarch, b, dst, cgo)
+	}
+	v := b.version
+	if v == "" {
+		v = "github.com/golbinski/kalka/internal/cli.version"
+	}
 	args := []string{"build", "-trimpath", "-buildvcs=false",
-		"-ldflags", "-s -w -buildid= -X github.com/golbinski/kalka/internal/cli.version=" + r.version + b.ldflags, "-o", dst}
+		"-ldflags", "-s -w -buildid= -X " + v + "=" + r.version + b.ldflags, "-o", dst}
 	if b.tags != "" {
 		args = append(args, "-tags", b.tags)
 	}

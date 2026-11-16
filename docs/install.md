@@ -10,6 +10,8 @@ Every release has, per system:
 | macOS | `kalka_<v>_darwin_<arch>_app.zip` (`Kalka.app`) | `kalka_<v>_darwin_<arch>.tar.gz` |
 | Linux | `kalka_<v>_linux_<arch>_desktop.tar.gz` | `kalka_<v>_linux_<arch>.tar.gz` |
 
+The release also has `kalka-rendezvous_<v>_<os>_<arch>.tar.gz` (`.zip` on Windows): the rendezvous server, for the one host your team runs it on, not for users ([rendezvous.md](rendezvous.md)).
+
 `SHA256SUMS` lists the checksums. The archives are reproducible from the tagged commit with `make release VERSION=x.y.z` (signatures and the installer aside).
 
 Where IT policy blocks the desktop app, autostart entries or the webview, see [headless.md](headless.md): every feature except the tray and the window works without them.

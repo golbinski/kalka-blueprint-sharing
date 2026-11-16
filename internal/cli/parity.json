@@ -43,7 +43,6 @@
     { "command": "version", "class": "view", "place": "Settings, version line" },
     { "command": "daemon", "class": "process", "exempt": "runs kalka itself; the app is its UI" },
     { "command": "open", "class": "process", "exempt": "shows the app itself" },
-    { "command": "stop", "class": "process", "exempt": "stops the app itself; Quit in the tray is its UI" },
-    { "command": "rendezvous", "class": "process", "exempt": "runs a rendezvous server, not a user's workflow; it moves to kalka-rendezvous (T8)" }
+    { "command": "stop", "class": "process", "exempt": "stops the app itself; Quit in the tray is its UI" }
   ]
 }

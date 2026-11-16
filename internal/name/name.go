@@ -26,6 +26,10 @@ const (
 	// and with arguments the CLI without a console.
 	DesktopBinary = Product + "-desktop"
 
+	// RendezvousBinary is the rendezvous server (spec 9.6): signaling and
+	// TURN for a team's own host, a binary of its own.
+	RendezvousBinary = Product + "-rendezvous"
+
 	// EntrySigContext prefixes the message signed in any entry (spec 6.5,
 	// v2): it covers the full digest of the entry, not the 48-bit id.
 	EntrySigContext = Product + "-entry-v2"

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -431,4 +432,13 @@ func TestCLIClasses(t *testing.T) {
 		t.Fatal("started a daemon with no config")
 	}
 	t.Setenv("KALKA_CONFIG_DIR", w.dir)
+}
+
+func freePort(t *testing.T) int {
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
 }

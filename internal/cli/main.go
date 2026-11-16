@@ -65,6 +65,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 		usage(stdout)
 		return exitOK
 	}
+	if cmd == "rendezvous" {
+		// The server is its own binary now (spec 9.6).
+		fmt.Fprintf(stderr, "%s rendezvous moved: run %s, from its own archive in the release\n", name.Binary, name.RendezvousBinary)
+		return exitUsage
+	}
 	if c, ok := commandByName(cmd); ok {
 		return c.run(cmd, rest, stdin, stdout, stderr, now)
 	}
@@ -107,7 +112,6 @@ func usage(w io.Writer) {
   %[1]s transfer accept <id> [--owner <email>] | decline <id> | withdraw <id> [--json]
   %[1]s delete <file>         delete a published document for the team
   %[1]s domains [--team <t>] [--json]   list the team domain documents held here
-  %[1]s rendezvous [--listen :9000] [--tls-cert f --tls-key f] [--turn-ip ip] [--allow-origin p]... (server mode; -h lists all flags)
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
 

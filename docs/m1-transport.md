@@ -1,5 +1,7 @@
 # M1 transport spike — findings
 
+> A record of the M1 spike. The server it calls `kalka rendezvous` is now the separate `kalka-rendezvous` binary (plan D13); the protocol findings are unchanged.
+
 Date: 2026-11-12. Spec v0.3 §9, §16 M1.
 
 ## Results against the M1 exit criteria

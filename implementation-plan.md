@@ -843,6 +843,27 @@ The request (teams only, several teams and Personal, two roles, take-over by tea
   - Team history shows `accept-transfer` and other new operations by their raw names.
   - Reassigning from a member's row in the Team view is not built. Reassign is in Review and Waiting.
 
+### T8. Rendezvous binary, packaging and documents (done)
+
+- **`cmd/kalka-rendezvous`:** the server from `internal/cli/rendezvous.go`, moved with its tests (flags, HTTPS signaling, TURN over TLS).
+  - It has its own exit codes, `version`, and `name.RendezvousBinary` in its messages.
+  - It needs no config directory, identity or folder.
+  - `TestServerImports` walks every module package the server reaches and refuses the core, the daemon, the UI, the CLI, the desktop shell, the transport and `pion/webrtc`. `go version -m` on the built binary lists no WebRTC.
+- **`kalka rendezvous`:** gone from the command table and `parity.json`, so every `kalka` command is now a user's command. It answers "moved: run kalka-rendezvous" with exit 2 (`TestRendezvousMoved`).
+- **Release (`tools/release`):**
+  - Every target gets `kalka-rendezvous_<v>_<os>_<arch>.tar.gz` (`.zip` on Windows), holding the binary and a README. It is signed on Windows like the rest, and its version is set through `main.version`.
+  - A `build` hook on the release lets a test stand in for `go build`. `TestReleaseArtifacts` runs a whole linux/amd64 release with placeholder binaries. It checks that both archives are written, the server's holds only its binary and README, the headless archive holds no server, and `SHA256SUMS` covers every file in the output and nothing else.
+- **Makefile:** `make rendezvous`; `clean` and `.gitignore` know the binary.
+- **Documents:**
+  - `docs/rendezvous.md`: the binary and its archive, one key-derived id (the email-derived id went in T1), the team log in place of pinned keys, a systemd unit.
+  - `docs/headless.md`: the run classes (views start nothing, file commands need nothing, `--json` everywhere, `kalka waiting --json` for agents); the stale terminal prompts are gone.
+  - `docs/install.md`: the server archive, which is not for users.
+  - `docs/m1-transport.md`: a note that the server is now `kalka-rendezvous`.
+  - `docs/desktop-testing.md`: rewritten as the T9 script, one ordered pass for two installations. It covers install and the URL key, setup and the first team, invite and join by link in each starting state, publish, release, handoff and the waiting list, reassignment, copy and move with accept, decline and withdraw, tray and settings, close, login and headless, the Windows-only items and uninstall, plus what differs on macOS and Linux.
+  - `internal/reference/BLUEPRINT-REFERENCE.md` names no removed command; unchanged.
+  - The spec already described the split (v0.6, 9.6, 15, 16, 23).
+- **Left for T9:** the product owner's Windows pass with `docs/desktop-testing.md`.
+
 ## 7. Sequencing and rough size
 
 | Milestone | Depends on | Size (one experienced engineer) |

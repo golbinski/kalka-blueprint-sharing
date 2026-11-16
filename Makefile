@@ -1,7 +1,7 @@
 # The web UI is built into internal/ui/dist and embedded by `go build`.
 # Without `make web` the binary works but serves a "UI not built" page.
 
-.PHONY: all web build desktop test test-web release clean
+.PHONY: all web build rendezvous desktop test test-web release clean
 
 all: web build
 
@@ -11,6 +11,11 @@ web:
 build:
 	go build -o kalka ./cmd/kalka
 	go build -o kalka-plugin-gh ./cmd/kalka-plugin-gh
+
+# The rendezvous server a team hosts (docs/rendezvous.md): its own binary,
+# with nothing of the client.
+rendezvous:
+	go build -o kalka-rendezvous ./cmd/kalka-rendezvous
 
 # The desktop shell for this host (cgo on macOS and Linux; Linux needs
 # libgtk-4-dev and libwebkitgtk-6.0-dev). make release builds Kalka.app and
@@ -31,4 +36,4 @@ release: web
 	go run ./tools/release -version $(VERSION)
 
 clean:
-	rm -rf kalka kalka-desktop kalka-plugin-gh internal/ui/dist/assets internal/ui/dist/index.html
+	rm -rf kalka kalka-desktop kalka-plugin-gh kalka-rendezvous internal/ui/dist/assets internal/ui/dist/index.html

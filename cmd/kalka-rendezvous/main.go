@@ -1,6 +1,8 @@
-package cli
-
-// `kalka rendezvous`: the server mode for corporate hosting (spec 9.6).
+// Command kalka-rendezvous is the rendezvous server a team runs on its
+// own host (spec 9.6): PeerJS-compatible signaling, the /kalka/ice
+// endpoint and an optional TURN relay. It needs no config directory,
+// identity or folder, and imports no part of the kalka client.
+package main
 
 import (
 	"context"
@@ -29,16 +31,31 @@ type listFlag []string
 func (l *listFlag) String() string     { return strings.Join(*l, ",") }
 func (l *listFlag) Set(s string) error { *l = append(*l, s); return nil }
 
-func cmdRendezvous(args []string, stdout, stderr io.Writer) int {
+// Exit codes, as kalka's.
+const (
+	exitOK       = 0
+	exitProblems = 1
+	exitUsage    = 2
+)
+
+// version is set at release build time with -ldflags "-X main.version=...".
+var version = "dev"
+
+func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return runRendezvous(ctx, args, stdout, stderr, nil)
+	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr, nil)
+	stop()
+	os.Exit(code)
 }
 
-// runRendezvous is cmdRendezvous with a context and a hook that gets the
-// running server (tests).
-func runRendezvous(ctx context.Context, args []string, stdout, stderr io.Writer, started func(*rendezvous.Running)) int {
-	fs := flag.NewFlagSet("rendezvous", flag.ContinueOnError)
+// run is the program with a context and a hook that gets the running
+// server (tests).
+func run(ctx context.Context, args []string, stdout, stderr io.Writer, started func(*rendezvous.Running)) int {
+	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Fprintf(stdout, "%s %s\n", name.RendezvousBinary, version)
+		return exitOK
+	}
+	fs := flag.NewFlagSet(name.RendezvousBinary, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var o rendezvous.Options
 	var origins, stun listFlag
@@ -64,7 +81,7 @@ func runRendezvous(ctx context.Context, args []string, stdout, stderr io.Writer,
 			return exitOK
 		}
 		if err == nil {
-			fmt.Fprintf(stderr, "%s rendezvous: unexpected argument %q\n", name.Binary, fs.Arg(0))
+			fmt.Fprintf(stderr, "%s: unexpected argument %q\n", name.RendezvousBinary, fs.Arg(0))
 		}
 		return exitUsage
 	}
@@ -73,7 +90,7 @@ func runRendezvous(ctx context.Context, args []string, stdout, stderr io.Writer,
 		o.STUN = stun
 	}
 	bad := func(format string, a ...any) int {
-		fmt.Fprintf(stderr, "%s rendezvous: "+format+"\n", append([]any{name.Binary}, a...)...)
+		fmt.Fprintf(stderr, "%s: "+format+"\n", append([]any{name.RendezvousBinary}, a...)...)
 		return exitUsage
 	}
 	if (*cert == "") != (*key == "") {
@@ -116,13 +133,13 @@ func runRendezvous(ctx context.Context, args []string, stdout, stderr io.Writer,
 
 	r, err := rendezvous.Start(o)
 	if err != nil {
-		fmt.Fprintf(stderr, "%s rendezvous: %v\n", name.Binary, err)
+		fmt.Fprintf(stderr, "%s: %v\n", name.RendezvousBinary, err)
 		return exitProblems
 	}
 	if *asJSON {
 		_ = json.NewEncoder(stdout).Encode(map[string]any{"listen": r.Addr, "url": r.URL, "ice": r.ICE})
 	} else {
-		fmt.Fprintf(stdout, "%s rendezvous listening on %s\n", name.Product, r.Addr)
+		fmt.Fprintf(stdout, "%s listening on %s\n", name.RendezvousBinary, r.Addr)
 		fmt.Fprintf(stdout, "clients set   rendezvous: %s   (use the public host name)\n", r.URL)
 		if len(r.ICE) > 0 {
 			fmt.Fprintf(stdout, "TURN relay    %s\n", strings.Join(r.ICE, "  "))
@@ -137,7 +154,7 @@ func runRendezvous(ctx context.Context, args []string, stdout, stderr io.Writer,
 		started(r)
 	}
 	if err := r.Wait(ctx); err != nil {
-		fmt.Fprintf(stderr, "%s rendezvous: %v\n", name.Binary, err)
+		fmt.Fprintf(stderr, "%s: %v\n", name.RendezvousBinary, err)
 		return exitProblems
 	}
 	return exitOK

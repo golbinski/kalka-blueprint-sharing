@@ -253,3 +253,15 @@ func specKinds(t *testing.T, spec string) map[string]bool {
 	}
 	return out
 }
+
+// The server moved to its own binary (plan D13): the old command says
+// where, with the usage exit code, and is in no table.
+func TestRendezvousMoved(t *testing.T) {
+	var out, errs strings.Builder
+	if code := run([]string{"rendezvous", "--listen", ":9000"}, nil, &out, &errs, nil); code != exitUsage || !strings.Contains(errs.String(), "kalka-rendezvous") {
+		t.Fatalf("exit %d: %q", code, errs.String())
+	}
+	if _, ok := commandByName("rendezvous"); ok {
+		t.Fatal("rendezvous is still a command")
+	}
+}

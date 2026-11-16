@@ -1,143 +1,164 @@
-# Desktop app: manual test checklist
+# Desktop app: the manual pass
 
 The automated tests cover the shell's decisions without a display
-(`internal/desktop`), the daemon's side (`internal/daemon`, `d6_test.go`)
-and one smoke run of the real shell (`go test -tags desktop
-./cmd/kalka-desktop`). This list is what only a person at the machine can
-check. Run it on each system before a release; D8 runs it on Windows.
+(`internal/desktop`), the daemon's side (`internal/daemon`), the page's
+models (`web/src/*.test.ts`) and one smoke run of the real shell (`go test
+-tags desktop ./cmd/kalka-desktop`). This script is what only a person at
+the machine can check. It is written as one pass, in order, for Windows
+(T9); on macOS and Linux run the same pass with the items marked for them.
 
-Use a scratch config directory, and mark start at login as already set up,
-unless the point of the run is the first-start behaviour:
+**What you need**
 
-```sh
-export KALKA_CONFIG_DIR=$HOME/kalka-test
-printf 'autostart_initialized: true\n' > $KALKA_CONFIG_DIR/state.yaml   # after setup
-```
+- **A**: the Windows machine under test, with the release built by
+  `make release VERSION=x.y.z` (the installer and the zip).
+- **B**: a second installation, as a teammate: another machine, or the same
+  one with a second config directory and another `ui_port`:
 
-Two machines (or two config directories with different `ui_port`s) and one
-rendezvous are needed for the notification items.
+  ```sh
+  export KALKA_CONFIG_DIR=$HOME/kalka-b      # PowerShell: $env:KALKA_CONFIG_DIR = "$HOME\kalka-b"
+  ```
 
-## Start and the window
+- **A rendezvous both reach**: `kalka-rendezvous --listen :9000` from the
+  release's `kalka-rendezvous_<v>_<os>_<arch>` archive on any host (users
+  then set `http://<host>:9000`), or the public PeerJS cloud for a quick
+  run.
+- Neutral test content only: a library-lending or parcel-logistics plan.
 
-- [ ] First start with no config: the window opens on the setup form; after
-      saving, it shows the blueprint list. The tray icon appears.
-- [ ] `kalka status` says running, and "window: the desktop app is attached".
-- [ ] Start the shell again (shortcut, or `kalka-desktop`): the existing
-      window comes forward; no second tray icon.
-- [ ] Bare `kalka` in a terminal shows the window, not a browser tab.
-- [ ] `kalka open` still opens a browser tab; both stay live.
-- [ ] A link to another site in a blueprint opens in the system browser; the
-      window stays on kalka.
-- [ ] The page in the window shows no "turn on desktop notifications"
-      banner; the Settings view shows "Keep running when the window is
-      closed". In a browser tab that setting is absent.
+Write down anything that differs from what an item says, with the time and
+the line from `kalka.log` (`%APPDATA%\kalka\kalka.log`) if there is one.
 
-## Join links (spec 19.7, 23.1a)
+## 1. Install (A)
 
-Registering the scheme is what these items check, so run them only on an
-installed build (the Windows installer, `Kalka.app` in Applications, the
-Linux archive), never on a development build: a development bundle opened
-once stays registered on macOS.
+- [ ] Run `kalka_<v>_windows_amd64_setup.exe`. No elevation prompt. It
+      installs into `%LOCALAPPDATA%\Programs\kalka` and adds *kalka* to the
+      Start menu.
+- [ ] Unsigned build: SmartScreen asks once; *More info*, *Run anyway*.
+- [ ] A new terminal finds `kalka` (`kalka version` prints the version and
+      the protocol numbers).
+- [ ] `HKCU\Software\Classes\kalka\shell\open\command` names
+      `"…\kalka-desktop.exe" "%1"`.
+- [ ] Leave *Start kalka* ticked on the last page: the window opens on the
+      setup form; the tray icon appears.
 
-- [ ] Windows: after install, `HKCU\Software\Classes\kalka\shell\open\command`
-      names `kalka-desktop.exe "%1"`; after uninstall the key is gone.
-- [ ] Linux: after the first start, `~/.local/share/applications/kalka.desktop`
-      has `MimeType=x-scheme-handler/kalka;` and `xdg-mime query default
-      x-scheme-handler/kalka` prints `kalka.desktop`.
-- [ ] With kalka running, click a `kalka://join/…` link in a browser and in
-      a chat tool: the window comes forward on the join screen, showing the
-      team, the inviter, the invited email and the expiry. Nothing is joined
-      until *Join*.
-- [ ] With kalka not running, click the link: kalka starts with the window
-      on the join screen.
-- [ ] With no configuration, click the link: the setup form shows the
-      email and the rendezvous from the invite; after the folder, it goes
-      on to the join screen.
-- [ ] A link for another email, an expired one, and one for another
-      rendezvous each show their line instead of *Join*.
-- [ ] *Copy link* and *Copy token* in the invite box; both work in *Join
-      with link or token*.
+## 2. Setup and the first team (A)
 
-## Tray
+- [ ] Fill in email, rendezvous and folder; *Save and start*. The window
+      shows *Blueprints · Personal* (no team yet), and the folder holds
+      `personal\`.
+- [ ] `kalka status` says running, and that the desktop app is attached.
+- [ ] Start kalka again from the Start menu: the same window comes forward,
+      no second tray icon. Bare `kalka` in a terminal does the same.
+- [ ] `kalka open` opens a browser tab with the same page; both stay live.
+- [ ] Switcher (top left) → *Create team…* → `lending-desk`. The page
+      switches to it; the switcher lists Personal, then `lending-desk`.
+- [ ] Settings: *Start at login* is on (first start turns it on once);
+      *Keep running when the window is closed* is shown in the window and
+      absent in the browser tab. The version line is at the bottom.
 
-- [ ] The status line reads "Online · N of M peers reachable · last sync
-      HH:MM" and changes within a second or two of a sync.
-- [ ] Stop the rendezvous: the line becomes "Offline: …" and the icon a ring.
-- [ ] Pause sync: the icon shows two bars, the line says "Paused", the page
-      shows its banner. Resume sync restores all three.
-- [ ] With a prompt or a pending join, "N waiting for you" appears and opens
-      the window (on the Team page for a join).
-- [ ] Start at login: the check mark follows `kalka autostart status`;
-      toggling it changes the system entry (and the page's Settings view).
-- [ ] Quit kalka asks "kalka will stop syncing with your team until you
-      start it again."; Cancel keeps it running; Quit stops it within the
-      drain time, and `kalka status` says not running.
+## 3. Invite and join by link (A invites, B joins)
 
-## Close and reopen
+- [ ] A: *Team* → invite B's email → *Invite*. The box shows the
+      `kalka://join/…` link; *Copy link* and *Copy token* both copy.
+- [ ] Send the link to B through a chat tool or mail and click it there,
+      with kalka running on B: B's window comes forward on the join screen,
+      showing the team, the inviter, the invited email and the expiry.
+      Nothing is joined until *Join*.
+- [ ] Repeat with kalka not running on B: kalka starts on the join screen.
+- [ ] Repeat on an installation with no configuration: the setup form is
+      filled in with the email and the rendezvous from the invite; after
+      the folder it goes on to the join screen.
+- [ ] A link for another email, an expired one (`--expires 1m`, wait), and
+      one for another rendezvous each show their line instead of *Join*.
+- [ ] B: *Join*. While A is reached, B's switcher shows "joining
+      lending-desk…"; then the team appears, and A gets a "joined" notice.
+- [ ] B: *Join with link or token…* in the switcher, paste the token of a
+      fresh invite: the same join screen.
+- [ ] A: *Team* shows B with presence "online"; stop kalka on B and the
+      presence turns to "offline" within a minute.
 
-- [ ] Close the window: it hides, and one notification says kalka keeps
+## 4. Publish, review, hand off (A and B)
+
+- [ ] A: put `renewals.md` (a heading and a plan) into `personal\`. It shows
+      in *Blueprints · Personal* with *Publish to team…*.
+- [ ] *Publish to team…* → `lending-desk`. The file moves to the team folder
+      at version 1, and reaches B within seconds (*Sync now* on *Team*
+      forces a round).
+- [ ] B: comment on a section. A, window hidden: one notification for the
+      new comment; clicking it opens the document.
+- [ ] A: edit the plan; the review strip offers *Release v2*. Release it; B
+      gets v2.
+- [ ] A: *Hand off…* to B. B's switcher badge and the tray read "1 waiting
+      for you"; the tray item opens B's waiting list for `lending-desk`.
+- [ ] B: *Open* the item. It clears, and the badge goes.
+- [ ] A (team owner): *Reassign…* the document back to A from its review.
+      B's copy says it was reassigned, and A releases on its own.
+
+## 5. Transfers between teams (A)
+
+- [ ] A: create a second team `returns-desk` from the switcher; B joins it.
+- [ ] A: on the published document, *Copy to team…* → `returns-desk`. B, as
+      a member but not an owner, sees nothing waiting; A (owner of
+      `returns-desk`) has a *Transfer* in its waiting list.
+- [ ] A: *Accept*. The copy appears in `returns-desk` with the "attested"
+      strip naming who offered and who accepted it; its old comments carry
+      an "attested" badge.
+- [ ] A: *Move to team…* another document. Until it is decided the review
+      shows "being moved to …; comments added now will not travel".
+      *Withdraw* it from *Team → Transfers*, then move again and *Decline*
+      from the waiting list. Each ends with a notice on the offering side.
+
+## 6. Tray and settings
+
+- [ ] The status line reads "Online · N of M members reachable" and changes
+      within seconds when B starts or stops.
+- [ ] Stop the rendezvous: "Offline: …" and the ring icon; start it again
+      and it comes back on its own.
+- [ ] *Pause sync*: two bars on the icon, "Paused" in the tray, a banner in
+      the page. Edits and releases are kept; *Resume sync* sends them.
+- [ ] Settings → *Blueprint reference: Save a copy*: the browser tab saves
+      `BLUEPRINT-REFERENCE.md`. In the window, if saving does nothing, *Copy*
+      puts it on the clipboard; note which worked.
+- [ ] Notifications off: no OS notifications; notices still show in the
+      page.
+- [ ] *Quit kalka* asks first; *Cancel* keeps it; *Quit* stops it and
+      `kalka status` says not running.
+
+## 7. Close, login, headless
+
+- [ ] Close the window: it hides, with one notification that kalka keeps
       syncing. Close it again later: no notification.
-- [ ] Turn "Keep running when the window is closed" off, close the window:
-      the shell and its daemon stop, without a question.
-- [ ] Linux without a tray host (stock GNOME): closing minimises instead,
-      and starting the shell again shows the window.
-
-## Start at login
-
-- [ ] First start of a fresh install turns start at login on (once); turning
-      it off and restarting leaves it off.
-- [ ] Log out and in: kalka runs with no window; the tray icon is there.
-- [ ] The entry runs the shell with `--hidden` (`kalka autostart status`).
-
-## Attach to a headless daemon
-
-- [ ] `kalka daemon` in a terminal, then start the shell: it attaches (tray
-      and window), and the terminal shows no popup for prompts while the
-      shell runs.
-- [ ] Close the window with keep running off: the shell quits, the terminal
-      daemon keeps running.
-- [ ] Quit from the tray: the question says it also stops the kalka started
-      without a window, and the terminal daemon stops.
-- [ ] `kalka stop` while the shell runs: the shell quits too.
-
-## Notifications (window hidden)
-
-- [ ] A handoff from the other machine: a notification; clicking it shows
-      the window with the prompt.
-- [ ] New comments on a document you own: one notification per document;
-      clicking opens the document.
-- [ ] Someone joins with your invite; your own join completes or fails.
-- [ ] A newer domain version than one your document references.
-- [ ] Notifications off in Settings: no OS notifications; prompts still
-      show in the window.
-- [ ] With the window visible, notices show as toasts in the page instead.
-- [ ] macOS, unsigned build outside an app bundle: no notification centre;
-      a prompt shows as a dialog with "Open kalka", other notices only in
-      the window.
-
-## Packages
-
-- [ ] Windows installer: installs without an elevation prompt into
-      `%LOCALAPPDATA%\Programs\kalka`; a new terminal finds `kalka`; the
-      Start-menu entry starts the app; *Start kalka* on the last page works.
-- [ ] Installing again over a running kalka stops it first and replaces
-      the files; the login entry still works.
-- [ ] Uninstall (Settings > Apps): kalka stops, the login entry, files,
-      Start-menu entry and PATH entry are gone; `%APPDATA%\kalka` stays.
-- [ ] A PATH longer than 900 characters is left alone, with a message.
-- [ ] macOS: `Kalka.app` from the zip opens after right-click > Open, has
-      no Dock icon, shows its icon in Finder; the `kalka` symlink works as
-      the CLI and finds `kalka-plugin-gh`.
-- [ ] Linux: the `.desktop` entry appears in the applications menu with
-      its icon and starts the app.
-
-## Windows only
-
-- [ ] Remove or block WebView2: starting the shell shows a message naming
-      the download and offers "Open kalka in the browser instead", which
-      starts the daemon and opens a tab. The window is never blank.
-- [ ] Notifications show "kalka" as the sender (the Start-menu shortcut's
-      AppUserModelID).
+- [ ] Keep running off, close the window: the shell and its daemon stop.
+- [ ] Log out and in: kalka runs with no window, the tray icon is there.
+      `kalka autostart status` shows the entry running the shell with
+      `--hidden`.
+- [ ] `kalka stop`, then `kalka daemon` in a terminal, then start the app:
+      it attaches. Quitting from the tray says it also stops the kalka
+      started without a window, and the terminal daemon stops.
 - [ ] `kalka-desktop.exe status` (the GUI build with arguments) prints
-      nothing to a console window and returns at once; use `kalka.exe` in a
-      terminal.
+      nothing to a console window and returns at once.
+
+## 8. Windows only
+
+- [ ] Remove or block WebView2: starting the app names the download and
+      offers *Open kalka in the browser instead*. The window is never blank.
+- [ ] Notifications show "kalka" as the sender.
+- [ ] Install again over a running kalka: it is stopped first, the files are
+      replaced, the login entry still works.
+- [ ] A `PATH` longer than 900 characters is left alone, with a message.
+- [ ] Uninstall (*Settings → Apps*): kalka stops; the login entry, files,
+      Start-menu entry, `PATH` entry and the `kalka` URL key are gone;
+      `%APPDATA%\kalka` and the blueprint folder stay.
+
+## On macOS and Linux
+
+Run sections 2 to 7 the same way. Instead of section 1:
+
+- macOS: `Kalka.app` from the zip opens after right-click → *Open*, has no
+  Dock icon, and lives in the menu bar. Opening the installed bundle
+  registers `kalka://`; never open a development build, which would stay
+  registered. The `kalka` symlink to `Kalka.app/Contents/MacOS/kalka` works
+  as the CLI.
+- Linux: after the first start, `~/.local/share/applications/kalka.desktop`
+  has `MimeType=x-scheme-handler/kalka;` and `xdg-mime query default
+  x-scheme-handler/kalka` prints `kalka.desktop`. Without a tray host
+  (stock GNOME), closing the window minimises it.

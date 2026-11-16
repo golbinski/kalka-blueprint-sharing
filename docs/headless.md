@@ -1,6 +1,6 @@
 # kalka without the desktop app
 
-The desktop app is a window and a tray icon around the kalka daemon. Everything else (sync, teams, replication, prompts, notices) is the daemon's, and it runs fine on its own:
+The desktop app is a window and a tray icon around the kalka daemon. Everything else (sync, teams, replication, the waiting list, notices) is the daemon's, and it runs fine on its own:
 
 - on servers, containers and machines without a desktop;
 - where IT policy blocks autostart entries, tray apps or the webview;
@@ -12,14 +12,14 @@ Use the headless archive for your system (`kalka_<v>_<os>_<arch>.tar.gz`, or the
 
 | How | Command | Notes |
 |---|---|---|
-| In a terminal | `kalka daemon` | Prompts are asked in the terminal too (answer y or n). Ctrl+C stops it after running rounds. |
+| In a terminal | `kalka daemon` | Its log goes to the terminal. Ctrl+C stops it after running rounds. |
 | In the background, now | `kalka` | Starts `kalka daemon --background` detached if none runs, then opens the page in the browser. |
 | At login, no window | `kalka autostart on --headless` | macOS: a LaunchAgent; Linux: `~/.config/autostart`; Windows: the Run key, starting the console-less `kalka-desktop.exe daemon --background`. |
 | From anything else | `kalka daemon --background` | A login script, a scheduler, a container entry point. Output goes to `kalka.log` in the config folder. |
 
 A second start finds the running daemon and exits with status 0, so starting it from several places is safe. `kalka stop` stops it; `kalka status` shows its state.
 
-The command line works with or without a running daemon: reading commands (`status`, `team members`, `domains`, `check`, `comment`, `seed`) read the files, and commands that need the network start the daemon in the background unless told not to (`--no-start`, or `KALKA_NO_START=1`), which agents in sandboxes should use.
+The command line works with or without a running daemon (spec §12). Views (`status`, `teams`, `team members|log|invites`, `waiting`, `seeds`, `transfers`, `domains`, `settings`) read the local files and start nothing; their JSON says `"daemon": false`. File commands (`check`, `comment`, `seed`, `seed backlink`, `reference`) never need it. Commands that write the team log, a release or a transfer start the daemon in the background unless told not to (`--no-start`, or `KALKA_NO_START=1`), which agents in sandboxes should use. Every command takes `--json`; `kalka waiting --json` is what an agent polls for work that waits on the user.
 
 ## The page
 
@@ -35,7 +35,7 @@ Without a page open, notices (new comments on your documents, joins, newer domai
 ## What IT needs to allow
 
 - Outgoing WebSocket (`wss://` or `ws://`) to the team's rendezvous server.
-- WebRTC to peers: UDP, or TURN over TCP/TLS on 443 when UDP is blocked (`kalka rendezvous` hands out short-lived TURN credentials; other rendezvous servers need their own TURN).
+- WebRTC to peers: UDP, or TURN over TCP/TLS on 443 when UDP is blocked (`kalka-rendezvous`, the server a team hosts, hands out short-lived TURN credentials; other rendezvous servers need their own TURN; see [rendezvous.md](rendezvous.md)).
 - A loopback TCP port for the local API and page (default 7717, `ui_port` in `config.yaml`). It listens on 127.0.0.1 only and needs a per-session token.
 - Write access to the config folder (`%APPDATA%\kalka`, `~/.config/kalka`) and the blueprint folder.
 
