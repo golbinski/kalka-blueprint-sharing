@@ -39,6 +39,10 @@ func handshakeBoth(t *testing.T, a, b *node, verifyA Verifier) (pa, pb Peer, err
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	done := make(chan struct{})
+	// b keeps its side open until a is done: closing right after its own
+	// handshake can abort a's read of b's last message, which a real
+	// session never does (it goes on, and ends with bye).
+	aDone := make(chan struct{})
 	go func() {
 		defer close(done)
 		c, err := b.ep.Accept(ctx)
@@ -48,15 +52,21 @@ func handshakeBoth(t *testing.T, a, b *node, verifyA Verifier) (pa, pb Peer, err
 		}
 		defer c.Close()
 		pb, errB = Handshake(c, b.id, nil)
+		select {
+		case <-aDone:
+		case <-ctx.Done():
+		}
 	}()
 	c, err := a.ep.Dial(ctx, b.sig.ID())
 	if err != nil {
+		close(aDone)
 		cancel()
 		<-done
 		return pa, pb, err, errB
 	}
 	defer c.Close()
 	pa, errA = Handshake(c, a.id, verifyA)
+	close(aDone)
 	<-done
 	return
 }
