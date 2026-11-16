@@ -82,7 +82,7 @@ func TestSignWindows(t *testing.T) {
 }
 
 // TestPESubsystem builds a console and a GUI Windows program and reads
-// their subsystems back.
+// their subsystems, and the shell's icon, back.
 func TestPESubsystem(t *testing.T) {
 	if testing.Short() {
 		t.Skip("cross-compiles")
@@ -90,14 +90,29 @@ func TestPESubsystem(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\ngo 1.21\n"), 0o644)
-	for bin, flags := range map[string]string{"kalka.exe": "", "kalka-desktop.exe": "-H=windowsgui"} {
-		cmd := exec.Command("go", "build", "-ldflags", flags, "-o", bin, ".")
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0", "GOFLAGS=", "GOWORK=off")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%s: %v %s", bin, err, out)
+	build := func() {
+		t.Helper()
+		for bin, flags := range map[string]string{"kalka.exe": "", "kalka-desktop.exe": "-H=windowsgui"} {
+			cmd := exec.Command("go", "build", "-ldflags", flags, "-o", bin, ".")
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0", "GOFLAGS=", "GOWORK=off")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%s: %v %s", bin, err, out)
+			}
 		}
 	}
+	// Without the icon resources the shell is refused; with the
+	// committed ones it passes.
+	build()
+	if err := checkSubsystems(dir); err == nil || !strings.Contains(err.Error(), "no icon") {
+		t.Fatalf("a shell with no icon: %v", err)
+	}
+	syso, err := os.ReadFile(filepath.Join("..", "..", "cmd", "kalka-desktop", "rsrc_windows_amd64.syso"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "rsrc_windows_amd64.syso"), syso, 0o644)
+	build()
 	if err := checkSubsystems(dir); err != nil {
 		t.Fatal(err)
 	}

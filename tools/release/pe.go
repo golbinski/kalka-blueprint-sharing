@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/golbinski/kalka/internal/winres"
 )
 
 // PE subsystems (the optional header's Subsystem field).
@@ -44,6 +46,15 @@ func checkSubsystems(dir string) error {
 		}
 		if got != want {
 			return fmt.Errorf("%s has PE subsystem %d, want %d", bin, got, want)
+		}
+		// The shell carries the app icon, for its shortcut, taskbar
+		// button and window (cmd/kalka-desktop/rsrc_windows_<arch>.syso).
+		if bin == "kalka-desktop.exe" {
+			for _, id := range winres.GroupIDs {
+				if imgs, err := winres.GroupIcon(data, id); err != nil || len(imgs) == 0 {
+					return fmt.Errorf("%s has no icon %d (%v); run go generate ./cmd/kalka-desktop", bin, id, err)
+				}
+			}
 		}
 	}
 	return nil

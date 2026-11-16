@@ -1,9 +1,8 @@
 # Sample blueprints
 
-Blueprints for trying kalka by hand: the desktop pass in
-`docs/desktop-testing.md`, a demo, or a first look. They describe kalka
-itself: real changes and ideas, written as the plans a team working on
-kalka would review. None holds a `kalka_id`, owner or review log: kalka
+Blueprints for trying kalka by hand: a demo, a first look, or a manual
+test of the app. They describe kalka itself: real changes and ideas,
+written as the plans a team working on kalka would review. None holds a `kalka_id`, owner or review log: kalka
 adds those as you publish them and comment on them, under your own
 identity.
 

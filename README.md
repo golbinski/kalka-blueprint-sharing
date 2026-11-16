@@ -118,7 +118,6 @@ content is never written into the file or sent to anyone. kalka ships
 | [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
 | [docs/teamlog.md](docs/teamlog.md) | The team log's encoding and replay rules |
 | [docs/peerjs.md](docs/peerjs.md) | How the PeerJS servers behave where kalka depends on it |
-| [docs/desktop-testing.md](docs/desktop-testing.md) | The manual test pass of the desktop app |
 | [samples/README.md](samples/README.md) | Sample blueprints for trying kalka |
 
 ## Building from source
@@ -161,7 +160,7 @@ Linux, macOS and Windows. A `v*` tag builds the release.
 | `internal/daemon`, `internal/cli` | The local HTTP API and the commands |
 | `internal/transport`, `internal/peerjs`, `internal/rendezvous` | WebRTC, signaling and the server side |
 | `web` | The web UI (React, TypeScript), served by the daemon |
-| `tools/release` | The reproducible release build |
+| `tools/release`, `tools/winicon` | The reproducible release build; the Windows icon resources of the desktop app |
 | `samples`, `testdata` | Sample blueprints, and golden files for the format |
 
 ## License
