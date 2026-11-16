@@ -147,6 +147,7 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	}
 	v.Rel, _ = filepath.Rel(d.Store.Dir(), path)
 	v.Rel = filepath.ToSlash(v.Rel)
+	v.Rel = filepath.ToSlash(v.Rel)
 	if fm := doc.Frontmatter(); fm != nil {
 		v.Frontmatter = strings.ReplaceAll(fm.Inner(), "\r\n", "\n")
 	}

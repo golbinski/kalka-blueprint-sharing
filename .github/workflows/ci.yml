@@ -92,7 +92,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev xvfb
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev xvfb dbus
       - name: go vet, desktop
         run: go vet -tags desktop ./cmd/kalka-desktop ./internal/desktop
       - name: go test -race
@@ -102,7 +102,8 @@ jobs:
         run: go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
       - name: Desktop shell tests (Linux, virtual display)
         if: runner.os == 'Linux'
-        run: xvfb-run -a go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
+        # The tray (StatusNotifierItem) needs a session bus as well as a display.
+        run: dbus-run-session -- xvfb-run -a go test -tags desktop -count=1 ./cmd/kalka-desktop ./internal/desktop
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

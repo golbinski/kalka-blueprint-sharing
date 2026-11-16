@@ -192,6 +192,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 	}
 	info := &Info{Path: p, hash: h}
 	info.Rel, _ = filepath.Rel(s.dir, p)
+	info.Rel = filepath.ToSlash(info.Rel) // the page's and the API's form, on every system
 	info.Scope = ScopeOf(info.Rel)
 	if st, err := os.Stat(p); err == nil {
 		info.Modified = st.ModTime().UTC()

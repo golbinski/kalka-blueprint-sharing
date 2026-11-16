@@ -111,7 +111,7 @@ func (n *node) rel(id string) string {
 	if err != nil {
 		n.w.t.Fatal(err)
 	}
-	return r
+	return filepath.ToSlash(r)
 }
 
 // share publishes name and replicates the team with each of to; it

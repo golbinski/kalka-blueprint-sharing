@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,6 +62,9 @@ func TestSmoke(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "--hidden")
 	// Nor a URL scheme handler (spec 23.1a).
 	cmd.Env = append(os.Environ(), "KALKA_DESKTOP_MAIN=1", "KALKA_NO_URL_SCHEME=1")
+	// What the shell says goes into a failure's message.
+	var shellOut syncBuffer
+	cmd.Stdout, cmd.Stderr = &shellOut, &shellOut
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +82,13 @@ func TestSmoke(t *testing.T) {
 				break
 			}
 		}
+		select {
+		case err := <-exited:
+			t.Fatalf("the shell exited before it came up: %v\n%s", err, shellOut.String())
+		default:
+		}
 		if time.Now().After(deadline) {
-			t.Fatal("the shell did not come up")
+			t.Fatalf("the shell did not come up\n%s", shellOut.String())
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -95,9 +104,28 @@ func TestSmoke(t *testing.T) {
 	select {
 	case err := <-exited:
 		if err != nil {
-			t.Fatalf("shell exit: %v", err)
+			t.Fatalf("shell exit: %v\n%s", err, shellOut.String())
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("kalka stop did not end the shell")
 	}
+}
+
+// syncBuffer is a bytes.Buffer the shell's output can be written to while
+// the test reads it.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

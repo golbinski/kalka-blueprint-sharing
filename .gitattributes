@@ -1,0 +1,6 @@
+# Check text out with LF on every system. The golden tests compare bytes,
+# and a Windows checkout's CRLF would differ from the expected outputs.
+# kalka itself keeps whatever line endings a blueprint has when it writes.
+* text=auto eol=lf
+*.png binary
+*.ico binary
