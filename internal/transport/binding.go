@@ -111,6 +111,13 @@ func HandshakeInvite(c *Conn, self Identity, verify Verifier, inv *InviteClaim) 
 		return Peer{}, errors.New("peer sent an invalid nonce")
 	}
 
+	// The peer id must be the key id of the presented key (spec 8.3 step
+	// 4): a squatter on someone's key id fails here, before this side
+	// signs anything for it. The hello is enough to tell.
+	if c.RemoteID() != peerid.Key(peerKey) {
+		return Peer{}, fmt.Errorf("the peer at %s presented another key: someone else holds that id on the rendezvous server", c.RemoteID())
+	}
+
 	local, remote := c.Fingerprints()
 	sig := ed25519.Sign(self.Key, authMessage(local, remote, peerNonce))
 	if err := c.Send(authMsg{Type: "auth", Sig: base64.StdEncoding.EncodeToString(sig)}); err != nil {
@@ -128,11 +135,6 @@ func HandshakeInvite(c *Conn, self Identity, verify Verifier, inv *InviteClaim) 
 	// The peer signed its own fingerprint (our remote) and ours (our local).
 	if !ed25519.Verify(peerKey, authMessage(remote, local, nonce), peerSig) {
 		return Peer{}, errors.New("channel binding failed: the peer's signature does not match this connection; the rendezvous server may be intercepting it")
-	}
-	// The peer id must be the key id of the presented key (spec 8.3 step
-	// 4): a squatter on someone's key id fails here.
-	if c.RemoteID() != peerid.Key(peerKey) {
-		return Peer{}, fmt.Errorf("the peer at %s presented another key: someone else holds that id on the rendezvous server", c.RemoteID())
 	}
 	if verify != nil {
 		if err := verify(h.Email, peerKey); err != nil {

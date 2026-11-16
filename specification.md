@@ -482,7 +482,7 @@ After the data channel opens and before any blueprint data flows:
 1. Each side sends `hello {proto, email, pubkey, nonce}`.
 2. Each side sends `auth {sig}` where `sig` signs `"kalka-auth-v1" ‖ own DTLS certificate fingerprint ‖ peer DTLS certificate fingerprint ‖ peer nonce`.
 3. Each side verifies the signature against the presented key, using fingerprints read from the DTLS transport itself, not from the SDP relayed by the server.
-4. Each side checks that the peer ID it dialed or was dialed from is the key ID of the presented key (9.2), so a squatter on someone's key ID fails at once.
+4. Each side checks that the peer ID it dialed or was dialed from is the key ID of the presented key (9.2), so a squatter on someone's key ID fails at once. This needs only the `hello`, so it is checked before sending `auth`.
 5. The responder then checks the key against its team logs as in 8.2; the initiator dialed a key it took from a team log or an invite.
 
 Any failure closes the connection. This makes a malicious or compromised rendezvous server unable to sit in the middle.
