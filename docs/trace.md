@@ -71,6 +71,8 @@ letter    = "A".."Z" | "a".."z" ;
 id-list   = id | sequence of id ;                       (* one id may stand without brackets *)
 edges     = id-list | mapping of id to label ;          (* label: text, may be empty *)
 change    = "new" | "modified" | "removed" ;
+guards    = inv-ref | sequence of inv-ref ;
+inv-ref   = id | domain , "#" , id ;                    (* domain: [a-z0-9][a-z0-9-]* *)
 ```
 
 | Key | Where | Required | Value | Meaning in brief |
@@ -86,6 +88,7 @@ change    = "new" | "modified" | "removed" ;
 | `ref` | node | no | text of the form `scheme:payload` | Link to the code or other source, resolved by a plugin. |
 | `why` | node | no | text | Why the step exists or differs from the lanes above. |
 | `change` | node | no | `change` | What the plan does to this step. Absent means unchanged. |
+| `guards` | node | no | list of invariant references | Invariants the step keeps true. |
 
 Keys are case-sensitive. Any other key is an unknown key (section 6.1).
 
@@ -135,6 +138,8 @@ The order of items in `lanes`, `nodes`, `next`, `back` and `realizes`, and of th
 
 Edges cannot be marked. An edge is taken to exist after the plan when both its ends are live.
 
+**`guards`.** Names the invariants (main specification 6.15) the step keeps true: an id of an invariant of the same document, or `<domain>#<id>` for an invariant of the domain the document references. A reference that does not resolve is reported by the invariant rules (`I020`), not by the trace: it never makes the block invalid. `guards` takes no part in divergences; it decides which invariants count as guarded (`I030`).
+
 **Identity.** A node id names the node for comments: a review-log entry is anchored to `§<slug>#<id>`, where `<slug>` is the slug of the nearest heading above the block. Ids are scoped to the block, and should be unique among all blocks under the same heading (T120). An id is a permanent name: section 9 says how to keep it stable.
 
 ## 4. Validation
@@ -143,7 +148,7 @@ A validator returns **errors** and **warnings**, each with an identifier, a line
 
 - A block with one or more errors is not a trace: kalka shows its source as code with the errors beside it, and computes no divergences. The rule for making something an error is that the graph cannot be built without guessing, or that the divergences could not be computed as defined.
 - A block with only warnings is a trace: it is drawn, its divergences are computed, and the warnings are shown with it.
-- Neither errors nor warnings ever block a sync, a release, or any other operation. `kalka check` reports both and its exit code is not changed by them.
+- Neither errors nor warnings ever block a sync, a release, or any other operation. `kalka check` reports both as diagnostics (main specification 6.17): an error makes it exit 1, a warning 2.
 
 Validation runs in the stages below. A stage runs only if the stages before it found no error; within a stage, all errors are collected.
 
@@ -166,7 +171,7 @@ Validation runs in the stages below. A stage runs only if the stages before it f
 | T031 | 3 | Two nodes have the same `id`. |
 | T032 | 3 | `lane` is missing or is not one of `lanes`. |
 | T033 | 3 | `text` is missing or empty. |
-| T034 | 2 | A value has the wrong shape: `text`, `why`, `ref`, `id`, `lane` or `change` is not a single text; `next` or `back` is not an `edges` value; `realizes` is not an `id-list`; a label is not a text. This includes the retired form `{to: B2, label: …}`. |
+| T034 | 2 | A value has the wrong shape: `text`, `why`, `ref`, `id`, `lane` or `change` is not a single text; `next` or `back` is not an `edges` value; `realizes` is not an `id-list`; `guards` is not a text or a list of texts; a label is not a text. This includes the retired form `{to: B2, label: …}`. |
 | T040 | 4 | `next`, `back` or `realizes` names an id that is not a node of the block. |
 | T041 | 4 | `next` or `back` names a node in another lane. |
 | T042 | 4 | `next` names the node itself. |
