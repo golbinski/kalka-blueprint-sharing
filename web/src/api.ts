@@ -256,6 +256,19 @@ export interface InvariantRow {
   referenced_by?: string[]
 }
 
+/** One check of kalka doctor (spec 12.5). */
+export interface DoctorResult {
+  check: string
+  state: 'ok' | 'warn' | 'fail' | 'skip'
+  detail: string
+  fix?: string
+}
+
+export interface DoctorReport {
+  results: DoctorResult[]
+  summary: { ok: number; warn: number; fail: number }
+}
+
 /** A held blueprint a domain release would concern. */
 export interface Affected {
   path: string
@@ -693,6 +706,7 @@ export const api = {
     call<TransferView | { id: string }>('POST', `/api/transfers/${enc(id)}/${action}`, { owner }),
   about: () => call<About>('GET', '/api/about'),
   rules: () => call<Rule[]>('GET', '/api/rules'),
+  doctor: () => call<DoctorReport>('GET', '/api/doctor'),
   domainImpact: (path: string) => call<Affected[]>('GET', '/api/domain-impact?path=' + enc(path)),
   /** The blueprint reference as text (spec 6.13). */
   reference: async () => {

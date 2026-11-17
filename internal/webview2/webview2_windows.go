@@ -1,11 +1,11 @@
-package desktop
+package webview2
 
 import "golang.org/x/sys/windows/registry"
 
-// HasWebView2 reads the runtime's version from the registry.
-func HasWebView2() (string, bool) {
+// Has reads the runtime's version from the registry.
+func Has() (string, bool) {
 	var values []string
-	for _, k := range WebView2Keys {
+	for _, k := range Keys {
 		root := registry.CURRENT_USER
 		if k.Machine {
 			root = registry.LOCAL_MACHINE
@@ -20,5 +20,5 @@ func HasWebView2() (string, bool) {
 			values = append(values, v)
 		}
 	}
-	return WebView2Version(values)
+	return Version(values)
 }

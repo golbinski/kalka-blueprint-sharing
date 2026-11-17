@@ -2427,3 +2427,35 @@ details.terms {
 .terms-note {
   margin: 0 0 10px;
 }
+
+/* Check setup (spec 12.5). */
+.check-setup {
+  margin: 12px 0 4px;
+}
+.doctor-list {
+  margin-top: 8px;
+}
+.doctor-list li {
+  padding: 5px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.doctor-state {
+  display: inline-block;
+  min-width: 82px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ok);
+}
+.doctor-warn .doctor-state {
+  color: var(--div-ink);
+}
+.doctor-fail .doctor-state {
+  color: var(--danger);
+}
+.doctor-skip .doctor-state {
+  color: var(--muted);
+}
+.doctor-fix {
+  margin-left: 86px;
+  color: var(--muted);
+}

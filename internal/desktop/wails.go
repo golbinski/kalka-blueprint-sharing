@@ -30,6 +30,7 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/urlscheme"
+	"github.com/golbinski/kalka/internal/webview2"
 )
 
 // Main is kalka-desktop: with arguments the CLI, without them (or with
@@ -61,7 +62,7 @@ func Main(args []string) int {
 		defer f.Close()
 		logw = f
 	}
-	if _, ok := HasWebView2(); !ok {
+	if _, ok := webview2.Has(); !ok {
 		return noWebView(dir, logw)
 	}
 	plan, err := Prepare(context.Background(), dir, hidden, route)
@@ -99,7 +100,7 @@ func registerScheme(logw io.Writer) {
 func noWebView(dir string, logw io.Writer) int {
 	fmt.Fprintln(logw, "shell: the WebView2 runtime is missing")
 	msg := fmt.Sprintf("The Microsoft Edge WebView2 runtime is missing, so the %s window cannot open. Install it from %s.\n\nOpen %s in the browser instead?",
-		name.Product, WebView2Download, name.Product)
+		name.Product, webview2.Download, name.Product)
 	ok, _ := notify.Ask(context.Background(), name.Product, msg)
 	if !ok {
 		return 0

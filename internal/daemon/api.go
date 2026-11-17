@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/golbinski/kalka/internal/core"
+	"github.com/golbinski/kalka/internal/doctor"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/reference"
 	"github.com/golbinski/kalka/internal/rules"
@@ -152,6 +154,13 @@ func (d *Daemon) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
+	})
+	// kalka doctor's checks, run by the daemon (spec 12.5): it answers, so
+	// the daemon and its API are ok.
+	mux.HandleFunc("GET /api/doctor", func(w http.ResponseWriter, r *http.Request) {
+		p := d.doctorProbes()
+		p.Daemon = func(context.Context) doctor.DaemonState { return doctor.DaemonState{Running: true} }
+		writeJSON(w, http.StatusOK, doctor.Run(r.Context(), p))
 	})
 	mux.HandleFunc("GET /api/about", func(w http.ResponseWriter, _ *http.Request) {
 		a := d.opts.About

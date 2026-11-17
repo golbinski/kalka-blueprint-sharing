@@ -13,6 +13,7 @@ import (
 	"github.com/golbinski/kalka/internal/desktop"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/urlscheme"
+	"github.com/golbinski/kalka/internal/webview2"
 )
 
 // installer builds the per-user Windows installer (spec 23.1) from the
@@ -29,7 +30,7 @@ func (r *release) installer(stage, goarch string) error {
 		return err
 	}
 	script, err := nsisScript(nsisVars{Version: r.version, Arch: goarch, AppID: name.AppID,
-		Src: stage, Out: filepath.Join(dir, out), WebView2: desktop.WebView2Download})
+		Src: stage, Out: filepath.Join(dir, out), WebView2: webview2.Download})
 	if err != nil {
 		return err
 	}

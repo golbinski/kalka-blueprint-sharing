@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golbinski/kalka/internal/core"
+	"github.com/golbinski/kalka/internal/doctor"
 	"github.com/golbinski/kalka/internal/lockfile"
 	"github.com/golbinski/kalka/internal/name"
 )
@@ -46,6 +47,8 @@ type Options struct {
 	// Notify, if set, shows a notice as an OS notification; it is called
 	// only while no UI page is connected, and must not block for long.
 	Notify func(core.Notice)
+	// Doctor, if set, replaces the probes of GET /api/doctor (tests).
+	Doctor func() doctor.Probes
 	// Autostart, if set, lets the settings change the start-at-login
 	// entry (SystemAutostart in the real binary; nil in tests).
 	Autostart Autostart
@@ -218,3 +221,27 @@ func (d *Daemon) APIAddr() string { return d.apiAddr }
 
 // Token is the per-start API token.
 func (d *Daemon) Token() string { return d.token }
+
+// doctorProbes are the probes of GET /api/doctor: the system's, with the
+// autostart entry as the settings see it.
+func (d *Daemon) doctorProbes() doctor.Probes {
+	if d.opts.Doctor != nil {
+		return d.opts.Doctor()
+	}
+	p := doctor.System(d.dir)
+	// The daemon runs with its configuration loaded.
+	if c := d.opts.Config; c != nil {
+		p.Config = func() (doctor.Config, error) {
+			return doctor.Config{Email: c.Email, Rendezvous: c.Rendezvous, Folder: c.Folder}, nil
+		}
+	}
+	if d.opts.Autostart == nil {
+		p.Autostart = nil
+	} else {
+		p.Autostart = func() (bool, bool, error) {
+			st, err := d.opts.Autostart.Get()
+			return st.Enabled, st.Stale, err
+		}
+	}
+	return p
+}

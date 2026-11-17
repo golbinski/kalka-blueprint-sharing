@@ -964,23 +964,23 @@ A domain version is found as its snapshot `*@v<N>.md` first, then as a domain do
 
 ### 12.5 `kalka doctor`
 
-`kalka doctor [--json]` checks that this installation can work, and says for each check `ok`, `warn` or `fail` with one line saying how to fix it. Unlike `check`, it reads the configuration, talks to the daemon and reaches the network.
+`kalka doctor [--json]` checks that this installation can work, and says for each check `ok`, `warn` or `fail` with one line saying how to fix it, or `skip` when a check it depends on failed (no configuration, no answer from the rendezvous). Unlike `check`, it reads the configuration, talks to the daemon and reaches the network. It only reads: it registers, writes and starts nothing, but for a temporary file in the folder, removed at once.
 
 | Check | Fails or warns when |
 |---|---|
 | `config` | There is no configuration, or it does not load (fail: run `kalka setup`). |
 | `key` | The identity key is missing or unreadable (fail). |
-| `daemon` | No daemon runs (warn: run `kalka`). |
+| `daemon` | No daemon holds the single-daemon lock (warn: run `kalka`). |
 | `local-api` | A daemon runs but its API does not answer with the token (fail). |
-| `rendezvous` | The rendezvous server does not answer within 5 seconds (fail). |
-| `turn` | The rendezvous gives no TURN credentials (warn: peers behind strict networks will not connect). |
+| `rendezvous` | The rendezvous server does not answer within 5 seconds (fail). A kalka rendezvous is asked for `/kalka/ice`; a stock PeerJS server answers 404, which counts as an answer. |
+| `turn` | The rendezvous lists no TURN server (warn: peers behind strict networks will not connect). The PeerJS cloud has its own. |
 | `clock` | The local clock differs from the rendezvous server's by more than 2 minutes (warn) or 10 (fail): invites and TURN credentials are time-bound. |
 | `folder` | The folder is missing or not writable (fail). |
 | `webview2` | Windows only: the WebView2 runtime is missing (fail: the window cannot open). |
-| `autostart` | The setting says start at login but nothing is registered (warn). |
+| `autostart` | The start-at-login entry cannot be read, or runs a program that no longer exists (warn: turn it off and on in Settings). The system's entry is the setting (22.2), so an entry that is off is `ok`. |
 | `url-scheme` | `kalka://` links do not open this installation (warn: open Kalka once to register it). |
 
-Exit code 0 when all are `ok`, 2 when some only warn, 1 when one fails. The app shows the same results in Settings under *Check setup* (`GET /api/doctor`).
+Exit code 0 when all are `ok` (or `skip`), 2 when some only warn, 1 when one fails. The app shows the same results in Settings under *Check setup* (`GET /api/doctor`), run by the daemon: there `daemon` and `local-api` are `ok`, since it answers.
 
 ---
 
@@ -1148,6 +1148,8 @@ Decisions taken where the design left a choice, with the reason.
 14. **A reference wins over a term.** Where an invariant reference such as `delivery#I3` contains a glossary term, the page links the reference.
 15. **Typed blocks with errors are not read.** A glossary or invariants block with an error other than a duplicate is ignored as a whole and shown as code, as a trace block is; duplicates drop only the later entry, so one mistake does not hide a glossary.
 16. **`G030` and `I040` at release list each blueprint once per word or invariant.** They are information for the owner and never stop the release.
+17. **Doctor has a `skip` state.** A check that cannot run because an earlier one failed says so instead of failing twice; it does not change the exit code.
+18. **No doctor check for a start-at-login setting.** kalka keeps no such setting apart from the system's entry (22.2), so doctor reports an entry it cannot read or that runs a missing program, never one that is merely off.
 
 Future work:
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { act } from "./actions";
-import { api, referenceURL, type About, type Settings, type Status, type Summary } from "./api";
+import { api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary } from "./api";
 import { localTime } from "./util";
 import { OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
@@ -82,6 +82,7 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
         To change these, run <code>kalka setup</code> in a terminal. A new
         email or server means teammates have to invite you again.
       </p>
+      <CheckSetup />
       <h2>Sync and notifications</h2>
       <div className="settings">
         <label className="setting">
@@ -190,6 +191,55 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
             {status.fingerprint && <> · your key {status.fingerprint}</>}
           </p>
         </details>
+      )}
+    </div>
+  );
+}
+
+const STATE: Record<string, string> = { ok: "ok", warn: "check", fail: "problem", skip: "not checked" };
+
+// CheckSetup runs kalka doctor's checks (spec 12.5) and lists them, each
+// with what to do about it.
+function CheckSetup() {
+  const [r, setR] = useState<DoctorReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const run = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setR(await api.doctor());
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  };
+  const bad = r ? r.summary.warn + r.summary.fail : 0;
+  return (
+    <div className="check-setup">
+      <div className="row center">
+        <button type="button" onClick={run} disabled={busy}>
+          {busy ? "Checking…" : r ? "Check again" : "Check setup"}
+        </button>
+        <span className="muted small">
+          {r
+            ? bad
+              ? `${bad} to look at, as kalka doctor reports them`
+              : "Everything works."
+            : "The key, the daemon, the server, the clock, the folder and links, as kalka doctor checks them."}
+        </span>
+      </div>
+      {err && <div className="error-box">{err}</div>}
+      {r && (
+        <ul className="plain doctor-list">
+          {r.results.map((x) => (
+            <li key={x.check} className={"doctor-" + x.state}>
+              <span className="doctor-state">{STATE[x.state] ?? x.state}</span>{" "}
+              <span className="mono small muted">{x.check}</span> {x.detail}
+              {x.fix && <div className="small doctor-fix">{x.fix}</div>}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

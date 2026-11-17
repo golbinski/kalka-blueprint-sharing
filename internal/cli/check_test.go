@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/golbinski/kalka/internal/doctor"
 	"github.com/golbinski/kalka/internal/rules"
 )
 
@@ -136,5 +139,36 @@ func TestInvariantsCommand(t *testing.T) {
 	}
 	if code, _, _ := runCLI("invariants"); code != checkUsage {
 		t.Errorf("no file: %d", code)
+	}
+}
+
+// kalka doctor prints each check with its fix and exits 0, 2 or 1 (spec
+// 12.5); the probes are fakes, so nothing real is read.
+func TestDoctorCommand(t *testing.T) {
+	old := doctorProbes
+	defer func() { doctorProbes = old }()
+	probes := doctor.Probes{
+		Config: func() (doctor.Config, error) { return doctor.Config{Email: "ida@library.example", Folder: "/f"}, nil },
+		Daemon: func(context.Context) doctor.DaemonState { return doctor.DaemonState{} },
+		Folder: func(string) error { return nil },
+	}
+	doctorProbes = func(string) doctor.Probes { return probes }
+	code, out, _ := runCLI("doctor")
+	if code != 2 || !strings.Contains(out, "warn  daemon") || !strings.Contains(out, "fix: run `kalka`") {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	probes.Folder = func(string) error { return errors.New("not writable") }
+	code, out, _ = runCLI("doctor", "--json")
+	var r doctor.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil || code != 1 || r.Summary.Fail != 1 {
+		t.Fatalf("%d %v\n%s", code, err, out)
+	}
+	probes.Daemon = func(context.Context) doctor.DaemonState { return doctor.DaemonState{Running: true} }
+	probes.Folder = func(string) error { return nil }
+	if code, _, _ := runCLI("doctor"); code != 0 {
+		t.Fatalf("healthy: %d", code)
+	}
+	if code, _, _ := runCLI("doctor", "extra"); code != checkUsage {
+		t.Fatalf("usage: %d", code)
 	}
 }

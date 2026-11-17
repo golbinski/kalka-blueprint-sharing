@@ -1,4 +1,6 @@
-package desktop
+// Package webview2 finds the Microsoft Edge WebView2 runtime the Windows
+// window needs (spec 23.2); the shell and kalka doctor both ask it.
+package webview2
 
 import (
 	"strconv"
@@ -10,8 +12,8 @@ import (
 // user. An empty value or 0.0.0.0 means removed.
 const webView2Client = `Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
 
-// WebView2Keys are the keys to read "pv" from, under HKLM then HKCU.
-var WebView2Keys = []struct {
+// Keys are the keys to read "pv" from, under HKLM then HKCU.
+var Keys = []struct {
 	Machine bool
 	Path    string
 }{
@@ -20,18 +22,18 @@ var WebView2Keys = []struct {
 	{false, `Software\` + webView2Client},
 }
 
-// MinWebView2 is the oldest runtime the shell accepts.
-const MinWebView2 = "86.0.616.0"
+// Min is the oldest runtime the shell accepts.
+const Min = "86.0.616.0"
 
-// WebView2Version picks the first usable version among the values read;
+// Version picks the first usable version among the values read;
 // ok is false when none is installed or all are too old.
-func WebView2Version(values []string) (version string, ok bool) {
+func Version(values []string) (version string, ok bool) {
 	for _, v := range values {
 		v = strings.TrimSpace(v)
 		if v == "" || v == "0.0.0.0" {
 			continue
 		}
-		if compareVersions(v, MinWebView2) >= 0 {
+		if compareVersions(v, Min) >= 0 {
 			return v, true
 		}
 	}
@@ -60,5 +62,5 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
-// WebView2Download is where the runtime is offered.
-const WebView2Download = "https://developer.microsoft.com/microsoft-edge/webview2/"
+// Download is where the runtime is offered.
+const Download = "https://developer.microsoft.com/microsoft-edge/webview2/"
