@@ -200,4 +200,4 @@ Linux, macOS and Windows. A `v*` tag builds the release.
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE); see also [NOTICE](NOTICE).
