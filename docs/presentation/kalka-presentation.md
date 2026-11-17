@@ -1,6 +1,6 @@
 # kalka — a pull request for implementation plans
 
-The text and speaker notes of the team presentation about kalka, one section per slide. The rendered slides are in `kalka-presentation.pdf` next to this file, once exported. Rule IDs on slide 13 are real; see [rules.md](../rules.md).
+The text and speaker notes of the team presentation about kalka, one section per slide. The rendered slides are in [kalka-presentation.pdf](kalka-presentation.pdf). Rule IDs on slide 13 are real; see [rules.md](../rules.md).
 
 ---
 
