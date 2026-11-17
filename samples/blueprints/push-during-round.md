@@ -63,12 +63,14 @@ nodes:
     text: "One round per team at a time; it clears the flag as it starts"
     realizes: [B2]
     ref: "gh:internal/core/replicate.go#L942-L955"
+    guards: [P2]
     why: "two rounds of one team would fetch the same documents twice"
     next: [C3]
   - id: C3
     lane: code
     text: "When a round ends, kick again if the flag was set"
     realizes: [B3]
+    guards: ["sync#I5", P1]
     ref: "gh:internal/core/replicate.go#L930-L939"
     next: [C4]
   - id: C4
@@ -79,6 +81,19 @@ nodes:
 ```
 
 ## Verification plan
+
+```invariants v1
+affects: ["sync#I5"]
+invariants:
+  - id: P1
+    statement: "A release made while a round runs reaches an online teammate before the next periodic round"
+    verified_by: ["gh:internal/core/replicate_test.go#L539-L589"]
+    status: new
+  - id: P2
+    statement: "Two rounds of one team never run at the same time"
+    why: "both would fetch the same documents"
+    verified_by: ["Reviewer: read the round's start under repl.mu"]
+```
 
 - [TestPushDuringRound](gh:internal/core/replicate_test.go#L539-L589): a release made while a round runs reaches the teammate before the next periodic round could.
 - Two quick releases in a row cause at most two rounds, not one per kick.

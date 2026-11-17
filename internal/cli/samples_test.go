@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,21 +15,31 @@ import (
 // TestSamples keeps the sample folder (samples/blueprints, used for manual
 // testing) as samples/README.md describes it: each file passes `kalka
 // check` with no error and only the warnings it is there to show, every
-// trace block is valid, and each shows the hints it says. The lending
-// samples are checked against their domain document (--domain).
+// trace block is valid, and each shows the hints it says. Each folder's
+// plans are checked against its domain document (--domain).
 func TestSamples(t *testing.T) {
 	root := filepath.Join("..", "..", "samples", "blueprints")
 	want := map[string][]string{ // hints, then the warnings shown on purpose
-		"kalka-core-sync-domain.md":      nil,
-		"push-during-round.md":           nil,
-		"retry-first-release.md":         {"H003", "H004", "H005"},
-		"relay-indicator.md":             nil,
-		"join-flow-trace.md":             nil,
-		"packaging/windows-installer.md": {"H001", "H004"},
-		"packaging/windows-app-icon.md":  {"H001"},
-		"lending/loans-domain.md":        nil,
-		"lending/online-renewals.md":     {"I030", "I031"},
-		"lending/hold-notices.md":        {"G020", "G020"},
+		"kalka-core-sync-domain.md":             nil,
+		"push-during-round.md":                  nil,
+		"retry-first-release.md":                {"H003", "H004", "H005"},
+		"relay-indicator.md":                    nil,
+		"seed-push-latency.md":                  nil,
+		"join-flow-trace.md":                    nil,
+		"rendering-checks.md":                   nil,
+		"packaging/packaging-release-domain.md": nil,
+		"packaging/windows-installer.md":        {"H004"},
+		"packaging/windows-app-icon.md":         nil,
+		"lending/loans-domain.md":               nil,
+		"lending/online-renewals.md":            {"I030", "I031"},
+		"lending/hold-notices.md":               {"G020", "G020"},
+		"lending/overdue-reminders.md":          nil,
+	}
+	// The domain document each folder's plans are checked against.
+	domains := map[string]string{
+		"lending":   "lending/loans-domain.md",
+		"packaging": "packaging/packaging-release-domain.md",
+		".":         "kalka-core-sync-domain.md",
 	}
 	var seen []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -45,9 +56,7 @@ func TestSamples(t *testing.T) {
 		}
 		var out, errb bytes.Buffer
 		args := []string{"check", "--json", p}
-		if strings.HasPrefix(rel, "lending/") {
-			args = append(args, "--domain", filepath.Join(root, "lending", "loans-domain.md"))
-		}
+		args = append(args, "--domain", filepath.Join(root, filepath.FromSlash(domains[path.Dir(rel)])))
 		code := Run(args, nil, &out, &errb)
 		if code != checkClean && code != checkWarnings {
 			t.Errorf("%s: check exit %d: %s", rel, code, errb.String())

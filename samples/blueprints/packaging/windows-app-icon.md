@@ -1,5 +1,6 @@
 ---
 kalka_reference: kalka-blueprint@v1
+kalka_domain: packaging/release@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 8d56d5b47dbb7bfe0316f8b128fa1b8ed658c160
 repos:
@@ -8,7 +9,7 @@ repos:
 
 # The app icon on the Windows taskbar
 
-A second blueprint for `packaging`, spanning two repositories: kalka, the default, and the Wails desktop runtime it builds on, named `wails` in the frontmatter.
+A second blueprint for `packaging`, on the same domain as the installer plan, spanning two repositories: kalka, the default, and the Wails desktop runtime it builds on, named `wails` in the frontmatter.
 
 ## Context
 
@@ -39,6 +40,7 @@ nodes:
     lane: code
     text: "Icon group id 3 in the executable"
     realizes: [B1, B2]
+    guards: [A1]
     ref: "gh:wails:v3/pkg/application/webview_window_windows.go#L660-L674"
     why: "Wails loads id 3 for the window and for the notification image"
     next: [C2]
@@ -51,11 +53,22 @@ nodes:
   - id: C3
     lane: code
     text: "Refuse a release without the icon"
+    guards: ["release#I4"]
     ref: "gh:tools/release/pe.go#L50-L58"
     why: "a build that lost the resources would ship with the default icon unnoticed"
 ```
 
 ## Verification plan
+
+```invariants v1
+affects: ["release#I4"]
+invariants:
+  - id: A1
+    statement: "The icon group with the lowest id in kalka-desktop.exe is the app icon"
+    why: "Explorer takes icon index 0 to be the lowest id"
+    verified_by: ["gh:internal/winres/winres_test.go#L14-L62"]
+    status: new
+```
 
 - [TestLinkedIcon](gh:internal/winres/winres_test.go#L14-L62) links the object into Windows programs for amd64 and arm64 and reads both groups back.
 - The committed objects match what the generator draws now, within rounding between architectures.

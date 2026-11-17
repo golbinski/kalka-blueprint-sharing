@@ -9,6 +9,18 @@ How an invite link becomes a member, at the level a user sees and in kalka's cod
 
 ## From invite to member
 
+```mermaid
+sequenceDiagram
+  participant O as Owner's kalka
+  participant T as Teammate's kalka
+  T->>O: join request with a proof of the secret
+  O->>O: check proof, email and expiry
+  O-->>T: the team log, naming the teammate
+  T->>O: first round: ask for documents
+```
+
+The trace below follows the same path, with the business steps on the left and the code on the right. K3 loops back to itself while the owner is offline, and K4 carries a key of the author's own (`x-threat-model`), which kalka ignores without a warning.
+
 ```trace v1
 lanes: [business, code]
 nodes:
@@ -50,12 +62,15 @@ nodes:
     realizes: [J2]
     ref: "gh:internal/core/join.go#L233-L294"
     why: "the owner may be offline when the link is opened"
+    back:
+      K3: "owner offline, until the invite expires"
     next: [K4]
   - id: K4
     lane: code
     text: "Prove the secret without sending it"
     ref: "gh:internal/teamlog/invite.go#L152-L156"
     why: "a recorded session cannot be replayed to join again"
+    x-threat-model: "section 21"
     next: [K5]
   - id: K5
     lane: code

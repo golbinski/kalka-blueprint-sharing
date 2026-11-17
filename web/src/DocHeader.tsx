@@ -60,6 +60,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
       onSelect: () => setPanel('owner'),
     })
   }
+  if (st.primary === 'publish' && onPublish) more.push({ label: 'Publish to team…', sub: 'for your teammates to comment on', action: 'doc.publish', onSelect: onPublish })
   if (onSeed && !dm?.viewing && !errors) more.push({ label: 'Split off a seed…', sub: 'park an idea without changing the plan', onSelect: onSeed })
   if (live && (t!.can_act || t!.team_owner) && !t!.disputed && !doc.transfer?.moving_to) {
     more.push({ label: 'Copy to another team…', sep: true, onSelect: () => setTransfer('copy') })

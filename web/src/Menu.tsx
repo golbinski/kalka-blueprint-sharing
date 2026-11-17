@@ -4,6 +4,7 @@
 // button, a click outside closes it. Destructive items come last, in red,
 // after a separator.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { act, type ActionId } from './actions'
 
 export interface MenuItem {
   label: string
@@ -11,6 +12,8 @@ export interface MenuItem {
   danger?: boolean
   /** Draw a separator above the item. */
   sep?: boolean
+  /** The action this item carries, for the parity check. */
+  action?: ActionId
   onSelect: () => void
 }
 
@@ -56,6 +59,7 @@ export function Menu({ label, items, title, className = '' }: { label: ReactNode
               <button
                 type="button"
                 className={'menu-item' + (it.danger ? ' danger-text' : '')}
+                {...(it.action ? act(it.action) : {})}
                 onClick={() => {
                   setOpen(false)
                   it.onSelect()

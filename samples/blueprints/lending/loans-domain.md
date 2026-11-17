@@ -15,6 +15,7 @@ The shared language of a lending library's loans desk, and what must always hold
   definition: "Someone with a library card, who may borrow copies"
   forms: ["members"]
   aliases: ["patron", "patrons"]
+  context: "desk"
 - term: "copy"
   definition: "One physical item of a title, with its own barcode"
   forms: ["copies"]
@@ -23,18 +24,38 @@ The shared language of a lending library's loans desk, and what must always hold
   definition: "One copy lent to one member, from the day it leaves the desk until it is returned"
   forms: ["loans"]
   aliases: ["borrowing", "borrowings"]
+  context: "desk"
 - term: "due date"
   definition: "The day a loan ends unless it is renewed"
   forms: ["due dates"]
+  context: "desk"
 - term: "renewal"
   definition: "Moving a loan's due date on by one loan period, without the copy coming back"
   forms: ["renewals"]
   aliases: ["extension", "extensions"]
   see: ["hold"]
+  context: "desk"
 - term: "hold"
   definition: "A member's place in the queue for a title; the next copy returned is kept for the first hold"
   forms: ["holds"]
   aliases: ["reservation", "reservations"]
+  context: "desk"
+- term: "title"
+  definition: "A book, film or other work the library holds, of which it has one or more copies"
+  forms: ["titles"]
+  context: "catalogue"
+  see: ["copy"]
+- term: "overdue loan"
+  definition: "A loan whose due date has passed and whose copy is not back"
+  forms: ["overdue loans"]
+  aliases: ["late loan", "late loans"]
+  context: "desk"
+  see: ["due date"]
+- term: "notice"
+  definition: "A message the library sends a member about a loan or a hold"
+  forms: ["notices"]
+  aliases: ["notification", "notifications"]
+  context: "notices"
 ```
 
 ## Invariants
@@ -56,6 +77,16 @@ invariants:
   - id: I4
     statement: "A member has at most ten loans"
     verified_by: ["Reviewer: the desk report lists no member over ten"]
+  - id: I5
+    statement: "A member with an overdue loan cannot borrow another copy"
+    context: "desk"
+    why: "the copy that is out is waiting for someone else"
+    verified_by: ["Test: lending to a member with an overdue loan is refused"]
+  - id: I6
+    statement: "A member gets at most one notice a day about the same loan"
+    context: "notices"
+    why: "a daily stream of messages is read as noise and the next one is ignored"
+    verified_by: ["Test: two runs of the reminder job on one day send one notice"]
 ```
 
 ## Parts
