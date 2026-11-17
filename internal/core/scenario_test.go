@@ -149,7 +149,7 @@ func (n *node) comment(name, anchor, body string) *bp.Entry {
 	if err != nil {
 		n.w.t.Fatal(err)
 	}
-	e.Sign(d.KalkaID(), n.d.signer())
+	e.Sign(d.KalkaID(), n.d.signerAt(n.d.resolve(name)))
 	if err := d.AddEntry(e); err != nil {
 		n.w.t.Fatal(err)
 	}

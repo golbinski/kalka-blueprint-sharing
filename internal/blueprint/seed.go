@@ -13,10 +13,10 @@ import (
 
 // Frontmatter keys of seeds (spec 6.11).
 const (
-	KeyStatus  = "status"
-	KeyParent  = "parent"
-	KeyOrigin  = "origin"
-	KeyCreated = "created"
+	KeyStatus  = name.Product + "_status"
+	KeyParent  = name.Product + "_parent"
+	KeyOrigin  = name.Product + "_origin"
+	KeyCreated = name.Product + "_created"
 
 	StatusSeed = "seed"
 )
@@ -26,10 +26,10 @@ func (d *Document) get(key string) string {
 	return strings.TrimSpace(v)
 }
 
-// Status is the `status:` key, or "".
+// Status is the `kalka_status:` key, or "".
 func (d *Document) Status() string { return d.get(KeyStatus) }
 
-// IsSeed reports `status: seed`.
+// IsSeed reports `kalka_status: seed`.
 func (d *Document) IsSeed() bool { return d.Status() == StatusSeed }
 
 // Parent is the kalka_id of the blueprint a seed was split from.
@@ -38,7 +38,7 @@ func (d *Document) Parent() string { return strings.ToLower(d.get(KeyParent)) }
 // Origin is the id of the entry that triggered a seed.
 func (d *Document) Origin() string { return d.get(KeyOrigin) }
 
-// Created is the `created:` time; ok is false if absent or unreadable.
+// Created is the `kalka_created:` time; ok is false if absent or unreadable.
 func (d *Document) Created() (time.Time, bool) {
 	t, err := time.Parse(time.RFC3339, d.get(KeyCreated))
 	return t, err == nil

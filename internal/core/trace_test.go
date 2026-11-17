@@ -10,13 +10,32 @@ import (
 	"github.com/golbinski/kalka/internal/plugin"
 )
 
-const tracePlan = "# Import pipeline refactor\n\n## Plan\n\n```trace\n" + `lanes: [business, code]
+const tracePlan = "# Import pipeline refactor\n\n## Plan\n\n```trace v1\n" + `lanes: [business, code]
 nodes:
-  - {id: B1, lane: business, text: Receive files, next: [B2]}
-  - {id: B2, lane: business, text: Notify}
-  - {id: C1, lane: code, text: Upload handler, realizes: [B1], ref: "gh:src/upload.py#L1-L9", next: [C2]}
-  - {id: C2, lane: code, text: Skip large files, ref: "https://example.com/x", next: [C3]}
-  - {id: C3, lane: code, text: Notify in batches, realizes: [B2], ref: "gh:src/notify.py"}
+  - id: B1
+    lane: business
+    text: "Receive files"
+    next: [B2]
+  - id: B2
+    lane: business
+    text: "Notify"
+  - id: C1
+    lane: code
+    text: "Upload handler"
+    realizes: [B1]
+    ref: "gh:src/upload.py#L1-L9"
+    next: [C2]
+  - id: C2
+    lane: code
+    text: "Skip large files"
+    ref: "https://example.com/x"
+    why: "the parser runs out of memory"
+    next: [C3]
+  - id: C3
+    lane: code
+    text: "Notify in batches"
+    realizes: [B2]
+    ref: "gh:src/notify.py"
 ` + "```\n"
 
 func findEntry(v *DocView, anchor string) *EntryView {
@@ -55,10 +74,10 @@ func TestNodeCommentRoundTrip(t *testing.T) {
 
 	// The owner renames the node and releases the revision.
 	src := alice.read(name)
-	src = strings.Replace(src, "{id: C2,", "{id: C9,", 1)
+	src = strings.Replace(src, "id: C2\n", "id: C9\n", 1)
 	src = strings.Replace(src, "next: [C2]", "next: [C9]", 1)
 	alice.write(name, src)
-	waitStored(t, alice, alice.path(name), "{id: C9,")
+	waitStored(t, alice, alice.path(name), "id: C9\n")
 	alice.share(name, bob)
 	v, _ = bob.d.Document(ctx, bob.rel(id))
 	if e := findEntry(v, "plan#C2"); e == nil || !e.Orphaned {
@@ -149,6 +168,43 @@ func TestTraceViewReferences(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if fp.calls != 1 {
 		t.Fatalf("cache missed: %d calls", fp.calls)
+	}
+}
+
+// A ref that does not resolve is unverified in any lane; a new step needs
+// no ref, and a removed step takes no part.
+func TestTraceViewChange(t *testing.T) {
+	w := newWorld(t)
+	alice := w.node("alice@library.example")
+	alice.write("plan.md", "# Renewals\n\n## Plan\n\n```trace v1\n"+`lanes: [business, code]
+nodes:
+  - id: B1
+    lane: business
+    text: "A member renews a loan"
+    ref: "https://example.com/policy"
+  - id: C1
+    lane: code
+    text: "Extend the due date"
+    realizes: [B1]
+    change: new
+    next: [C2]
+  - id: C2
+    lane: code
+    text: "Old renewal form"
+    why: "replaced by the API"
+    ref: "gh:src/form.py"
+    change: removed
+`+"```\n")
+	v, err := alice.d.Document(context.Background(), "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, d := range v.Traces[0].Divergences {
+		got = append(got, d.Class+":"+d.Node+":"+d.Detail)
+	}
+	if want := "unverified:B1:not a plugin reference"; strings.Join(got, "|") != want {
+		t.Fatalf("divergences %q, want %q", got, want)
 	}
 }
 

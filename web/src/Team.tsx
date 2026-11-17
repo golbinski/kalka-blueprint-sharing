@@ -515,12 +515,12 @@ export function DomainsPage({ team, reloadKey, list }: { team: string; reloadKey
       <p className="muted">
         A domain document holds a team's shared language: glossary, contexts, invariants, events. Its owner releases its versions,
         like any document's; everyone else comments. Blueprints name the
-        version they rely on with <code>domain: &lt;team&gt;/&lt;domain&gt;@v&lt;N&gt;</code>.
+        version they rely on with <code>kalka_domain: &lt;team&gt;/&lt;domain&gt;@v&lt;N&gt;</code>.
       </p>
       {err && <div className="error-box">{err}</div>}
       {rows && rows.length === 0 && (
         <p className="muted">
-          No domain documents here yet. Write one with <code>kind: domain</code>, <code>team:</code> and <code>domain:</code> in its
+          No domain documents here yet. Write one with <code>kalka_kind: domain</code>, <code>kalka_team:</code> and <code>kalka_domain:</code> in its
           frontmatter, then release it.
         </p>
       )}

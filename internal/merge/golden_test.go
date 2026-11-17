@@ -48,7 +48,7 @@ func golden(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	src := string(raw)
-	if *fixFixtures && strings.Contains(src, "rev:REV") {
+	if *fixFixtures && (strings.Contains(src, "rev:REV") || strings.Contains(src, "id:ID\n")) {
 		src = fillPlaceholders(t, src)
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
@@ -68,9 +68,9 @@ func golden(t *testing.T, path string) {
 		alices.SetFrontmatter("kalka_id", "9c3b2a7d-8e0f-4c9b-8a1d-5b7c8d9e0f1a")
 	}
 	if alices.Owner() == "" {
-		alices.SetFrontmatter("owner", "alice@example.org")
+		alices.SetFrontmatter("kalka_owner", "alice@example.org")
 	}
-	alices.SetFrontmatter("team", "parcels")
+	alices.SetFrontmatter("kalka_team", "parcels")
 	gt := newFakeTeam()
 	for _, m := range []string{alices.Owner(), "bob@example.org"} {
 		gt.keys[strings.ToLower(m)] = []ed25519.PublicKey{tkey(strings.ToLower(m)).Public().(ed25519.PublicKey)}
@@ -127,13 +127,13 @@ func golden(t *testing.T, path string) {
 }
 
 func fillPlaceholders(t *testing.T, src string) string {
-	rev := parse(t, strings.ReplaceAll(src, "rev:REV · id:ID", "rev:00000000 · id:000000000000")).Rev()
+	rev := parse(t, strings.ReplaceAll(src, "rev:REV · id:ID", "rev:00000000 · id:00000000000000000000000000000000")).Rev()
 	src = strings.ReplaceAll(src, "rev:REV", "rev:"+rev)
 	for strings.Contains(src, "id:ID\n") {
-		src = strings.Replace(src, "id:ID\n", "id:000000000000\n", 1)
+		src = strings.Replace(src, "id:ID\n", "id:00000000000000000000000000000000\n", 1)
 		for _, it := range parse(t, src).Items() {
-			if it.Entry.ID == "000000000000" {
-				src = strings.Replace(src, "id:000000000000\n", "id:"+it.Entry.ComputeID()+"\n", 1)
+			if it.Entry.ID == "00000000000000000000000000000000" {
+				src = strings.Replace(src, "id:00000000000000000000000000000000\n", "id:"+it.Entry.ComputeID()+"\n", 1)
 				break
 			}
 		}
@@ -145,7 +145,7 @@ func unmanaged(d *bp.Document) string {
 	var keep []string
 	if f := d.Frontmatter(); f != nil {
 		for _, l := range f.Lines[1 : len(f.Lines)-1] {
-			if !strings.HasPrefix(l, "kalka_id:") && !strings.HasPrefix(l, "owner:") && !strings.HasPrefix(l, "team:") {
+			if !strings.HasPrefix(l, "kalka_id:") && !strings.HasPrefix(l, "kalka_owner:") && !strings.HasPrefix(l, "kalka_team:") {
 				keep = append(keep, l)
 			}
 		}

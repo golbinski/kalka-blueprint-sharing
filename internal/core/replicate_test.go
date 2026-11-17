@@ -242,7 +242,7 @@ func TestReplicationPrivateNeverLeaves(t *testing.T) {
 
 	const privateTitle = "Locker master codes"
 	const privateBody = "the master code is under the counter mat"
-	depot.write("codes.md", "---\nkalka_id: 11111111-2222-4333-8444-555555555555\nowner: depot@parcels.example\n---\n# "+privateTitle+"\n\n"+privateBody+"\n")
+	depot.write("codes.md", "---\nkalka_id: 11111111-2222-4333-8444-555555555555\nkalka_owner: depot@parcels.example\n---\n# "+privateTitle+"\n\n"+privateBody+"\n")
 	depot.write("lockers.md", lockers)
 	waitIndexed(t, depot, 2)
 	r := depot.publish("lockers.md")

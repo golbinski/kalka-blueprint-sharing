@@ -210,7 +210,7 @@ func cmdBacklink(args []string, stdout, stderr io.Writer, now func() time.Time) 
 			parentPath = pf.Path
 			var p *bp.Document
 			if p, err = bp.Parse(pf.Raw); err == nil {
-				if entry, err = bp.AddBacklink(p, seed, email, now(), sign); err == nil && entry != nil {
+				if entry, err = bp.AddBacklink(p, seed, email, now(), sign(pf.Path)); err == nil && entry != nil {
 					err = fsutil.WriteAtomic(pf.Path, p.Bytes(), pf.Raw)
 				}
 			}

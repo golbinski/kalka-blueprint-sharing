@@ -1,11 +1,11 @@
 ---
-kind: domain
-domain: sync
+kalka_kind: domain
+kalka_domain: sync
 ---
 
 # Sync domain
 
-The shared language of kalka's sync: what the words in the team's blueprints mean, and what must always hold. Blueprints name the version they were written against with `domain: kalka-core/sync@v<N>`.
+The shared language of kalka's sync: what the words in the team's blueprints mean, and what must always hold. Blueprints name the version they were written against with `kalka_domain: kalka-core/sync@v<N>`.
 
 ## Glossary
 

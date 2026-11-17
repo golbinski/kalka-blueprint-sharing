@@ -9,7 +9,7 @@ import (
 )
 
 // Version is the reference version documents opt into with
-// `reference: <Version>` in their frontmatter.
+// `kalka_reference: <Version>` in their frontmatter.
 const Version = "kalka-blueprint@v1"
 
 // FileName is the name the reference is exported under.

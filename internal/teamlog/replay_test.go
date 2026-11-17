@@ -3,7 +3,10 @@ package teamlog
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"math/rand"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -427,15 +430,25 @@ func TestDecodeRefuses(t *testing.T) {
 		"float":         strings.Replace(good, `"v":2}`, `"v":2.5}`, 1),
 		"not json":      good[:20],
 		"trailing":      good + " {}",
+		"email case":    strings.Replace(good, `"alice@example.org"`, `"Alice@example.org"`, 1),
 	} {
 		if _, err := Decode([]byte(line)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	for _, v := range []string{"1", "3"} {
-		other := strings.Replace(good, `"v":2}`, `"v":`+v+`}`, 1)
-		if _, err := Decode([]byte(other)); !IsUnsupported(err) {
-			t.Errorf("v%s: %v", v, err)
+	// Rule version 1 is no longer read; a line in another form than the
+	// canonical one is refused, even if it means the same operation.
+	if _, err := Decode([]byte(strings.Replace(good, `"v":2}`, `"v":1}`, 1))); err == nil {
+		t.Error("v1 accepted")
+	}
+	for name, line := range map[string]string{
+		"space":         strings.Replace(good, `,"at":`, `, "at":`, 1),
+		"key order":     strings.Replace(good, `{"args":{"email"`, `{"args":{"name":"parcels","email"`, 1),
+		"duplicate key": strings.Replace(good, `"v":2}`, `"v":2,"v":2}`, 1),
+		"escape":        strings.Replace(good, `"parcels"`, `"parc\u0065ls"`, 1),
+	} {
+		if _, err := Decode([]byte(line)); err == nil {
+			t.Errorf("%s: accepted", name)
 		}
 	}
 	// assign-domain is gone in rule version 2.
@@ -459,6 +472,86 @@ func TestDecodeRefuses(t *testing.T) {
 		Prev: []string{strings.Repeat("b", 64), strings.Repeat("a", 64)}, Signer: EncodeKey(newActor("x").pub)}
 	if _, err := Decode(unsorted.Encode()); err == nil {
 		t.Error("unsorted prev accepted")
+	}
+}
+
+// newerOp is a validly signed operation of rule version 3, with a kind
+// and arguments this package does not know.
+func newerOp(t *testing.T, a actor, team string, prev []string) []byte {
+	t.Helper()
+	body := `{"args":{"device":"laptop","email":"` + a.email + `"},"at":"2027-01-01T00:00:00Z","op":"add-device","prev":["` + strings.Join(prev, `","`) + `"],"signer":"` + EncodeKey(a.pub) + `","team":"` + team + `","v":3}`
+	sum := sha256.Sum256([]byte(body))
+	sig := base64.RawURLEncoding.EncodeToString(ed25519.Sign(a.key, SigMessage(hex.EncodeToString(sum[:]))))
+	return []byte(strings.Replace(body, `,"signer":`, `,"sig":"`+sig+`","signer":`, 1))
+}
+
+// An operation of a newer rule version is verified, kept byte for byte
+// and passed on; it is pending, with everything built on it, and the rest
+// of the state is unchanged.
+func TestNewerRuleVersion(t *testing.T) {
+	tm := setup(t)
+	alice := tm.actor("alice@example.org")
+	before, _ := Replay(tm.id, tm.ops)
+	line := newerOp(t, alice, tm.id, tm.heads())
+	o, err := Decode(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Supported() || o.V != 3 || o.Kind != "" || !o.VerifySig() || string(o.Encode()) != string(line) {
+		t.Fatalf("op %+v verifies %v", o, o.VerifySig())
+	}
+	// Through a file and back: the same bytes, the same hash.
+	path := filepath.Join(t.TempDir(), "parcels-team.log")
+	all, err := AppendFile(path, append(append([]Op(nil), tm.ops...), o))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, bad, err := ReadFile(path)
+	if err != nil || len(bad) != 0 || len(read) != len(all) {
+		t.Fatalf("read %d of %d, bad %v, %v", len(read), len(all), bad, err)
+	}
+	var again Op
+	for _, r := range read {
+		if r.Hash() == o.Hash() {
+			again = r
+		}
+	}
+	if string(again.Encode()) != string(line) {
+		t.Fatalf("line changed:\n%s\n%s", again.Encode(), line)
+	}
+	// A current operation built on it waits for it.
+	child := tm.signer("alice@example.org").AddOwner([]string{o.Hash()}, "bob@example.org", t0)
+	st, _ := Replay(tm.id, append(read, child))
+	pending := map[string]string{}
+	for _, p := range st.Pending {
+		pending[p.Hash] = p.Reason
+	}
+	if !strings.Contains(pending[o.Hash()], "newer kalka") || pending[child.Hash()] == "" {
+		t.Fatalf("pending %+v", st.Pending)
+	}
+	if !reflect.DeepEqual(sortedKeys(st.Members), sortedKeys(before.Members)) || !reflect.DeepEqual(st.Owners, before.Owners) {
+		t.Fatalf("state changed: %+v", st)
+	}
+}
+
+// An address has one spelling in the log: the builders write it in
+// canonical form, and replay, which compares bytes, never meets two.
+func TestEmailCanonical(t *testing.T) {
+	tm := setup(t)
+	o := tm.signer("alice@example.org").AddMember(tm.heads(), "Dave@Example.org", newActor("dave@example.org").pub, "", t0)
+	if o.Args.Email != "dave@example.org" {
+		t.Fatalf("email %q", o.Args.Email)
+	}
+	if _, err := Decode(o.Encode()); err != nil {
+		t.Fatal(err)
+	}
+	// Non-ASCII letters are kept as written.
+	o = tm.signer("alice@example.org").AddMember(tm.heads(), "Émile@Example.org", newActor("e").pub, "", t0)
+	if o.Args.Email != "Émile@example.org" {
+		t.Fatalf("email %q", o.Args.Email)
+	}
+	if _, err := Decode(o.Encode()); err != nil {
+		t.Fatal(err)
 	}
 }
 

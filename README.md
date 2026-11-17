@@ -92,7 +92,7 @@ kalka waiting
 - `kalka reference export` writes the **blueprint reference**: a short
   guide, in the form of an agent skill, to writing blueprints agents can
   act on safely (scope, verification plan, critical sections, operations,
-  the deviation log). A blueprint opts in with `reference:
+  the deviation log). A blueprint opts in with `kalka_reference:
   kalka-blueprint@v1` and then gets soft hints such as "no verification
   plan".
 - Every command takes `--json`, and errors carry a stable `kind`.

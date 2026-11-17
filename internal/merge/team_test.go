@@ -18,8 +18,23 @@ type fakeTeam struct {
 	accepted map[string]Acceptance
 }
 
-func (f *fakeTeam) Keys(email string) []ed25519.PublicKey { return f.keys[strings.ToLower(email)] }
-func (f *fakeTeam) Anchors(id string) []Anchor            { return f.anchors[id] }
+func (f *fakeTeam) Term(ref string) (string, ed25519.PublicKey, bool) {
+	for email, keys := range f.keys {
+		for _, k := range keys {
+			if termOf(k) == ref {
+				return email, k, true
+			}
+		}
+	}
+	return "", nil, false
+}
+func (f *fakeTeam) Anchors(id string) []Anchor { return f.anchors[id] }
+
+// termOf is the fake team's term reference of a key.
+func termOf(k ed25519.PublicKey) string {
+	sum := sha256.Sum256(k)
+	return fmt.Sprintf("%x", sum[:])[:bp.TermLen]
+}
 func (f *fakeTeam) Accepted(id string) (Acceptance, bool) {
 	a, ok := f.accepted[id]
 	return a, ok
@@ -32,7 +47,7 @@ func tkey(s string) ed25519.PrivateKey {
 
 func sgn(email string) bp.Signer {
 	k := tkey(email)
-	return func(m []byte) []byte { return ed25519.Sign(k, m) }
+	return bp.Signer{Fn: func(m []byte) []byte { return ed25519.Sign(k, m) }, Term: termOf(k.Public().(ed25519.PublicKey))}
 }
 
 var members = []string{"dana@example.org", "bob@example.org", "carol@example.org", "erin@example.org"}
@@ -51,7 +66,7 @@ const tkid = "6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40"
 
 func planDoc(t *testing.T, owner, body string) *bp.Document {
 	t.Helper()
-	d, err := bp.Parse([]byte("---\nkalka_id: " + tkid + "\nowner: " + owner + "\nteam: parcels\n---\n# Redelivery\n\n## Scope\n" + body + "\n"))
+	d, err := bp.Parse([]byte("---\nkalka_id: " + tkid + "\nkalka_owner: " + owner + "\nkalka_team: parcels\n---\n# Redelivery\n\n## Scope\n" + body + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +255,7 @@ func TestTombstoneBeatsStaleCopy(t *testing.T) {
 }
 
 func mustStub(t *testing.T, d *bp.Document) *bp.Document {
-	s, err := bp.Parse([]byte("---\nkalka_id: " + tkid + "\nowner: " + d.Owner() + "\nteam: parcels\ndeleted: true\n---\n"))
+	s, err := bp.Parse([]byte("---\nkalka_id: " + tkid + "\nkalka_owner: " + d.Owner() + "\nkalka_team: parcels\n---\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,5 +475,36 @@ func TestDisputeEndedByReassignment(t *testing.T) {
 	ch = Releases(entries(bob2), tkid, team)
 	if head, _ := ch.Head(); head.Entry.Author != "bob@example.org" || head.Release.Version != 2 || ch.Disputed {
 		t.Fatalf("settled: %+v %v", head, ch.Void)
+	}
+}
+
+// One entry naming a huge version, or an anchor with a huge cut-off, is
+// read in no time: the chain visits only the versions something names.
+// A version nothing names breaks the chain until the next anchor.
+func TestHugeVersionsAndGaps(t *testing.T) {
+	team := newFakeTeam()
+	v1 := release(t, planDoc(t, "dana@example.org", "First."), "dana@example.org", 1, false, tt0)
+	huge := release(t, withPlan(t, v1, "dana@example.org", "Far."), "dana@example.org", 999999999999999999, false, tt0.Add(time.Hour))
+	team.anchors[tkid] = []Anchor{{"bob@example.org", 1 << 62}}
+	start := time.Now()
+	ch := Releases(entries(huge), tkid, team)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("chain took %v", d)
+	}
+	if head, _ := ch.Head(); head.Release.Version != 1 || len(ch.Releases) != 1 {
+		t.Fatalf("head v%d, %d releases", head.Release.Version, len(ch.Releases))
+	}
+	if why := ch.Void[huge.Items()[len(huge.Items())-1].Entry.ID]; why != "version 2 is missing or void" {
+		t.Fatalf("void %q", why)
+	}
+	// A gap below an anchor: the anchor restarts the chain above it.
+	delete(team.anchors, tkid)
+	v3 := release(t, withPlan(t, v1, "bob@example.org", "Bob's."), "bob@example.org", 3, false, tt0.Add(2*time.Hour))
+	if ch := Releases(entries(v3), tkid, team); len(ch.Releases) != 1 {
+		t.Fatalf("v3 above a gap counts: %+v", ch.Releases)
+	}
+	team.anchors[tkid] = []Anchor{{"bob@example.org", 2}}
+	if ch := Releases(entries(v3), tkid, team); len(ch.Releases) != 2 || ch.Releases[1].Release.Version != 3 {
+		t.Fatalf("v3 at the anchor refused: %+v", ch.Void)
 	}
 }

@@ -135,9 +135,9 @@ func leaks(sent []string, probed []string, secrets ...string) string {
 
 const (
 	routesID  = "a1111111-2222-4333-8444-555555555555"
-	routesDoc = "---\nkalka_id: " + routesID + "\nowner: ewa@parcels.example\n---\n# Courier routes\n\n## Plan\n\nRoute vans by postcode.\n"
+	routesDoc = "---\nkalka_id: " + routesID + "\nkalka_owner: ewa@parcels.example\n---\n# Courier routes\n\n## Plan\n\nRoute vans by postcode.\n"
 	finesID   = "b1111111-2222-4333-8444-555555555555"
-	finesDoc  = "---\nkalka_id: " + finesID + "\nowner: ewa@parcels.example\n---\n# Overdue fines\n\n## Plan\n\nWaive fines in January.\n"
+	finesDoc  = "---\nkalka_id: " + finesID + "\nkalka_owner: ewa@parcels.example\n---\n# Overdue fines\n\n## Plan\n\nWaive fines in January.\n"
 	unknownID = "99999999-2222-4333-8444-555555555555"
 )
 
@@ -235,8 +235,8 @@ func TestSameNameTeamsExchangeNothing(t *testing.T) {
 		t.Fatalf("second parcels folder %q %v", v2.Dir, err)
 	}
 
-	ewa.write("parcels/routes.md", strings.Replace(routesDoc, "---\n#", "team: parcels\n---\n#", 1))
-	ewa.write("parcels-2/fines.md", strings.Replace(finesDoc, "---\n#", "team: parcels\n---\n#", 1))
+	ewa.write("parcels/routes.md", strings.Replace(routesDoc, "---\n#", "kalka_team: parcels\n---\n#", 1))
+	ewa.write("parcels-2/fines.md", strings.Replace(finesDoc, "---\n#", "kalka_team: parcels\n---\n#", 1))
 	waitIndexed(t, ewa, 2)
 	for _, p := range []string{"parcels/routes.md", "parcels-2/fines.md"} {
 		r, err := ewa.d.Publish(ewa.path(p), "", "")
@@ -284,7 +284,7 @@ func TestSameNameTeamsExchangeNothing(t *testing.T) {
 	}
 }
 
-// Personal files never leave, even with `team:` set or a genuine release
+// Personal files never leave, even with `kalka_team:` set or a genuine release
 // in them: no inventory line, content or id appears on any channel.
 func TestPersonalNeverLeaves(t *testing.T) {
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
@@ -292,7 +292,7 @@ func TestPersonalNeverLeaves(t *testing.T) {
 	installTaps(depot, courier)
 
 	const draftID = "c1111111-2222-4333-8444-555555555555"
-	depot.write("personal/draft.md", "---\nkalka_id: "+draftID+"\nowner: depot@parcels.example\nteam: parcels\n---\n# Locker draft\n\nNot ready.\n")
+	depot.write("personal/draft.md", "---\nkalka_id: "+draftID+"\nkalka_owner: depot@parcels.example\nkalka_team: parcels\n---\n# Locker draft\n\nNot ready.\n")
 	// A file released for the team, then moved back to Personal by hand:
 	// its release is real, its place is not the team's.
 	depot.write("personal/codes.md", strings.Replace(routesDoc, "ewa@", "depot@", 1))
@@ -402,9 +402,9 @@ func TestMismatchesNotReplicated(t *testing.T) {
 		otherID = "e1111111-2222-4333-8444-555555555555"
 		bareID  = "f1111111-2222-4333-8444-555555555555"
 	)
-	depot.write("parcels/draft.md", "---\nkalka_id: "+draftID+"\nowner: depot@parcels.example\n---\n# Draft locker plan\n")
-	depot.write("parcels/other.md", "---\nkalka_id: "+otherID+"\nowner: depot@parcels.example\nteam: library-desk\n---\n# Other team plan\n")
-	depot.write("parcels/bare.md", "---\nkalka_id: "+bareID+"\nowner: depot@parcels.example\nteam: parcels\n---\n# Unreleased plan\n")
+	depot.write("parcels/draft.md", "---\nkalka_id: "+draftID+"\nkalka_owner: depot@parcels.example\n---\n# Draft locker plan\n")
+	depot.write("parcels/other.md", "---\nkalka_id: "+otherID+"\nkalka_owner: depot@parcels.example\nkalka_team: library-desk\n---\n# Other team plan\n")
+	depot.write("parcels/bare.md", "---\nkalka_id: "+bareID+"\nkalka_owner: depot@parcels.example\nkalka_team: parcels\n---\n# Unreleased plan\n")
 	waitIndexed(t, depot, 3)
 
 	v, err := depot.d.Team("")

@@ -467,7 +467,7 @@ func forgeOffer(t *testing.T, x *xfer, src, path string) []byte {
 		}
 		items = append(items, &bp.Item{Entry: e})
 	}
-	offer.SetFrontmatter("owner", x.marek.email)
+	offer.SetFrontmatter("kalka_owner", x.marek.email)
 	plain, err := bp.Compose(offer, offer.EOL(), nil, items)
 	if err != nil {
 		t.Fatal(err)

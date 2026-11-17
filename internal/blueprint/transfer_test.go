@@ -14,7 +14,7 @@ func TestTransferEntryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2, err := Append(d, KindComment, "olek@example.org", at.Add(time.Minute), "", "", "", "Unsigned remark.", nil)
+	c2, err := Append(d, KindComment, "olek@example.org", at.Add(time.Minute), "", "", "", "Unsigned remark.", Signer{})
 	if err != nil {
 		t.Fatal(err)
 	}

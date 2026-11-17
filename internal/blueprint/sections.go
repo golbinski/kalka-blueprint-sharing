@@ -110,7 +110,7 @@ func Append(d *Document, kind, author string, at time.Time, anchor, re, quote, b
 	if err != nil {
 		return nil, err
 	}
-	if sign != nil && d.KalkaID() != "" {
+	if sign.Ok() && d.KalkaID() != "" {
 		e.Sign(d.KalkaID(), sign)
 	}
 	if err := d.AddEntry(e); err != nil {

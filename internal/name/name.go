@@ -16,7 +16,7 @@ const (
 	FrontmatterID = Product + "_id"
 
 	// FrontmatterOwner is the frontmatter key naming the owner (spec 6.2).
-	FrontmatterOwner = "owner"
+	FrontmatterOwner = Product + "_owner"
 
 	// AppID identifies kalka to the desktop: the launchd label on macOS,
 	// the AppUserModelID of its notifications and the Run value on Windows.
@@ -35,8 +35,10 @@ const (
 	EntrySigContext = Product + "-entry-v2"
 
 	// TeamLogSigContext prefixes the message signed by a team log
-	// operation (spec 19.1).
-	TeamLogSigContext = Product + "-teamlog-v2"
+	// operation (spec 19.1). It is the same for every rule version, so a
+	// peer can verify, and pass on, an operation whose rules it does not
+	// implement.
+	TeamLogSigContext = Product + "-teamlog-sig"
 
 	// InviteContext prefixes the invite token and the hashes derived from
 	// its secret (spec 19.7).

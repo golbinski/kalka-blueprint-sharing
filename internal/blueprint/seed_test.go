@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const parentDoc = "---\nkalka_id: 6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40\nowner: dana@example.org\n---\n# Redelivery scheduling\n\n## Scope\nThe redelivery module.\n"
+const parentDoc = "---\nkalka_id: 6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40\nkalka_owner: dana@example.org\n---\n# Redelivery scheduling\n\n## Scope\nThe redelivery module.\n"
 
 func TestBud(t *testing.T) {
 	k := testKey("bob")
@@ -69,24 +69,24 @@ func TestBud(t *testing.T) {
 
 func TestBudWithoutOrigin(t *testing.T) {
 	p := mustParse(t, parentDoc)
-	seed, e, err := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "Locker pickup", Problem: "Recipients want lockers.", At: time.Now()}, nil)
+	seed, e, err := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "Locker pickup", Problem: "Recipients want lockers.", At: time.Now()}, Signer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if seed.Origin() != "" || e.Anchor != "" || e.ReplyTo() != "" {
 		t.Fatalf("origin set: %+v", e)
 	}
-	if _, _, err := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "x", At: time.Now()}, nil); err == nil {
+	if _, _, err := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "x", At: time.Now()}, Signer{}); err == nil {
 		t.Fatal("seed with no problem")
 	}
-	if _, _, err := Bud(mustParse(t, "# Local\n"), SeedSpec{KalkaID: NewKalkaID(), Owner: "a@b.c", Title: "x", Problem: "y", At: time.Now()}, nil); err == nil {
+	if _, _, err := Bud(mustParse(t, "# Local\n"), SeedSpec{KalkaID: NewKalkaID(), Owner: "a@b.c", Title: "x", Problem: "y", At: time.Now()}, Signer{}); err == nil {
 		t.Fatal("parent without kalka_id")
 	}
 }
 
 func TestPromote(t *testing.T) {
 	p := mustParse(t, parentDoc)
-	seed, _, _ := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "Locker pickup", Problem: "p", At: time.Now()}, nil)
+	seed, _, _ := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "Locker pickup", Problem: "p", At: time.Now()}, Signer{})
 	if err := Promote(seed, "seed"); err == nil {
 		t.Fatal("promoted to seed")
 	}

@@ -56,7 +56,7 @@ type DocView struct {
 	// Team is set for a document published to a team (spec 20).
 	Team *TeamDocState `json:"team,omitempty"`
 	// Domain is set for a domain document, DomainRef for a document whose
-	// `domain:` names a domain version (spec 6.12).
+	// `kalka_domain:` names a domain version (spec 6.12).
 	Domain    *DomainInfo    `json:"domain,omitempty"`
 	DomainRef *DomainRefView `json:"domain_ref,omitempty"`
 	// Transfer is set for a document that came by a copy or a move, or
@@ -85,6 +85,9 @@ type EntryView struct {
 	Node      string `json:"node,omitempty"`
 	Rev       string `json:"rev"`
 	ReplyTo   string `json:"reply_to,omitempty"`
+	// Ext are the header's extension fields, name:value, as written: fields
+	// a later kalka added, shown as they are (spec 6.5).
+	Ext []string `json:"ext,omitempty"`
 	// Body is the entry text without its "re:" line, as Markdown.
 	Body     string `json:"body"`
 	Outdated bool   `json:"outdated,omitempty"`
@@ -200,6 +203,9 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 			Outdated: e.Rev != rev, Valid: e.Valid(),
 			Unparsed: strings.TrimSpace(bp.Normalize(strings.Join(it.Trailing, ""))),
 		}
+		for _, x := range e.Ext {
+			ev.Ext = append(ev.Ext, x.Name+":"+x.Value)
+		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		ev.IncorporatedIn = incorp[e.ID]
 		ev.Sig = d.sigState(v.KalkaID, e, th)
@@ -308,7 +314,7 @@ func (d *Node) AddEntry(req EntryRequest) (*bp.Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		e, err := bp.Append(doc, req.Kind, d.self.Email, d.now(), req.Anchor, req.Re, req.Quote, req.Body, d.signer())
+		e, err := bp.Append(doc, req.Kind, d.self.Email, d.now(), req.Anchor, req.Re, req.Quote, req.Body, d.signerAt(path))
 		if err != nil {
 			return nil, err
 		}

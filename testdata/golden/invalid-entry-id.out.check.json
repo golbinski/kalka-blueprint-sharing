@@ -23,7 +23,7 @@
       "kind": "comment",
       "author": "bob@corp.com",
       "anchor": "plan",
-      "id": "0acf6512a81b",
+      "id": "38403f5bceb98d4c62da9eb57b3e0ef8",
       "valid": true,
       "unparsed_lines_after": 0
     },
@@ -32,17 +32,17 @@
       "kind": "comment",
       "author": "bob@corp.com",
       "anchor": "plan",
-      "id": "0123456789ab",
+      "id": "0123456789abcdef0123456789abcdef",
       "valid": false,
       "unparsed_lines_after": 0
     }
   ],
   "problems": [
     {
-      "severity": "error",
+      "severity": "warning",
       "code": "entry-id",
       "line": 15,
-      "message": "entry id 0123456789ab does not match its content (want 538e924cfc74); peers drop it on merge"
+      "message": "entry 0123456789abcdef0123456789abcdef was edited: its id no longer matches its content (want 7d5f28812cd7517a27f88c99a72c1e63); peers do not take it; if the team holds the original, the next sync restores it"
     }
   ]
 }

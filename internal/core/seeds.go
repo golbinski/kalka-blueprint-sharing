@@ -64,7 +64,7 @@ func (d *Node) Bud(req BudRequest) (BudResult, error) {
 		return res, err
 	}
 	spec := bp.SeedSpec{KalkaID: bp.NewKalkaID(), Owner: d.self.Email, Title: req.Title, Problem: req.Problem, Why: req.Why, At: d.now(), From: req.From}
-	seed, _, err := bp.Bud(parent, spec, d.signer())
+	seed, _, err := bp.Bud(parent, spec, d.signerAt(f.Path))
 	if err != nil {
 		return res, err
 	}
@@ -131,7 +131,7 @@ func (d *Node) backlink(parentPath string, seed *bp.Document) (*bp.Entry, error)
 		if err != nil {
 			return nil, err
 		}
-		e, err := bp.AddBacklink(parent, seed, d.self.Email, d.now(), d.signer())
+		e, err := bp.AddBacklink(parent, seed, d.self.Email, d.now(), d.signerAt(f.Path))
 		if err != nil || e == nil {
 			return nil, err
 		}

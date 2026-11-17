@@ -15,10 +15,10 @@ func testKey(s string) ed25519.PrivateKey {
 }
 
 func signerOf(k ed25519.PrivateKey) Signer {
-	return func(m []byte) []byte { return ed25519.Sign(k, m) }
+	return Signer{Fn: func(m []byte) []byte { return ed25519.Sign(k, m) }}
 }
 
-const relDoc = "---\nkalka_id: 4be1c0ffee01\nowner: dana@example.org\nteam: parcels\n---\n# Redelivery\n\n## Scope\nThe redelivery module.\n"
+const relDoc = "---\nkalka_id: 4be1c0ffee0100000000000000000000\nkalka_owner: dana@example.org\nkalka_team: parcels\n---\n# Redelivery\n\n## Scope\nThe redelivery module.\n"
 
 func TestEntrySignatureV2(t *testing.T) {
 	k := testKey("dana")
@@ -38,7 +38,7 @@ func TestEntrySignatureV2(t *testing.T) {
 		t.Fatalf("after parse: %q", got.Header())
 	}
 	// Another document, another key, another text: no.
-	if e.Verify("000000000000", pub) != SigBad {
+	if e.Verify("00000000000000000000000000000000", pub) != SigBad {
 		t.Fatal("verified for another kalka_id")
 	}
 	if e.Verify(d.KalkaID(), testKey("eve").Public().(ed25519.PublicKey)) != SigBad {
@@ -61,7 +61,7 @@ func TestReleaseEntry(t *testing.T) {
 	k := testKey("dana")
 	d := mustParse(t, relDoc)
 	e, err := NewRelease(d, "dana@example.org", time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC), 3, false,
-		[]string{"7c2e91ab04f3"}, "Added the invariant on redelivery attempts.", signerOf(k))
+		[]string{"7c2e91ab04f300000000000000000000"}, "Added the invariant on redelivery attempts.", signerOf(k))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,10 +90,10 @@ func TestReleaseEntry(t *testing.T) {
 	if r, _ := tomb.Release(); !r.Deleted || r.Version != 4 {
 		t.Fatalf("tombstone %+v", r)
 	}
-	if _, err := Append(d, KindRelease, "dana@example.org", time.Now(), "", "", "", "v9 · plan:x", nil); err == nil {
+	if _, err := Append(d, KindRelease, "dana@example.org", time.Now(), "", "", "", "v9 · plan:x", Signer{}); err == nil {
 		t.Fatal("hand-written release accepted")
 	}
-	if _, err := NewRelease(d, "dana@example.org", time.Now(), 1, false, nil, "", nil); err == nil {
+	if _, err := NewRelease(d, "dana@example.org", time.Now(), 1, false, nil, "", Signer{}); err == nil {
 		t.Fatal("unsigned release")
 	}
 	for _, body := range []string{"v0 · plan:" + strings.Repeat("a", 64) + " · owner:a@b.c", "v1 · plan:abc · owner:a@b.c", "v1 · plan:" + strings.Repeat("a", 64)} {

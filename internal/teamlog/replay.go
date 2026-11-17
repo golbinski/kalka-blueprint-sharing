@@ -20,6 +20,10 @@ type State struct {
 	// Keys lists every key the log has ever bound to an email, in replay
 	// order, so entries of removed members can still be verified (20.4).
 	Keys map[string][]string
+	// Terms maps the hash of each create-team and add-member that bound a
+	// key (each in Keys) to the email and key it bound: what an entry's
+	// term: field names (spec 6.5).
+	Terms map[string]Term
 	// Reassigned maps a kalka_id to its anchors: every effective
 	// reassign-document of it, and an effective accept-transfer at cut-off
 	// 0, ordered by cut-off, one per cut-off (rule 8).
@@ -39,6 +43,12 @@ type State struct {
 	// Heads are the hashes no other known operation names in prev; a new
 	// operation names them.
 	Heads []string
+}
+
+// Term is one binding of a key to an email.
+type Term struct {
+	Email  string
+	PubKey string
 }
 
 // Member is a current member.
@@ -196,7 +206,7 @@ func newReplayer(team string, ops []Op, salt string) *replayer {
 		}
 		state[h] = 1
 		if o.V != RuleVersion {
-			state[h], why[h] = 3, fmt.Sprintf("rule version %d is not supported", o.V)
+			state[h], why[h] = 3, fmt.Sprintf("made by a newer kalka (rule version %d); update kalka to read it", o.V)
 			return false
 		}
 		d := 0
@@ -866,7 +876,7 @@ func (r *replayer) ownerTermsUpTo(e *eval, mt *mterm, i int) []*oterm {
 }
 
 func (r *replayer) state(e *eval) *State {
-	s := &State{Team: r.team, Members: map[string]Member{}, Keys: map[string][]string{},
+	s := &State{Team: r.team, Members: map[string]Member{}, Keys: map[string][]string{}, Terms: map[string]Term{},
 		Reassigned: map[string][]Assignment{}, Transfers: map[string]Decision{}, Invites: map[string]string{},
 		Effective: map[string]bool{}, Pending: r.pending, Heads: r.heads}
 	if s.Pending == nil {
@@ -943,6 +953,7 @@ func (r *replayer) state(e *eval) *State {
 		s.Keys[email] = s.Keys[email][:0]
 		for _, mt := range mts {
 			s.Keys[email] = append(s.Keys[email], mt.key)
+			s.Terms[r.nodes[mt.grant].hash] = Term{Email: email, PubKey: mt.key}
 		}
 	}
 	sort.Slice(owners, func(a, b int) bool {

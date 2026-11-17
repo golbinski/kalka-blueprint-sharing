@@ -6,6 +6,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"sort"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func (d *Node) commentNotice(before, after *bp.Document, path string) {
 			continue
 		}
 		n++
-		by[strings.ToLower(e.Author)] = true
+		by[addr.Canonical(e.Author)] = true
 	}
 	if n == 0 {
 		return

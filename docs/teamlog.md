@@ -11,9 +11,11 @@ One operation per line of `<team>-team.log`, as JSON:
 ```
 
 - **Canonical form.** Keys in lexicographic byte order at every level, no whitespace, strings escaped as Go's `encoding/json` does with HTML escaping switched off, integers only (`v`, `after`). `prev` sorted and without duplicates.
-- **Hash.** Lowercase hex SHA-256 of the canonical form *without* `sig`. It is the operation's identity. The team's identity is the hash of its `create-team`.
-- **Signature.** Ed25519 over `"kalka-teamlog-v2\n" + hash`. `signer` and `sig` are base64url without padding, as are the keys in `add-member`.
-- **Decoding** is strict: unknown fields, unknown argument keys, missing arguments, non-integer numbers, bad hashes or keys, and an unsorted `prev` are refused. A line need not be byte-identical to the canonical form (the hash is taken over the re-encoding), but a reordered `prev` is refused, so two different lines never stand for one operation. A line over 8 KiB is refused.
+- **One line per operation.** A line must be exactly its canonical form, byte for byte; any other spelling of the same JSON (whitespace, key order, escapes, a key twice) is refused. So a line is an operation, and the hash can be taken from the line.
+- **Hash.** Lowercase hex SHA-256 of the line with its `sig` member removed (the canonical form without `sig`). It is the operation's identity, and computing it needs no knowledge of the operation's kind. The team's identity is the hash of its `create-team`.
+- **Signature.** Ed25519 over `"kalka-teamlog-sig\n" + hash`. The context is the same for every rule version, so a peer can check an operation it cannot replay. `signer` and `sig` are base64url without padding, as are the keys in `add-member`.
+- **Decoding** is strict: unknown fields, unknown argument keys, missing arguments, non-integer numbers, bad hashes or keys, and an unsorted `prev` are refused. A line over 8 KiB is refused.
+- **Newer rule versions.** An operation whose `v` is above the version a `kalka` implements is checked as far as the envelope goes (`team`, `prev`, `signer`, `sig`, the canonical form and the signature) and then kept as its exact line: stored, passed on to peers and counted among the heads, but not replayed. It is *pending* ("made by a newer kalka"), and so is every operation built on it, until an update can read it. Nothing else of the state changes. An operation of an older version than this `kalka` reads is refused. A signed newer operation also counts as binding its signer's descendants when a peer decides whether to accept operations from a session (a newer version may bind keys in ways an older one cannot see).
 - **Arguments by kind.**
 
 | `op` | `args` |

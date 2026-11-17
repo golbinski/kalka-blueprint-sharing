@@ -151,7 +151,7 @@ func TestNewCommands(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"status": "draft"`) {
 		t.Fatalf("promote: %d %s %s", code, out, errs)
 	}
-	if raw, _ := os.ReadFile(seed["seed"]); strings.Contains(string(raw), "kind: seed") {
+	if raw, _ := os.ReadFile(seed["seed"]); strings.Contains(string(raw), "kalka_kind: seed") {
 		t.Fatalf("still a seed:\n%s", raw)
 	}
 

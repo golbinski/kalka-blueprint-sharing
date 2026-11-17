@@ -172,17 +172,20 @@ type sigCounts struct {
 }
 
 // traceInfo summarizes a trace block for agents: where it is, whether it
-// is valid, and the divergences computed from its graph (spec 6.10).
+// is valid, its errors and warnings with their codes, and the divergences
+// computed from its graph (spec 6.10).
 type traceInfo struct {
 	Index       int             `json:"index"`
 	Line        int             `json:"line"`
 	Section     string          `json:"section,omitempty"`
 	Title       string          `json:"title,omitempty"`
+	Version     int             `json:"version"`
 	Valid       bool            `json:"valid"`
 	Lanes       []string        `json:"lanes,omitempty"`
 	Nodes       int             `json:"nodes"`
 	Divergences []bp.Divergence `json:"divergences"`
 	Errors      []bp.TraceError `json:"errors,omitempty"`
+	Warnings    []bp.TraceError `json:"warnings,omitempty"`
 }
 
 func cmdCheck(args []string, stdout, stderr io.Writer) int {
@@ -226,6 +229,9 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 					fmt.Fprintf(stdout, "%s:%d: info: trace %d: %s %s", f, t.Line, t.Index+1, d.Class, d.Node)
 					if len(d.Nodes) > 0 {
 						fmt.Fprintf(stdout, " (%s)", strings.Join(d.Nodes, ", "))
+					}
+					if d.Lane != "" {
+						fmt.Fprintf(stdout, " in %s", d.Lane)
 					}
 					fmt.Fprintln(stdout, " [divergence]")
 				}
@@ -303,8 +309,8 @@ func checkFile(path string, keys func(string) (ed25519.PublicKey, bool)) checkRe
 			Message: fmt.Sprintf("signatures: %d verified, %d unchecked (no key here for the author), %d invalid, %d unsigned", s.Verified, s.Unchecked, s.Invalid, s.Unsigned)})
 	}
 	for _, t := range d.Traces() {
-		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Valid: t.Valid(),
-			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors}
+		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Version: t.Version, Valid: t.Valid(),
+			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors, Warnings: t.Warnings}
 		if ti.Divergences == nil {
 			ti.Divergences = []bp.Divergence{}
 		}
@@ -350,7 +356,7 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 	if err != nil {
 		return failWith(*asJSON, stdout, stderr, fmt.Errorf("comment: %w", err))
 	}
-	sign := func(m []byte) []byte { return ed25519.Sign(key, m) }
+	sign := fileSigner(cfg.Email, key)
 
 	text := *msg
 	if text == "" {
@@ -371,7 +377,7 @@ func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now fu
 		if err != nil {
 			return failWith(*asJSON, stdout, stderr, fmt.Errorf("comment: %s: %w", path, err))
 		}
-		e, err := bp.Append(d, *kind, cfg.Email, now(), *anchor, *re, "", text, sign)
+		e, err := bp.Append(d, *kind, cfg.Email, now(), *anchor, *re, "", text, sign(path))
 		if err != nil {
 			return failWith(*asJSON, stdout, stderr, fmt.Errorf("comment: %s: %w", path, err))
 		}

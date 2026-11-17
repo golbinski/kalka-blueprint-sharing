@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/golbinski/kalka/internal/name"
 )
 
 // Transfers between teams (spec 20.7).
@@ -16,9 +18,9 @@ const (
 	KindTransfer          = "transfer"
 	KindTransferWithdrawn = "transfer-withdrawn"
 
-	KeyCopiedFrom = "copied-from"
-	KeyMovedFrom  = "moved-from"
-	KeyMovedTo    = "moved-to"
+	KeyCopiedFrom = name.Product + "_copied_from"
+	KeyMovedFrom  = name.Product + "_moved_from"
+	KeyMovedTo    = name.Product + "_moved_to"
 
 	ModeCopy = "copy"
 	ModeMove = "move"
@@ -29,7 +31,7 @@ const (
 //
 //	move · from:parcel-ops/<kalka_id> · source:<64 hex> · to:library-desk/<64 hex>
 //	plan:<64 hex>
-//	history:<64 hex> · entries: 7c2e91ab04f3, a41b77c09e12
+//	history:<64 hex> · entries: <32 hex>, <32 hex>
 //
 // FromTeam and FromID name the source document; Source and To are the two
 // teams by hash, ToTeam the destination's name for the source's banner;
@@ -130,7 +132,7 @@ func NewTransfer(d *Document, author string, at time.Time, t Transfer, sign Sign
 	if d.KalkaID() == "" {
 		return nil, errors.New("a transfer needs a kalka_id")
 	}
-	if sign == nil {
+	if !sign.Ok() {
 		return nil, errors.New("a transfer must be signed")
 	}
 	if t.Mode != ModeCopy && t.Mode != ModeMove {
@@ -152,7 +154,7 @@ func NewTransfer(d *Document, author string, at time.Time, t Transfer, sign Sign
 // pending document, `move declined` or `move ended as a copy` on the
 // source of a move.
 func NewWithdrawal(d *Document, author string, at time.Time, transferID, text string, sign Signer) (*Entry, error) {
-	if sign == nil || d.KalkaID() == "" {
+	if !sign.Ok() || d.KalkaID() == "" {
 		return nil, errors.New("a withdrawal must be signed in a document with a kalka_id")
 	}
 	e, err := NewEntry(KindTransferWithdrawn, author, at, "", d.Rev(), "re: "+transferID+"\n"+text)

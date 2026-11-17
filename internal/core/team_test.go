@@ -296,7 +296,7 @@ func TestTeamRoster(t *testing.T) {
 	waitIndexed(t, reader, 1)
 	reader.publish("renewals.md")
 	reader.replicate(desk)
-	desk.write("lending/holds.md", "---\nkalka_id: 7f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nowner: reader@library.example\nteam: lending\n---\n# Holds\n")
+	desk.write("lending/holds.md", "---\nkalka_id: 7f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f\nkalka_owner: reader@library.example\nkalka_team: lending\n---\n# Holds\n")
 	waitIndexed(t, desk, 2)
 	prev, err := desk.d.RemovalPreview("", reader.email)
 	if err != nil || len(prev) != 1 || prev[0].Title != "Renewals" {

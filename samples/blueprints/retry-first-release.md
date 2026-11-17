@@ -1,6 +1,6 @@
 ---
-reference: kalka-blueprint@v1
-domain: kalka-core/sync@v1
+kalka_reference: kalka-blueprint@v1
+kalka_domain: kalka-core/sync@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 618f7edcaba5b7419069a76c039151fd26366718
 ---

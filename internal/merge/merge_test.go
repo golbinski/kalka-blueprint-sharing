@@ -20,8 +20,8 @@ const body = "# Branch return routing\n\n## Context\nWhy.\n\n## Plan\nSteps  \nw
 // fm is frontmatter with unknown keys of every shape (spec 6.2).
 const fm = "---\n" +
 	"kalka_id: " + kid + "\n" +
-	"owner: dana@example.org\n" +
-	"team: parcels\n" +
+	"kalka_owner: dana@example.org\n" +
+	"kalka_team: parcels\n" +
 	"# a comment kalka must keep\n" +
 	"repo: org/lending-service        # trailing comment\n" +
 	"nested:\n  map: {a: 1, b: [x, y]}\n  owner: not-the-owner@example.org\n" +
@@ -130,9 +130,9 @@ func TestNewBlueprint(t *testing.T) {
 
 func TestMalformed(t *testing.T) {
 	for name, src := range map[string]string{
-		"no id":    "---\nowner: dana@example.org\nteam: parcels\n---\n" + body,
-		"no owner": "---\nkalka_id: " + kid + "\nteam: parcels\n---\n" + body,
-		"bad id":   "---\nkalka_id: 123\nowner: dana@example.org\nteam: parcels\n---\n" + body,
+		"no id":    "---\nkalka_owner: dana@example.org\nkalka_team: parcels\n---\n" + body,
+		"no owner": "---\nkalka_id: " + kid + "\nkalka_team: parcels\n---\n" + body,
+		"bad id":   "---\nkalka_id: 123\nkalka_owner: dana@example.org\nkalka_team: parcels\n---\n" + body,
 	} {
 		if r := Docs(nil, parse(t, src), team); r.Reason != Malformed {
 			t.Errorf("%s: %v %s", name, r.Outcome, r.Reason)
@@ -160,6 +160,11 @@ func TestInvalidEntries(t *testing.T) {
 	r = mustMerge(t, tampered, withEntries(t, base, other))
 	if !strings.Contains(string(r.Doc.Bytes()), "tampered") {
 		t.Fatal("local invalid entry lost")
+	}
+	// The team's copy of an edited entry replaces it.
+	r = mustMerge(t, tampered, src)
+	if out := string(r.Doc.Bytes()); strings.Contains(out, "tampered") || !strings.Contains(out, "\ngood\n") || len(r.Doc.Problems()) != 0 {
+		t.Fatalf("edited entry not restored:\n%s\n%v", out, r.Doc.Problems())
 	}
 }
 

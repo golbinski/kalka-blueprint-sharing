@@ -50,19 +50,59 @@ type logTeam struct {
 	st *teamlog.State
 }
 
-func (t logTeam) Keys(email string) []ed25519.PublicKey {
-	var out []ed25519.PublicKey
-	for e, keys := range t.st.Keys {
-		if !bp.SameEmail(e, email) {
+func (t logTeam) Term(ref string) (string, ed25519.PublicKey, bool) {
+	for h, tm := range t.st.Terms {
+		if bp.TermOf(h) != ref {
 			continue
 		}
-		for _, k := range keys {
-			if pk, err := teamlog.DecodeKey(k); err == nil {
-				out = append(out, pk)
-			}
+		if pk, err := teamlog.DecodeKey(tm.PubKey); err == nil {
+			return tm.Email, pk, true
 		}
 	}
-	return out
+	return "", nil, false
+}
+
+// TermIn is the term reference under which email signs in st with key
+// pub: the operation that made it a member with that key, or "".
+func TermIn(st *teamlog.State, email string, pub ed25519.PublicKey) string {
+	if st == nil {
+		return ""
+	}
+	m, ok := memberOf(st, email)
+	if !ok || m.PubKey != teamlog.EncodeKey(pub) {
+		return ""
+	}
+	return bp.TermOf(m.Since)
+}
+
+// TermNear is TermIn for the team whose folder holds path: the nearest
+// folder above it with a team log. It is for writers without a running
+// node, such as `kalka comment`; "" outside a team.
+func TermNear(path, email string, pub ed25519.PublicKey) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	for dir := filepath.Dir(abs); ; {
+		logs, _ := filepath.Glob(filepath.Join(dir, "*-team.log"))
+		for _, lp := range logs {
+			ops, _, err := teamlog.ReadFile(lp)
+			if err != nil {
+				continue
+			}
+			for _, o := range ops {
+				if o.Supported() && o.Kind == teamlog.CreateTeam && o.Team == "" && teamlog.LogName(o.Args.Name) == filepath.Base(lp) {
+					st, _ := teamlog.Replay(o.Hash(), ops)
+					return TermIn(st, email, pub)
+				}
+			}
+		}
+		up := filepath.Dir(dir)
+		if up == dir {
+			return ""
+		}
+		dir = up
+	}
 }
 
 // Anchors are the document's effective reassignments and accepted
@@ -124,7 +164,7 @@ func (d *Node) heldTeam(team string) (*held, error) {
 }
 
 // heldByName finds a team the local user belongs to by the name a
-// document's `team:` key carries.
+// document's `kalka_team:` key carries.
 func (d *Node) heldByName(name string) (*held, error) {
 	var found []*held
 	for _, t := range d.teamDirs() {
@@ -331,9 +371,13 @@ func missingOps(h *held, theirHeads []string) []json.RawMessage {
 }
 
 // mergeOps adds the valid operations of one team from a peer to its log,
-// and returns how many were new. Badly signed operations are not written.
+// and returns how many were new. Badly signed operations are not written,
+// nor operations whose signer no add-member or create-team among their
+// ancestors binds: those can never count, whatever arrives later, so
+// refusing them cannot make two peers differ, and someone who was never a
+// member cannot make members store and replay their operations.
 func (d *Node) mergeOps(h *held, raws []json.RawMessage) (int, error) {
-	var ops []teamlog.Op
+	var in []teamlog.Op
 	for _, r := range raws {
 		o, err := teamlog.Decode(r)
 		if err != nil || !o.VerifySig() {
@@ -342,8 +386,9 @@ func (d *Node) mergeOps(h *held, raws []json.RawMessage) (int, error) {
 		if o.Team != h.dir.Team && !(o.Kind == teamlog.CreateTeam && o.Hash() == h.dir.Team) {
 			continue
 		}
-		ops = append(ops, o)
+		in = append(in, o)
 	}
+	ops := boundOps(h.ops, in)
 	if len(ops) == 0 {
 		return 0, nil
 	}
@@ -362,6 +407,72 @@ func (d *Node) mergeOps(h *held, raws []json.RawMessage) (int, error) {
 	}
 	return 0, nil
 }
+
+// boundOps keeps the operations of in whose ancestors, among held and in,
+// are all present and bind their signer: the create-team or an add-member
+// names its key, or an operation of a newer rule version, itself bound,
+// stands among them (that version may bind keys in ways this kalka cannot
+// read). Held operations count as bound. An operation whose ancestors are
+// missing comes again with them in a later session.
+func boundOps(held, in []teamlog.Op) []teamlog.Op {
+	byHash := map[string]*teamlog.Op{}
+	ok := map[string]bool{}
+	for i := range held {
+		h := held[i].Hash()
+		byHash[h], ok[h] = &held[i], true
+	}
+	for i := range in {
+		byHash[in[i].Hash()] = &in[i]
+	}
+	var bound func(o *teamlog.Op, depth int) bool
+	bound = func(o *teamlog.Op, depth int) bool {
+		h := o.Hash()
+		if v, done := ok[h]; done {
+			return v
+		}
+		if o.Supported() && o.Kind == teamlog.CreateTeam {
+			ok[h] = true
+			return true
+		}
+		ok[h] = false // until shown otherwise; also ends any loop
+		found := false
+		seen := map[string]bool{}
+		stack := append([]string(nil), o.Prev...)
+		for len(stack) > 0 {
+			x := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if seen[x] {
+				continue
+			}
+			seen[x] = true
+			a, held := byHash[x]
+			if !held {
+				return false // an ancestor is missing
+			}
+			switch {
+			case !a.Supported():
+				found = found || depth < 64 && bound(a, depth+1)
+			case a.Kind == teamlog.CreateTeam && a.Signer == o.Signer,
+				a.Kind == teamlog.AddMember && a.Args.PubKey == o.Signer:
+				found = true
+			}
+			stack = append(stack, a.Prev...)
+		}
+		ok[h] = found
+		return found
+	}
+	var out []teamlog.Op
+	for i := range in {
+		if bound(&in[i], 0) {
+			out = append(out, in[i])
+		}
+	}
+	return out
+}
+
+// maxStrangerOps is the most operations taken from a caller the log does
+// not count as a member: the few that add them, after a join.
+const maxStrangerOps = 64
 
 // Refusal is a team document that was not written, and why (spec 20.2).
 type Refusal struct {
@@ -424,6 +535,9 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 				return &syncproto.PeerEnded{Reason: b.Reason, Detail: b.Detail}
 			case typ:
 				return env.Decode(v)
+			}
+			if !syncproto.Known(env.Type) {
+				continue // a message of a newer kalka (spec 9.5)
 			}
 			return fmt.Errorf("%s sent %q, expected %s", peer.Email, env.Type, typ)
 		}
@@ -496,6 +610,10 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 	takeLog := func() error {
 		if err := recv("team_log", &tl); err != nil {
 			return err
+		}
+		if !known && len(tl.Ops) > maxStrangerOps {
+			end(syncproto.ByeNotMember)
+			return fmt.Errorf("%s, not a member, sent %d log operations", peer.Email, len(tl.Ops))
 		}
 		n, err := d.mergeOps(h, tl.Ops)
 		res.OpsIn = n

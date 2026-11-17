@@ -104,19 +104,30 @@ type slot struct {
 }
 
 // assemble builds the merged log. Entries come from both sides; unparsed
-// content comes from the plan side (spec 20.4, "Entries"). Invalid entries of the
-// local file are kept as unparsed content so nothing typed locally is lost;
-// invalid incoming entries are dropped with a note.
+// content comes from the plan side (spec 20.4, "Entries"). An invalid entry
+// of the local file is replaced by a valid copy of the same id if either
+// side holds one, and otherwise kept as unparsed content so nothing typed
+// locally is lost; invalid incoming entries are dropped with a note.
 func assembleWith(plan, other, local *bp.Document, keep func(e *bp.Entry, fromLocal bool) bool, verified func(*bp.Entry) bool) (lead []string, items []*bp.Item, notes []string) {
 	slots := map[string]*slot{}
 	var order []*slot
+	intact := map[string]bool{} // ids some side holds a valid copy of
+	for _, d := range []*bp.Document{plan, other} {
+		for _, it := range d.Items() {
+			if it.Entry.Valid() && keep(it.Entry, d == local) {
+				intact[it.Entry.ID] = true
+			}
+		}
+	}
 
 	add := func(d *bp.Document, keepUnparsed bool) {
 		var last *slot
 		for _, it := range d.Items() {
 			e := it.Entry
 			if !e.Valid() {
-				if d == local {
+				if d == local && intact[e.ID] {
+					notes = append(notes, fmt.Sprintf("entry %s in your copy was edited; the team's copy replaces it (entries cannot change: write a new comment instead)", e.ID))
+				} else if d == local {
 					raw := entryLines(e)
 					if last != nil {
 						last.trailing = append(last.trailing, raw...)

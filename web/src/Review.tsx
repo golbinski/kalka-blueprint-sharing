@@ -527,7 +527,7 @@ function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void
   )
 }
 
-// DomainRefStrip shows what a blueprint's `domain:` reference resolves to
+// DomainRefStrip shows what a blueprint's `kalka_domain:` reference resolves to
 // (spec 6.12): a newer version held here, dismissible; a version not kept
 // here; an ambiguous team name. It never blocks anything.
 function DomainRefStrip({ doc }: { doc: Doc }) {
@@ -709,6 +709,11 @@ export function EntryCard({
         <time dateTime={e.timestamp} title={e.timestamp}>
           {localTime(e.timestamp)}
         </time>
+        {(e.ext ?? []).map((x) => (
+          <span key={x} className="mono small muted" title="a header field this kalka does not use">
+            {x}
+          </span>
+        ))}
         <Badges e={e} />
       </div>
       {e.kind === 'budded' && e.budded_seed ? (

@@ -2,6 +2,7 @@ package teamlog
 
 import (
 	"crypto/ed25519"
+	"github.com/golbinski/kalka/internal/addr"
 	"time"
 )
 
@@ -16,7 +17,7 @@ func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 // Create returns a team's create-team operation; its hash is the team's
 // identity (spec 19.2).
 func Create(key ed25519.PrivateKey, teamName, email string, at time.Time) Op {
-	o := Op{V: RuleVersion, Kind: CreateTeam, Args: Args{Name: teamName, Email: email}, At: stamp(at), Prev: []string{}}
+	o := Op{V: RuleVersion, Kind: CreateTeam, Args: Args{Name: teamName, Email: addr.Canonical(email)}, At: stamp(at), Prev: []string{}}
 	o.Sign(key)
 	return o
 }
@@ -29,31 +30,31 @@ func (s Signer) op(kind string, a Args, prev []string, at time.Time) Op {
 
 // AddMember binds email to pubkey; invite is the invite id, or empty.
 func (s Signer) AddMember(prev []string, email string, pubkey ed25519.PublicKey, invite string, at time.Time) Op {
-	return s.op(AddMember, Args{Email: email, PubKey: EncodeKey(pubkey), Invite: invite}, prev, at)
+	return s.op(AddMember, Args{Email: addr.Canonical(email), PubKey: EncodeKey(pubkey), Invite: invite}, prev, at)
 }
 
 // AddOwner makes a member an owner.
 func (s Signer) AddOwner(prev []string, email string, at time.Time) Op {
-	return s.op(AddOwner, Args{Email: email}, prev, at)
+	return s.op(AddOwner, Args{Email: addr.Canonical(email)}, prev, at)
 }
 
 // RemoveOwner makes an owner a plain member.
 func (s Signer) RemoveOwner(prev []string, email string, at time.Time) Op {
-	return s.op(RemoveOwner, Args{Email: email}, prev, at)
+	return s.op(RemoveOwner, Args{Email: addr.Canonical(email)}, prev, at)
 }
 
 // Reassign gives a document to owner from release after+1 on (spec 19.5);
 // after and plan name the highest release the signer holds and its plan
 // hash (0 and "" before the first release), from the owner it saw.
 func (s Signer) Reassign(prev []string, doc, from, owner string, after int64, plan string, at time.Time) Op {
-	return s.op(ReassignDocument, Args{Doc: doc, From: from, Owner: owner, After: after, Plan: plan}, prev, at)
+	return s.op(ReassignDocument, Args{Doc: doc, From: addr.Canonical(from), Owner: addr.Canonical(owner), After: after, Plan: plan}, prev, at)
 }
 
 // Accept accepts the transfer offer whose transfer entry has digest
 // transfer, for the pending document doc, naming owner as the only valid
 // signer of its version 1 (spec 19.6, 20.7).
 func (s Signer) Accept(prev []string, doc, owner, transfer string, at time.Time) Op {
-	return s.op(AcceptTransfer, Args{Doc: doc, Owner: owner, Transfer: transfer}, prev, at)
+	return s.op(AcceptTransfer, Args{Doc: doc, Owner: addr.Canonical(owner), Transfer: transfer}, prev, at)
 }
 
 // Decline discards a transfer offer on every peer (spec 19.6, 20.7).
@@ -74,7 +75,7 @@ type Owned struct {
 // their predecessor for the history; they do not depend on it (rule 9),
 // and fall with the remover's term if the remover loses (rule 2).
 func (s Signer) Remove(prev []string, email string, docs []Owned, newOwner string, at time.Time) []Op {
-	rm := s.op(RemoveMember, Args{Email: email}, prev, at)
+	rm := s.op(RemoveMember, Args{Email: addr.Canonical(email)}, prev, at)
 	out := []Op{rm}
 	h := rm.Hash()
 	for _, d := range docs {

@@ -9,21 +9,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golbinski/kalka/internal/name"
 )
 
 // Frontmatter keys of published documents (spec 6.2).
 const (
-	KeyTeam    = "team"
-	KeyDeleted = "deleted"
+	KeyTeam = name.Product + "_team"
 )
 
 // Release is the content of a release entry (spec 20.4):
 //
 //	v7 · plan:<64 hex> · owner:alice@corp.com[ · deleted]
-//	incorporates: 7c2e91ab04f3, a41b77c09e12
+//	incorporates: <32 hex>, <32 hex>
 //	Free text.
 //
-// Owner is the `owner:` of the released plan: the one who may sign the
+// Owner is the `kalka_owner:` of the released plan: the one who may sign the
 // next version. Deleted marks a tombstone (spec 20.6); Moved, on a
 // tombstone, the `<team name>/<kalka_id>` a move went to (20.7).
 type Release struct {
@@ -36,7 +37,9 @@ type Release struct {
 	Note         string
 }
 
-var releaseRe = regexp.MustCompile(`^v([1-9][0-9]{0,17}) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted(?: · moved:(\S+))?)?$`)
+// releaseRe is the first line of a release. Trailing name:value tokens
+// a later kalka may add are signed with the body and ignored here.
+var releaseRe = regexp.MustCompile(`^v([1-9][0-9]{0,17}) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted(?: · moved:(\S+))?)?((?: · [a-z][a-z0-9-]{0,31}:\S+)*)$`)
 
 // Release parses a release entry's body.
 func (e *Entry) Release() (Release, bool) {
@@ -112,7 +115,7 @@ func newRelease(d *Document, author string, at time.Time, r Release, sign Signer
 	if v < 1 {
 		return nil, errors.New("release versions start at 1")
 	}
-	if sign == nil {
+	if !sign.Ok() {
 		return nil, errors.New("a release must be signed")
 	}
 	r.Plan, r.Owner = d.PlanHash(), d.Owner()
@@ -134,15 +137,23 @@ func (d *Document) PlanHash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Team is the `team:` frontmatter key: the team a document is published
+// Team is the `kalka_team:` frontmatter key: the team a document is published
 // to, or "".
 func (d *Document) Team() string {
 	v, _ := d.fm.Get(KeyTeam)
 	return strings.TrimSpace(v)
 }
 
-// Deleted reports a tombstone stub (`deleted: true`).
+// Deleted reports a tombstone (spec 20.6): a deleted release whose id
+// matches its content names this plan. A tombstone is final, so releases
+// above it do not matter. The release decides, never a frontmatter key;
+// merge checks its signature and chain.
 func (d *Document) Deleted() bool {
-	v, _ := d.fm.Get(KeyDeleted)
-	return strings.TrimSpace(v) == "true"
+	plan := d.PlanHash()
+	for _, it := range d.Items() {
+		if r, ok := it.Entry.Release(); ok && it.Entry.Valid() && r.Deleted && r.Plan == plan {
+			return true
+		}
+	}
+	return false
 }

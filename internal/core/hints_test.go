@@ -11,7 +11,7 @@ import (
 func TestDocumentHints(t *testing.T) {
 	_, ns := teamOfN(t, "alice@library.example", "bob@library.example")
 	alice, bob := ns[0], ns[1]
-	alice.write("plan.md", "---\nreference: kalka-blueprint@v1\n---\n# Locker pickup\n\n## Scope\nThe pickup module.\n")
+	alice.write("plan.md", "---\nkalka_reference: kalka-blueprint@v1\n---\n# Locker pickup\n\n## Scope\nThe pickup module.\n")
 	alice.write("plain.md", "# Locker pickup\n\n## Plan\nNo opt-in.\n")
 
 	ctx := context.Background()

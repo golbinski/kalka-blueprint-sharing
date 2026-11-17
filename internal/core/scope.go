@@ -68,7 +68,7 @@ const (
 )
 
 // isTeamDoc is the one test of what replicates (spec 14, 20.1): the file
-// lies in h's folder, `team:` names h, it has no format errors and no
+// lies in h's folder, `kalka_team:` names h, it has no format errors and no
 // duplicate in the scope, and it has a valid release under h's log.
 // dup is the store's duplicate flag for path. It returns "" for a team
 // document, else why not.
@@ -92,7 +92,7 @@ func isTeamDoc(h *held, path string, doc *bp.Document, dup bool) string {
 	return ""
 }
 
-// mismatch is what the views say about a file whose location and `team:`
+// mismatch is what the views say about a file whose location and `kalka_team:`
 // disagree, or "" when they agree.
 func (d *Node) mismatch(path string, doc *bp.Document) string {
 	t, inTeam := d.teamDirAt(path)

@@ -3,6 +3,8 @@ package blueprint
 import (
 	"regexp"
 	"strings"
+
+	"github.com/golbinski/kalka/internal/name"
 )
 
 // HintsVersion is the blueprint reference version whose hints this library
@@ -11,7 +13,7 @@ import (
 const HintsVersion = "kalka-blueprint@v1"
 
 // ReferenceKey is the frontmatter key a document opts into hints with.
-const ReferenceKey = "reference"
+const ReferenceKey = name.Product + "_reference"
 
 // hintSections are the recommended body sections of v1 with the heading
 // slugs that count as present, in the reference's order. The deviation log
@@ -19,7 +21,7 @@ const ReferenceKey = "reference"
 var hintSections = []struct {
 	code, slug, message string
 }{
-	{"hint-no-domain-reference", "domain-reference", "no domain reference: name the domain version the plan relies on (`domain:` in the frontmatter, or a “Domain reference” section)"},
+	{"hint-no-domain-reference", "domain-reference", "no domain reference: name the domain version the plan relies on (`kalka_domain:` in the frontmatter, or a “Domain reference” section)"},
 	{"hint-no-scope", "scope", "no scope: list the modules the change will touch, so work beyond them becomes a seed"},
 	{"hint-no-verification-plan", "verification-plan", "no verification plan: invariants, edge cases and what a reviewer must check"},
 	{"hint-no-critical-sections", "critical-sections", "no critical sections: places that deliberately depart from the clean design, so agents leave them alone"},
@@ -33,7 +35,7 @@ var trailingDup = regexp.MustCompile(`-[0-9]+$`)
 
 // Hints returns the soft hints for a document that opted into the
 // blueprint reference (spec 6.13), as information-level problems with codes
-// starting "hint-". A document without `reference:` gets none. Hints are
+// starting "hint-". A document without `kalka_reference:` gets none. Hints are
 // never part of Problems(): they do not affect validity, `kalka check`'s
 // exit code, or a sync.
 func Hints(d *Document) []Problem {
@@ -56,7 +58,7 @@ func Hints(d *Document) []Problem {
 		have[h.Slug] = true
 		have[trailingDup.ReplaceAllString(h.Slug, "")] = true
 	}
-	if v, ok := d.Frontmatter().Get("domain"); ok && domainRefRe.MatchString(v) {
+	if v, ok := d.Frontmatter().Get(KeyDomain); ok && domainRefRe.MatchString(v) {
 		have["domain-reference"] = true
 	}
 	var out []Problem

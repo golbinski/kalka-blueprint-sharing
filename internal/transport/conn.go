@@ -18,7 +18,9 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// Label is the data channel label for protocol version 1.
+// Label is the data channel label: "length-prefixed JSON that starts
+// with hello". It stays the same for every protocol version; versions are
+// negotiated in hello (spec 9.5).
 const Label = "kalka/1"
 
 // ChunkSize is the largest single data channel message kalka writes.

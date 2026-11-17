@@ -176,15 +176,21 @@ func (d *Node) refViews(doc *bp.Document, done func()) ([]TraceView, map[string]
 		if t.Valid() {
 			last := t.Lanes[len(t.Lanes)-1]
 			for _, n := range t.Nodes {
+				// Removed steps take no part; a new step need not have code
+				// to point at yet.
+				if !n.Live() {
+					continue
+				}
 				r, has := refs[n.Ref]
 				if !has && n.Ref != "" {
 					r = RefView{Ref: n.Ref}
 					r.Error = "not a plugin reference"
 				}
 				switch {
+				case n.Change == bp.ChangeNew:
 				case n.Lane == last && n.Ref == "":
 					tv.Divergences = append(tv.Divergences, bp.Divergence{Class: bp.DivUnverified, Node: n.ID, Detail: "no reference"})
-				case n.Lane == last && !r.OK:
+				case n.Ref != "" && !r.OK:
 					tv.Divergences = append(tv.Divergences, bp.Divergence{Class: bp.DivUnverified, Node: n.ID, Detail: r.Error})
 				}
 				if r.OK && len(r.Warnings) > 0 {

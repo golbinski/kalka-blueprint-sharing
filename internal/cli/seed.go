@@ -13,14 +13,17 @@ import (
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/config"
+	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/store"
 )
 
-// signerFromConfig loads the configured email and identity key.
-func signerFromConfig() (string, bp.Signer, error) {
+// signerFromConfig loads the configured email and identity key. The
+// signer it returns signs for the file at a path: under the local user's
+// term in the team whose folder holds it (spec 6.5).
+func signerFromConfig() (string, func(path string) bp.Signer, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return "", nil, err
@@ -36,7 +39,15 @@ func signerFromConfig() (string, bp.Signer, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return cfg.Email, func(m []byte) []byte { return ed25519.Sign(key, m) }, nil
+	return cfg.Email, fileSigner(cfg.Email, key), nil
+}
+
+// fileSigner signs as email with key, for the file at a path.
+func fileSigner(email string, key ed25519.PrivateKey) func(path string) bp.Signer {
+	return func(path string) bp.Signer {
+		return bp.Signer{Fn: func(m []byte) []byte { return ed25519.Sign(key, m) },
+			Term: core.TermNear(path, email, key.Public().(ed25519.PublicKey))}
+	}
 }
 
 // `kalka seed <parent> [--from <entry id>] --title <t> [-m <text>] [--why <text>]`
@@ -89,7 +100,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer, now func() time.Time) int 
 			return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 		}
 	}
-	seed, _, err := bp.Bud(parent, bp.SeedSpec{KalkaID: bp.NewKalkaID(), Owner: email, Title: *title, Problem: *msg, Why: *why, At: now(), From: *from}, sign)
+	seed, _, err := bp.Bud(parent, bp.SeedSpec{KalkaID: bp.NewKalkaID(), Owner: email, Title: *title, Problem: *msg, Why: *why, At: now(), From: *from}, sign(parentPath))
 	if err != nil {
 		return failWith(*asJSON, stdout, stderr, fmt.Errorf("seed: %w", err))
 	}
@@ -104,7 +115,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer, now func() time.Time) int 
 		if err == nil {
 			var p *bp.Document
 			if p, err = bp.Parse(cur); err == nil {
-				if entry, err = bp.AddBacklink(p, seed, email, now(), sign); err == nil && entry != nil {
+				if entry, err = bp.AddBacklink(p, seed, email, now(), sign(parentPath)); err == nil && entry != nil {
 					err = fsutil.WriteAtomic(parentPath, p.Bytes(), cur)
 				}
 			}

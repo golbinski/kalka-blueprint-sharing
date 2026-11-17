@@ -8,11 +8,11 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -481,11 +481,17 @@ func (d *Node) serve(c *transport.Conn) {
 		d.redeem(c, peer)
 		return
 	}
-	// The responder dispatches on the first message (spec 9.5).
-	first, err := c.Receive(syncproto.Silence)
-	if err != nil {
-		d.logf("connection from %s: %v", peer.Email, err)
-		return
+	// The responder dispatches on the first message it knows (spec 9.5).
+	var first transport.Envelope
+	for {
+		first, err = c.Receive(syncproto.Silence)
+		if err != nil {
+			d.logf("connection from %s: %v", peer.Email, err)
+			return
+		}
+		if syncproto.Known(first.Type) {
+			break
+		}
 	}
 	d.markPresence(peer.Email, transport.Online)
 	if first.Type != "team_sync" {
@@ -516,7 +522,7 @@ func newUUID() string { return bp.NewKalkaID() }
 func (d *Node) presenceOf(email string) transport.Presence {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if p, ok := d.presence[strings.ToLower(email)]; ok && p.State != "" {
+	if p, ok := d.presence[addr.Canonical(email)]; ok && p.State != "" {
 		return p.State
 	}
 	return transport.Unknown
@@ -524,8 +530,8 @@ func (d *Node) presenceOf(email string) transport.Presence {
 
 func (d *Node) markPresence(email string, p transport.Presence) {
 	d.mu.Lock()
-	old := d.presence[strings.ToLower(email)].State
-	d.presence[strings.ToLower(email)] = presence{State: p, Checked: time.Now()}
+	old := d.presence[addr.Canonical(email)].State
+	d.presence[addr.Canonical(email)] = presence{State: p, Checked: time.Now()}
 	d.mu.Unlock()
 	if old != p {
 		d.bus.Publish(BusEvent{Type: "teams"})
@@ -550,7 +556,7 @@ func (d *Node) memberKeys() map[string]ed25519.PublicKey {
 				continue
 			}
 			if k, ok := h.memberKey(e); ok {
-				out[strings.ToLower(e)] = k
+				out[addr.Canonical(e)] = k
 			}
 		}
 	}
@@ -559,7 +565,7 @@ func (d *Node) memberKeys() map[string]ed25519.PublicKey {
 
 // Probe checks one member now (spec 9.3, on demand).
 func (d *Node) Probe(ctx context.Context, email string) transport.Presence {
-	key, ok := d.memberKeys()[strings.ToLower(email)]
+	key, ok := d.memberKeys()[addr.Canonical(email)]
 	ep, err := d.endpoint()
 	if !ok || err != nil {
 		return transport.Unknown
@@ -627,8 +633,28 @@ func (d *Node) State() Status {
 	return s
 }
 
-// signer signs with the local identity key: every entry this kalka writes
-// carries a v2 signature (spec 6.5).
+// signer signs with the local identity key, outside any team: every entry
+// this kalka writes is signed (spec 6.5).
 func (d *Node) signer() bp.Signer {
-	return func(m []byte) []byte { return ed25519.Sign(d.self.Key, m) }
+	return bp.Signer{Fn: func(m []byte) []byte { return ed25519.Sign(d.self.Key, m) }}
+}
+
+// signerIn signs under the local user's current term in h: the
+// signature then verifies in h and in no other team.
+func (d *Node) signerIn(h *held) bp.Signer {
+	s := d.signer()
+	if h != nil {
+		s.Term = TermIn(h.st, d.self.Email, d.pub)
+	}
+	return s
+}
+
+// signerAt signs for the document at path: under the term of the team
+// whose folder holds it, if the local user is a member.
+func (d *Node) signerAt(path string) bp.Signer {
+	h, err := d.heldAt(path)
+	if err != nil {
+		return d.signer()
+	}
+	return d.signerIn(h)
 }

@@ -1,6 +1,6 @@
 ---
 kalka_id: 0b7d6c1e-2f4a-4c3b-8e5d-9a1b2c3d4e5f
-owner: alice@corp.com
+kalka_owner: alice@corp.com
 ---
 
 # Notify in batches

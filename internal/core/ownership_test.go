@@ -264,7 +264,7 @@ func TestConcurrentDomainsFlagged(t *testing.T) {
 			t.Fatalf("%s flags %d of the two", n.email, clash)
 		}
 	}
-	depot.write("locker-pickup.md", "---\ndomain: parcels/lockers@v1\n---\n# Locker pickup\n")
+	depot.write("locker-pickup.md", "---\nkalka_domain: parcels/lockers@v1\n---\n# Locker pickup\n")
 	waitStored(t, depot, depot.path("locker-pickup.md"), "Locker pickup")
 	if v, err := depot.d.Document(context.Background(), "locker-pickup.md"); err != nil || v.DomainRef == nil || !v.DomainRef.Ambiguous {
 		t.Fatalf("reference: %+v %v", v.DomainRef, err)

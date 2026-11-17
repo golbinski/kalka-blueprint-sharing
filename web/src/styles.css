@@ -690,6 +690,14 @@ button.add.sel {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.tback {
+  fill: none;
+  stroke: #6b6a65;
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .tarrow-head {
   fill: #6b6a65;
 }
@@ -744,6 +752,28 @@ button.tnode:hover:not(:disabled) {
 button.tnode.div:hover:not(:disabled) {
   background: var(--div-soft);
   border: 2px solid var(--div);
+}
+.tnode.chg-new {
+  border-style: dashed;
+}
+.tnode.chg-removed .tnode-title b {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.tnode.chg-removed {
+  opacity: 0.75;
+}
+.tbadge.chg {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-weight: 500;
+}
+.tbadge.chg-new {
+  border-style: dashed;
+}
+.tbadge.chg-removed {
+  text-decoration: line-through;
 }
 .tnode.selected {
   box-shadow: 0 0 0 4px var(--accent);
@@ -851,6 +881,14 @@ button.tnode.div:hover:not(:disabled) {
   color: var(--div-ink);
   font-size: 13px;
 }
+.twarnings {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.twarnings ul,
 .tinvalid-errors ul {
   margin: 6px 0;
   padding-left: 18px;

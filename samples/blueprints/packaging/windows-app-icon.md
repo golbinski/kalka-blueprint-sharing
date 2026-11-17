@@ -1,5 +1,5 @@
 ---
-reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 8d56d5b47dbb7bfe0316f8b128fa1b8ed658c160
 repos:
@@ -24,20 +24,35 @@ A new package that writes Windows icon resources, the generator for `cmd/kalka-d
 2. [winicon](gh:tools/winicon/main.go#L19-L58) draws the sizes from the app icon and writes `rsrc_windows_amd64.syso` and `rsrc_windows_arm64.syso`, which the Go linker embeds in every Windows build of the package. They are committed, so a plain `go build` gets them.
 3. The release refuses a `kalka-desktop.exe` without the icon ([check](gh:tools/release/pe.go#L50-L58)).
 
-```trace
+```trace v1
 lanes: [business, code]
 nodes:
-  - {id: B1, lane: business, text: The taskbar and Start menu show kalka's icon, next: [B2]}
-  - {id: B2, lane: business, text: Notifications keep showing it}
+  - id: B1
+    lane: business
+    text: "The taskbar and Start menu show kalka's icon"
+    next: [B2]
+  - id: B2
+    lane: business
+    text: "Notifications keep showing it"
 
-  - {id: C1, lane: code, text: Icon group id 3 in the executable, realizes: [B1, B2],
-     ref: "gh:wails:v3/pkg/application/webview_window_windows.go#L660-L674", next: [C2],
-     why: Wails loads id 3 for the window and for the notification image}
-  - {id: C2, lane: code, text: The same group as IDI_APPLICATION,
-     ref: "gh:wails:v3/pkg/application/application_windows.go#L212-L226", next: [C3],
-     why: the window class asks the executable for it}
-  - {id: C3, lane: code, text: Refuse a release without the icon,
-     ref: "gh:tools/release/pe.go#L50-L58"}
+  - id: C1
+    lane: code
+    text: "Icon group id 3 in the executable"
+    realizes: [B1, B2]
+    ref: "gh:wails:v3/pkg/application/webview_window_windows.go#L660-L674"
+    why: "Wails loads id 3 for the window and for the notification image"
+    next: [C2]
+  - id: C2
+    lane: code
+    text: "The same group as IDI_APPLICATION"
+    ref: "gh:wails:v3/pkg/application/application_windows.go#L212-L226"
+    why: "the window class asks the executable for it"
+    next: [C3]
+  - id: C3
+    lane: code
+    text: "Refuse a release without the icon"
+    ref: "gh:tools/release/pe.go#L50-L58"
+    why: "a build that lost the resources would ship with the default icon unnoticed"
 ```
 
 ## Verification plan

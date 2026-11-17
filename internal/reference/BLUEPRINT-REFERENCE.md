@@ -15,18 +15,19 @@ This reference describes what a blueprint useful to agents usually contains. It 
 Add one line to the blueprint's frontmatter:
 
 ```yaml
-reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v1
 ```
 
 kalka then shows soft hints, such as "no verification plan", which anyone can dismiss. Documents without this line get no hints. Hints never block a sync and never fail `kalka check`.
 
 ## Rules for agents working on a blueprint
 
-- **The body belongs to the owner.** The frontmatter `owner:` names them. If you are not acting for the owner, do not edit the body: add a comment instead (`kalka comment`).
+- **The body belongs to the owner.** The frontmatter `kalka_owner:` names them. If you are not acting for the owner, do not edit the body: add a comment instead (`kalka comment`).
 - **Never edit the review log by hand.** Entries are signed and hashed; an edited entry becomes invalid. Add entries with `kalka comment <file> --anchor <slug> -m "<text>"`.
 - **Leave unknown frontmatter alone.** Keys you do not understand belong to someone's pipeline.
 - **Stay inside the scope.** Work that does not fit becomes a seed, not a larger change (see "When to split off a seed").
 - **Do not "clean up" critical sections.** They look wrong on purpose. Read their reasoning first and ask a human.
+- **Trace node ids are permanent.** Comments are attached to them; keep them when you change a trace (see "Trace blocks").
 
 ## The sections
 
@@ -37,7 +38,7 @@ Use these headings (any level) so that people, agents and kalka's hints find the
 Which domain document, and which version of it, the plan was written against. Put it in the frontmatter, and repeat it in prose if the plan relies on particular terms:
 
 ```yaml
-domain: parcels/delivery@v7
+kalka_domain: parcels/delivery@v7
 ```
 
 *Why agents benefit:* the domain document defines the team's words (what a "consignment" is, when a parcel counts as "delivered"). An agent that reads the right version uses the same names and respects the same invariants as the rest of the code. kalka shows when a newer version exists, so the plan's author can decide whether it matters.
@@ -90,9 +91,84 @@ kalka comment plan.md --anchor scope --kind deviation \
 
 *Why agents benefit:* the plan stays the agreed reference, and the log says what changed and why. The next agent, or the reviewer, sees both, instead of a plan silently rewritten to match the code.
 
+## Trace blocks
+
+A trace block shows one process at two or more levels (lanes), most abstract first, and links the levels. kalka draws it and lists where the levels differ. Write one when a plan describes a pipeline or algorithm in words and the reader needs to find it in the code.
+
+*Why agents benefit:* the next agent finds the code for each step of the plan without searching, and the reviewer sees at once which code steps the plan never mentioned.
+
+````markdown
+```trace v1
+lanes: [business, code]
+nodes:
+  - id: B1
+    lane: business
+    text: "The courier scans the parcel at the door"
+    next: [B2]
+  - id: B2
+    lane: business
+    text: "The recipient is told it has arrived"
+
+  - id: C1
+    lane: code
+    text: "Store the delivery scan"
+    realizes: [B1]
+    ref: "gh:src/scan/handler.py#L30-L77"
+    next: [C2]
+  - id: C2
+    lane: code
+    text: "Send the arrival message"
+    realizes: [B2]
+    ref: "gh:src/notify/arrival.py#L9-L40"
+```
+````
+
+**Format**
+
+- Fence the block as `trace v1`, never as `yaml`.
+- One key per line for every node. Never write a node as `{id: …, text: …}`.
+- Put `text`, `why`, `ref` and labels in double quotes. Inside them write `\"` for a quote and `\\` for a backslash.
+- Keys: `id`, `lane`, `text` always; `next`, `back`, `realizes`, `ref`, `why`, `change` when they apply. Do not invent other keys; a key of your own must start with `x-`.
+- List the nodes lane by lane, each lane in the order things happen.
+
+**Content**
+
+- Each lane describes the *same* process. The top lane is how a user or the business would tell it; the bottom lane is what the code does. Add a middle lane only if the reader needs it.
+- `text` is one short line saying what happens. Keep it under 100 characters.
+- Describe the code as it is, including the steps nobody asked for: guards, retries, caches, batching, clean-up. Do not leave a code step out to make the lanes match, and do not add `realizes` to a step that implements nothing above it. The differences are what the reviewer needs.
+- A step that realizes nothing gets a `why`.
+- Every node in the bottom lane gets a `ref` to the lines it describes, unless it is `change: new`.
+- `next` names what follows in the same lane. For a branch, use the labelled form and say when each edge is taken:
+
+  ```yaml
+  next:
+    C4: "third failed attempt"
+    C5: "otherwise"
+  ```
+
+- A loop or retry goes under `back`, on the node where the flow returns, with a label saying when: `back: {C1: "while pages remain"}` or the block form. `next` must never lead back to an earlier node.
+- `realizes` names nodes in lanes above. In three lanes, link each node to the lane directly above where you can; do not also link it to the top lane.
+- When the trace describes a plan, mark what the plan does: `change: new`, `change: modified` or `change: removed`. Leave unchanged steps unmarked. Keep removed steps in the flow where they are today.
+- Aim for 20 nodes or fewer in a block; 40 is the limit. For a larger process, put an overview block under one heading and one block per phase under its own heading, and repeat the last step of a phase as the first step of the next.
+
+**Ids are permanent**
+
+Reviewers' comments are attached to node ids. When you change an existing trace:
+
+- read the existing block first and keep the id of every step that is still the same step, even if its text changes or it moves;
+- give a new step an id that was never used in that block; do not renumber the others to make room;
+- never give a deleted step's id to a different step;
+- use a different prefix per lane and per block under the same heading (`B1…`, `C1…`), so that two blocks never share an id.
+
+**Check**
+
+Run `kalka check <file> --json` after writing. Fix every error (the block is shown as plain code until you do) and read every warning. Then read the divergence list: each item should be something true about the code. If one is an artefact of how you wrote the trace, fix the trace; if it is real, leave it, and make sure the node's `why` explains it.
+
+Renaming the heading above a block detaches the comments on its steps, as it does for comments on a section.
+
 ## When to split off a seed
 
-A *seed* is a small blueprint (`status: seed`) holding an idea split off from a plan that is growing. Split one off when:
+A *seed* is a small blueprint (`kalka_status: seed`) holding an idea split off from a plan that is growing. Split one off when:
 
 - the work needs a module outside the plan's scope;
 - a deviation turns out to be a feature of its own;
@@ -104,9 +180,9 @@ In kalka, "Create seed" on a deviation entry, or `kalka seed <file> --from <entr
 
 ```markdown
 ---
-owner: dana@example.org
-reference: kalka-blueprint@v1
-domain: parcels/delivery@v7
+kalka_owner: dana@example.org
+kalka_reference: kalka-blueprint@v1
+kalka_domain: parcels/delivery@v7
 ---
 
 # Redelivery scheduling

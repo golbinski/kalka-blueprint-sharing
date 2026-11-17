@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"strings"
 	"time"
 
@@ -545,7 +546,7 @@ func (d *Node) admit(peer transport.Peer) ([]teamlog.Op, string, string) {
 		return nil, syncproto.ByeInviteUsed, iv.Email + " is already a member"
 	}
 	// The email is the one the owner invited, never the joiner's claim.
-	add := d.teamSigner(t).AddMember(st.Heads, strings.ToLower(iv.Email), peer.Key, iv.ID(), d.now())
+	add := d.teamSigner(t).AddMember(st.Heads, addr.Canonical(iv.Email), peer.Key, iv.ID(), d.now())
 	if _, err := d.commit(t, []teamlog.Op{add}); err != nil {
 		return nil, "error", err.Error()
 	}

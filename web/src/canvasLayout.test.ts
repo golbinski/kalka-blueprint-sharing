@@ -54,7 +54,7 @@ function doc(): Doc {
     ],
     problems: [],
     hints: [],
-    traces: [{ index: 0, line: 22, source: '', divergences: [], graph: 0 }],
+    traces: [{ index: 0, line: 22, source: '', version: 1, divergences: [], graph: 0 }],
     refs: {},
   }
 }

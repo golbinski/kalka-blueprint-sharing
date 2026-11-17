@@ -25,15 +25,17 @@ func raceKey(email string) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(seed[:])
 }
 
+// raceSigner signs as email under its term in raceTeam.
 func raceSigner(email string) bp.Signer {
 	k := raceKey(email)
-	return func(m []byte) []byte { return ed25519.Sign(k, m) }
+	team, ops := raceTeam(nil)
+	st, _ := teamlog.Replay(team, ops)
+	return bp.Signer{Fn: func(m []byte) []byte { return ed25519.Sign(k, m) }, Term: TermIn(st, email, k.Public().(ed25519.PublicKey))}
 }
 
 // raceTeam is a team log: marek and zofia are team owners, ewa and olga
 // members.
 func raceTeam(t *testing.T) (string, []teamlog.Op) {
-	t.Helper()
 	create := teamlog.Create(raceKey("marek@parcels.example"), "parcels", "marek@parcels.example", raceT0)
 	team := create.Hash()
 	ops := []teamlog.Op{create}
@@ -51,7 +53,7 @@ const raceID = "6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a41"
 // author.
 func raceRelease(t *testing.T, base *bp.Document, owner, text, author string, v int64) *bp.Document {
 	t.Helper()
-	raw := "---\nkalka_id: " + raceID + "\nowner: " + owner + "\nteam: parcels\n---\n# Depot routing\n\n## Plan\n\n" + text + "\n"
+	raw := "---\nkalka_id: " + raceID + "\nkalka_owner: " + owner + "\nkalka_team: parcels\n---\n# Depot routing\n\n## Plan\n\n" + text + "\n"
 	d, err := bp.Parse([]byte(raw))
 	if err != nil {
 		t.Fatal(err)

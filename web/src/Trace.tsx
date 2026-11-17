@@ -2,7 +2,7 @@
 // divergences the daemon computed, and a side panel with node details.
 // Layout is computed in traceLayout.ts; nothing is saved.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Divergence, Doc, Entry, RefView, Trace, TraceNode } from './api'
+import type { Divergence, Doc, Entry, RefView, Trace, TraceNode, TraceProblem } from './api'
 import { Composer, EntryCard } from './Review'
 import { RefBox, RefLayer } from './refs'
 import { CARD_H, CARD_W, layout, type Layout } from './traceLayout'
@@ -22,6 +22,7 @@ export function badgeText(d: Divergence): string {
       return `${d.class} · ${(d.nodes ?? []).join(' + ')}`
     case 'scattered':
     case 'reordered':
+    case 'skipped':
       return `${d.class} in ${d.lane}`
     case 'stale':
       return d.detail && d.detail.length <= 32 ? d.detail : 'stale'
@@ -64,7 +65,7 @@ function NodeCard({
   const neutral = t.divergences.filter((d) => d.node === n.id && NEUTRAL.has(d.class))
   const ref = n.ref ? doc.refs[n.ref] : undefined
   const comments = nodeEntries(doc, t, n.id).length
-  const cls = ['tnode', divs.length ? 'div' : '', selected ? 'selected' : '', onSelect ? '' : 'static'].join(' ')
+  const cls = ['tnode', divs.length ? 'div' : '', n.change ? 'chg-' + n.change : '', selected ? 'selected' : '', onSelect ? '' : 'static'].join(' ')
   const style = { left: p.x, top: p.y, width: CARD_W, height: p.h }
   const body = (
     <span className="tnode-in">
@@ -77,6 +78,7 @@ function NodeCard({
         </span>
       )}
       <span className="tbadges">
+        {n.change && <span className={'tbadge chg chg-' + n.change}>{n.change}</span>}
         {divs.map((d, i) => (
           <span key={i} className="tbadge div">
             {badgeText(d)}
@@ -135,7 +137,7 @@ export function TraceDiagram({
             </marker>
           </defs>
           {l.edges.map((e, i) => (
-            <path key={i} d={e.d} className={e.kind === 'flow' ? 'tflow' : 'trealizes'} markerEnd={e.kind === 'flow' ? 'url(#tarrow)' : undefined} />
+            <path key={i} d={e.d} className={'t' + e.kind} markerEnd={e.kind === 'realizes' ? undefined : 'url(#tarrow)'} />
           ))}
         </svg>
         {l.edges
@@ -159,25 +161,54 @@ export function TraceDiagram({
 }
 
 // TraceInvalid shows a block that failed validation as code with the
-// errors beside it (spec 6.10).
+// errors beside it (spec 6.10). A block of a newer language version is
+// not an authoring mistake and says so.
 export function TraceInvalid({ t }: { t: Trace }) {
+  const newer = (t.errors ?? []).some((e) => e.code === 'T005') && t.version > 1
   return (
     <div className="tinvalid">
       <pre>
         <code>{t.source}</code>
       </pre>
       <div className="tinvalid-errors">
-        <b>This trace block is not valid</b>
-        <ul>
-          {(t.errors ?? []).map((e, i) => (
-            <li key={i}>
-              line {e.line}
-              {e.node ? `, node ${e.node}` : ''}: {e.message}
-            </li>
-          ))}
-        </ul>
-        <span className="muted small">It is shown as code. It does not block syncing.</span>
+        {newer ? (
+          <>
+            <b>trace v{t.version}: needs a newer kalka</b>
+            <span className="muted small">This block uses a version of the trace language this kalka does not read. It is shown as code.</span>
+          </>
+        ) : (
+          <>
+            <b>This trace block is not valid</b>
+            <ProblemList items={t.errors ?? []} />
+            <span className="muted small">It is shown as code. It does not block syncing.</span>
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+function ProblemList({ items }: { items: TraceProblem[] }) {
+  return (
+    <ul>
+      {items.map((e, i) => (
+        <li key={i}>
+          <span className="mono">{e.code}</span> line {e.line}
+          {e.node ? `, node ${e.node}` : ''}: {e.message}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// TraceWarnings lists what looks wrong in a valid block.
+export function TraceWarnings({ t }: { t: Trace }) {
+  const w = t.warnings ?? []
+  if (w.length === 0) return null
+  return (
+    <div className="twarnings">
+      <b>{plural(w.length, 'warning')} on this trace</b>
+      <ProblemList items={w} />
     </div>
   )
 }
@@ -220,6 +251,7 @@ export function TraceInline({ t, doc }: { t: Trace; doc: Doc }) {
       <div className="tinline-scroll" ref={box}>
         <TraceDiagram t={t} doc={doc} scale={scale} onSelect={(id) => (location.hash = href + '?node=' + encodeURIComponent(id))} />
       </div>
+      <TraceWarnings t={t} />
     </figure>
   )
 }
@@ -240,6 +272,7 @@ function divCard(t: Trace, d: Divergence): { head: string; title: string; text: 
   const lanes = t.lanes ?? []
   const li = lanes.indexOf(n?.lane ?? '')
   const why = n?.why ? ` Why: ${n.why}.` : ''
+  const names = (ids?: string[]) => (ids ?? []).map((x) => nodeName(t, x))
   const id = d.node
   switch (d.class) {
     case 'implementation-only':
@@ -250,19 +283,28 @@ function divCard(t: Trace, d: Divergence): { head: string; title: string; text: 
       return {
         head: `MERGED · ${id} REALIZES ${(d.nodes ?? []).join(' + ')}`,
         title: n?.text ?? id,
-        text: `${(d.nodes ?? []).map((x) => nodeName(t, x)).join(' and ')} are one ${n?.lane} step: they cannot change independently.${why}`,
+        text: `${names(d.nodes).join(' and ')}, in ${d.lane}, are one ${n?.lane} step: they cannot change independently.${why}`,
       }
     case 'expanded':
       return {
         head: `EXPANDED · ${id} REALIZED BY ${(d.nodes ?? []).join(' + ')}`,
         title: n?.text ?? id,
-        text: `${plural((d.nodes ?? []).length, 'step')} carry out this one: ${(d.nodes ?? []).map((x) => nodeName(t, x)).join(', ')}.`,
+        text: `${plural((d.nodes ?? []).length, d.lane + ' step')} carry out this one: ${names(d.nodes).join(', ')}.`,
       }
-    case 'scattered':
+    case 'scattered': {
+      const r = d.nodes ?? []
+      const x = r[r.length - 1]
       return {
         head: `SCATTERED · ${id}`,
         title: n?.text ?? id,
-        text: `The ${d.lane} steps for this are not next to each other in the flow: ${(d.nodes ?? []).join(', ')}.`,
+        text: `In ${d.lane}, ${nodeName(t, x)} runs between the steps for this (${r.slice(0, -1).join(', ')}).`,
+      }
+    }
+    case 'skipped':
+      return {
+        head: `SKIPPED · ${id} IN ${d.lane?.toUpperCase()}`,
+        title: n?.text ?? id,
+        text: `${names(d.nodes).join(', ')} realize${(d.nodes ?? []).length === 1 ? 's' : ''} this directly; no ${d.lane} step stands between them.`,
       }
     case 'reordered': {
       const [b, early, late] = d.nodes ?? []
@@ -285,7 +327,9 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
   const last = lanes[lanes.length - 1]
   const shown = t.divergences.filter((d) => d.class !== 'unverified')
   const unverified = t.divergences.filter((d) => d.class === 'unverified')
-  const lastNodes = (t.nodes ?? []).filter((n) => n.lane === last)
+  // Steps expected to point at code: live steps of the last lane, except
+  // new ones.
+  const lastNodes = (t.nodes ?? []).filter((n) => n.lane === last && n.change !== 'removed' && n.change !== 'new')
   const reasons = new Map<string, string[]>()
   for (const d of unverified) reasons.set(d.detail ?? '', [...(reasons.get(d.detail ?? '') ?? []), d.node])
   const by = [...new Set(Object.values(doc.refs).filter((r) => r.ok && r.plugin).map((r) => r.plugin))]
@@ -296,6 +340,7 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
         <div className="muted small">Computed from the trace, not written by the author</div>
       </div>
       {shown.length === 0 && <div className="muted">The lanes line up: no divergences.</div>}
+      <TraceWarnings t={t} />
       {shown.map((d, i) => {
         const c = divCard(t, d)
         return (
@@ -321,7 +366,7 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
         <div>
           <dt>{cap(last)} references resolved</dt>
           <dd>
-            {lastNodes.length - unverified.length} of {lastNodes.length}
+            {lastNodes.filter((n) => !unverified.some((d) => d.node === n.id)).length} of {lastNodes.length}
           </dd>
         </div>
         <div>
@@ -392,9 +437,19 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
       </div>
       <div>
         <div className="panel-title big">{n.text}</div>
+        {n.change && (
+          <div className="mt6">
+            <b>Change:</b> {CHANGE[n.change]}
+          </div>
+        )}
         {n.why && (
           <div className="mt6">
             <b>Why:</b> {n.why}
+          </div>
+        )}
+        {(n.back ?? []).length > 0 && (
+          <div className="mt2">
+            <b>Returns to:</b> {(n.back ?? []).map((e) => nodeName(t, e.to) + (e.label ? ` (${e.label})` : '')).join(', ')}
           </div>
         )}
         {li > 0 && (
@@ -433,6 +488,12 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
       )}
     </>
   )
+}
+
+const CHANGE: Record<string, string> = {
+  new: 'the plan adds this step.',
+  modified: 'the plan changes this step.',
+  removed: 'the plan deletes this step; it is kept here where it is today, and takes no part in the divergences.',
 }
 
 const ZOOMS = [0.4, 0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5]
@@ -525,8 +586,17 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
                 <b>→</b> flow within a lane
               </span>
               <span>
+                <b>↺</b> back: the flow returns
+              </span>
+              <span>
                 <span className="legend-dash">- - -</span> realizes
               </span>
+              {t.nodes.some((n) => n.change) && (
+                <span>
+                  <span className="tbadge chg chg-new">new</span> <span className="tbadge chg chg-modified">modified</span>{' '}
+                  <span className="tbadge chg chg-removed">removed</span> planned change
+                </span>
+              )}
               <span>
                 <span className="legend-div">orange</span> divergence
               </span>

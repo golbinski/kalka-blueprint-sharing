@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"os"
 	"path/filepath"
 	"sort"
@@ -150,7 +151,7 @@ func (d *Node) transfer(path, to, mode string, takeOver bool) (TransferResult, e
 	if mode == bp.ModeMove {
 		// The source records the start: its members see the banner.
 		se := *entry
-		se.Sign(id, d.signer())
+		se.Sign(id, d.signerIn(src))
 		doc, err := bp.Parse(f.Raw)
 		if err == nil {
 			err = doc.AddEntry(&se)
@@ -182,7 +183,7 @@ func (d *Node) buildOffer(src, dst *held, doc *bp.Document, mode string) (*bp.Do
 	}
 	newID := newUUID()
 	nd.SetFrontmatter(name.FrontmatterID, newID)
-	nd.SetFrontmatter(name.FrontmatterOwner, strings.ToLower(d.self.Email))
+	nd.SetFrontmatter(name.FrontmatterOwner, addr.Canonical(d.self.Email))
 	nd.SetFrontmatter(bp.KeyTeam, dst.dir.Name)
 	nd.DeleteFrontmatter(bp.KeyCopiedFrom)
 	nd.DeleteFrontmatter(bp.KeyMovedFrom)
@@ -206,7 +207,7 @@ func (d *Node) buildOffer(src, dst *held, doc *bp.Document, mode string) (*bp.Do
 	}
 	t := bp.Transfer{Mode: mode, FromTeam: src.dir.Name, FromID: id, Source: src.dir.Team, ToTeam: dst.dir.Name, To: dst.dir.Team,
 		Plan: offer.PlanHash(), History: bp.HistoryDigest(hist), Entries: bp.EntryIDs(hist)}
-	e, err := bp.NewTransfer(offer, strings.ToLower(d.self.Email), d.now(), t, d.signer())
+	e, err := bp.NewTransfer(offer, addr.Canonical(d.self.Email), d.now(), t, d.signerIn(dst))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -587,7 +588,7 @@ func (d *Node) install(h *held, id string) {
 		if err != nil {
 			return
 		}
-		doc.SetFrontmatter(name.FrontmatterOwner, strings.ToLower(d.self.Email))
+		doc.SetFrontmatter(name.FrontmatterOwner, addr.Canonical(d.self.Email))
 		ch := merge.Releases(entriesOf(doc), id, h.team())
 		if ch.Pending == nil || !bp.SameEmail(ch.Pending.Owner, d.self.Email) {
 			return // version 1 is someone else's to sign
@@ -776,7 +777,7 @@ func (d *Node) endMoveWith(src *held, f *store.File, mv *bp.Entry, text string) 
 	if err != nil {
 		return
 	}
-	e, err := bp.NewWithdrawal(doc, strings.ToLower(d.self.Email), d.now(), mv.ID, text, d.signer())
+	e, err := bp.NewWithdrawal(doc, addr.Canonical(d.self.Email), d.now(), mv.ID, text, d.signerIn(src))
 	if err == nil {
 		err = doc.AddEntry(e)
 	}
@@ -825,9 +826,9 @@ func (d *Node) AcceptTransfer(id, owner string) (TransferView, error) {
 	if err != nil {
 		return TransferView{}, err
 	}
-	owner = strings.ToLower(strings.TrimSpace(owner))
+	owner = addr.Canonical(strings.TrimSpace(owner))
 	if owner == "" {
-		owner = strings.ToLower(d.self.Email)
+		owner = addr.Canonical(d.self.Email)
 	}
 	d.teams.mu.Lock()
 	st, err := d.ownerOf(h.dir)
@@ -924,7 +925,7 @@ func (d *Node) WithdrawTransfer(id string) error {
 			werr = err
 			return
 		}
-		e, err := bp.NewWithdrawal(doc, strings.ToLower(d.self.Email), d.now(), q.offer.Offer.ID, "withdrawn", d.signer())
+		e, err := bp.NewWithdrawal(doc, addr.Canonical(d.self.Email), d.now(), q.offer.Offer.ID, "withdrawn", d.signerIn(h))
 		if err == nil {
 			err = doc.AddEntry(e)
 		}

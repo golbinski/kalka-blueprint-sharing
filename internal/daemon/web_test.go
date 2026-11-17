@@ -102,7 +102,7 @@ func TestUIServingAndTokenCookie(t *testing.T) {
 func TestDocumentModelAndEntries(t *testing.T) {
 	w := newWorld(t)
 	alice := w.node("alice@library.example")
-	alice.write("plan.md", "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nowner: alice@library.example\n---\n"+plan)
+	alice.write("plan.md", "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nkalka_owner: alice@library.example\n---\n"+plan)
 	alice.comment("plan.md", "plan", "first")
 	for i := 0; i < 100 && len(alice.d.Store.List()) == 0; i++ {
 		time.Sleep(20 * time.Millisecond)

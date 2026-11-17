@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"os"
 	"path/filepath"
 	"slices"
@@ -326,7 +327,7 @@ func (d *Node) CreateTeam(teamName string) (TeamView, error) {
 			return TeamView{}, fmt.Errorf("you already hold a team named %s (in %s)", teamName, t.Dir)
 		}
 	}
-	op := teamlog.Create(d.self.Key, teamName, strings.ToLower(d.self.Email), d.now())
+	op := teamlog.Create(d.self.Key, teamName, addr.Canonical(d.self.Email), d.now())
 	t := d.newTeamDir(teamName, op.Hash())
 	if _, err := d.commit(t, []teamlog.Op{op}); err != nil {
 		return TeamView{}, err
@@ -348,7 +349,7 @@ type InviteResult struct {
 
 // Invite makes a one-time invite for email. kalka does not send it.
 func (d *Node) Invite(ref, email string, ttl time.Duration) (InviteResult, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = addr.Canonical(strings.TrimSpace(email))
 	if !bp.ValidEmail(email) {
 		return InviteResult{}, fmt.Errorf("%q is not an email address", email)
 	}
@@ -456,7 +457,7 @@ func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 // Remove removes a member; their published documents held here go to the
 // local user (spec 19.5).
 func (d *Node) Remove(ref, email string) (TeamView, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = addr.Canonical(strings.TrimSpace(email))
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
 	t, err := d.findTeam(ref)
@@ -480,7 +481,7 @@ func (d *Node) Remove(ref, email string) (TeamView, error) {
 	for _, r := range d.ownedBy(t, email) {
 		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After, Plan: r.Plan})
 	}
-	ops := d.teamSigner(t).Remove(st.Heads, email, docs, strings.ToLower(d.self.Email), d.now())
+	ops := d.teamSigner(t).Remove(st.Heads, email, docs, addr.Canonical(d.self.Email), d.now())
 	if _, err := d.commit(t, ops); err != nil {
 		return TeamView{}, err
 	}
@@ -490,7 +491,7 @@ func (d *Node) Remove(ref, email string) (TeamView, error) {
 
 // SetOwner adds or removes a team owner.
 func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = addr.Canonical(strings.TrimSpace(email))
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
 	t, err := d.findTeam(ref)
@@ -717,7 +718,7 @@ func (d *Node) teamView(t teamDir) TeamView {
 	return v
 }
 
-// NotSharedDoc is a file whose location and `team:` disagree, or that lies
+// NotSharedDoc is a file whose location and `kalka_team:` disagree, or that lies
 // in a team's folder without being a team document: listed, never
 // replicated (spec 14).
 type NotSharedDoc struct {
@@ -728,7 +729,7 @@ type NotSharedDoc struct {
 }
 
 // notShared lists the files in h's folder that do not replicate, and the
-// Personal files whose `team:` names h.
+// Personal files whose `kalka_team:` names h.
 func (d *Node) notShared(h *held) []NotSharedDoc {
 	out := []NotSharedDoc{}
 	for _, in := range d.Store.List() {

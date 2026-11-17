@@ -174,7 +174,7 @@ func TestJoinAndReplicaNotices(t *testing.T) {
 	path := depot.writeDomain("parcels-lockers-domain.md")
 	depot.release(path, "")
 	depot.replicate(courier)
-	courier.write("locker-pickup.md", "---\ndomain: parcels/lockers@v1\n---\n# Locker pickup\n")
+	courier.write("locker-pickup.md", "---\nkalka_domain: parcels/lockers@v1\n---\n# Locker pickup\n")
 	waitStored(t, courier, courier.path("locker-pickup.md"), "Locker pickup")
 	courierN()
 	editFile(t, depot, path, "the lockers at one depot.", "the lockers at one depot, up to 40.")

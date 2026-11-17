@@ -118,6 +118,8 @@ export interface Entry {
   node?: string
   rev: string
   reply_to?: string
+  // ext are header fields a later kalka added, as written.
+  ext?: string[]
   body: string
   outdated?: boolean
   orphaned?: boolean
@@ -143,7 +145,7 @@ export interface Problem {
 
 export type Role = 'owner' | 'reviewer' | 'local'
 
-export interface TraceNext {
+export interface TraceEdge {
   to: string
   label?: string
 }
@@ -152,10 +154,12 @@ export interface TraceNode {
   id: string
   lane: string
   text: string
-  next?: TraceNext[]
+  next?: TraceEdge[]
+  back?: TraceEdge[]
   realizes?: string[]
   ref?: string
   why?: string
+  change?: 'new' | 'modified' | 'removed'
   line: number
 }
 
@@ -166,6 +170,7 @@ export type DivClass =
   | 'expanded'
   | 'scattered'
   | 'reordered'
+  | 'skipped'
   | 'unverified'
   | 'stale'
 
@@ -177,6 +182,14 @@ export interface Divergence {
   detail?: string
 }
 
+// TraceProblem is a validation error or warning (T001…).
+export interface TraceProblem {
+  code: string
+  node?: string
+  line: number
+  message: string
+}
+
 export interface Trace {
   index: number
   line: number
@@ -186,7 +199,11 @@ export interface Trace {
   source: string
   lanes?: string[]
   nodes?: TraceNode[]
-  errors?: { node?: string; line: number; message: string }[]
+  // version is the language version the fence names; a block with a
+  // version this kalka does not know is shown as code (T005).
+  version: number
+  errors?: TraceProblem[]
+  warnings?: TraceProblem[]
   divergences: Divergence[]
   // graph is how many of divergences come from the graph alone.
   graph: number
@@ -283,7 +300,7 @@ export interface DomainInfo {
   viewing?: number
   owner?: string
 }
-/** A blueprint's `domain:` reference (spec 6.12). */
+/** A blueprint's `kalka_domain:` reference (spec 6.12). */
 export interface DomainRefView {
   ref: string
   team: string

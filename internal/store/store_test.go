@@ -13,7 +13,7 @@ import (
 	"github.com/golbinski/kalka/internal/fsutil"
 )
 
-const doc1 = "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nowner: alice@corp.com\n---\n# T\n\n## Plan\nP\n"
+const doc1 = "---\nkalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa\nkalka_owner: alice@corp.com\n---\n# T\n\n## Plan\nP\n"
 
 func parse(t *testing.T, s string) *bp.Document {
 	t.Helper()

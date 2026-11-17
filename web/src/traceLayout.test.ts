@@ -9,6 +9,7 @@ const spec: Trace = {
   index: 0,
   line: 1,
   source: '',
+  version: 1,
   divergences: [],
   graph: 0,
   lanes: ['business', 'code'],
@@ -92,5 +93,24 @@ describe('trace layout', () => {
   it('orders a lane along its flow, not the block order', () => {
     const order = flowOrder([n('X3', 'a'), n('X1', 'a', { next: [{ to: 'X2' }] }), n('X2', 'a', { next: [{ to: 'X3' }] })])
     expect(order.map((x) => x.id)).toEqual(['X1', 'X2', 'X3'])
+  })
+
+  it('draws back edges apart from the flow, and keeps the forward order', () => {
+    const t: Trace = {
+      ...spec,
+      lanes: ['business', 'code'],
+      nodes: [
+        n('A1', 'business'),
+        n('F1', 'code', { realizes: ['A1'], next: [{ to: 'F2' }] }),
+        n('F2', 'code', { realizes: ['A1'], back: [{ to: 'F1', label: 'while pages remain' }, { to: 'F2' }] }),
+      ],
+    }
+    expect(rows(t)).toEqual({ A1: 0, F1: 0, F2: 1 })
+    const back = layout(t).edges.filter((e) => e.kind === 'back')
+    expect(back.map((e) => [e.from, e.to, e.label])).toEqual([
+      ['F2', 'F1', 'while pages remain'],
+      ['F2', 'F2', undefined],
+    ])
+    expect(layout(t).edges.filter((e) => e.kind === 'flow')).toHaveLength(1)
   })
 })

@@ -92,6 +92,14 @@ type TeamDoc struct {
 	Pending  bool   `json:"pending,omitempty"` // a pending transfer or its stub
 }
 
+// known are the message types of protocol version 1. Any other type is
+// one of a newer kalka, and is ignored (spec 9.5).
+var known = map[string]bool{"hello": true, "auth": true, "bye": true, "keepalive": true,
+	"team_sync": true, "team_log": true, "team_inv": true, "team_want": true, "team_doc": true}
+
+// Known reports whether typ is a message type this kalka speaks.
+func Known(typ string) bool { return known[typ] }
+
 // Replication session outcomes, as bye reasons.
 const (
 	ByeDone      = "done"

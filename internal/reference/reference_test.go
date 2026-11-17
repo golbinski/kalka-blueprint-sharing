@@ -21,7 +21,8 @@ func TestVersionAndShape(t *testing.T) {
 			t.Fatalf("frontmatter %s missing", k)
 		}
 	}
-	// The six recommended sections, in order.
+	// The six recommended sections, in order; trace blocks are explained
+	// in a part of their own.
 	var heads []string
 	for _, h := range d.Headings() {
 		if h.Level == 3 {
@@ -32,7 +33,7 @@ func TestVersionAndShape(t *testing.T) {
 	if strings.Join(heads, ",") != want {
 		t.Fatalf("sections %v", heads)
 	}
-	if n := strings.Count(string(Bytes()), "*Why agents benefit:*"); n != 6 {
+	if n := strings.Count(string(Bytes()), "*Why agents benefit:*"); n != 7 {
 		t.Fatalf("%d rationales", n)
 	}
 }

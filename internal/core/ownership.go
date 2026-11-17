@@ -6,6 +6,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ const (
 // recipient and the next version is released naming them. It needs no
 // network and no consent.
 func (d *Node) Handoff(path, email string) (PublishResult, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = addr.Canonical(strings.TrimSpace(email))
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return PublishResult{}, err
@@ -70,7 +71,7 @@ func (d *Node) Reassign(path, email string) (ReassignResult, error) {
 // reassign is Reassign; note is the note of the release the local user
 // makes at once when they are the new owner.
 func (d *Node) reassign(path, email, note string) (ReassignResult, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = addr.Canonical(strings.TrimSpace(email))
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return ReassignResult{}, err
@@ -103,7 +104,7 @@ func (d *Node) reassign(path, email, note string) (ReassignResult, error) {
 	}
 	from, _ := nextReleaser(ch, f.Doc.Owner())
 	if from == "" {
-		from = strings.ToLower(f.Doc.Owner())
+		from = addr.Canonical(f.Doc.Owner())
 	}
 	if bp.SameEmail(from, email) && !ch.Disputed {
 		d.teams.mu.Unlock()
@@ -114,13 +115,13 @@ func (d *Node) reassign(path, email, note string) (ReassignResult, error) {
 	if released {
 		after, plan = head.Release.Version, head.Release.Plan
 	}
-	op := d.teamSigner(t).Reassign(st.Heads, id, strings.ToLower(from), email, after, plan, d.now())
+	op := d.teamSigner(t).Reassign(st.Heads, id, addr.Canonical(from), email, after, plan, d.now())
 	st, err = d.commit(t, []teamlog.Op{op})
 	d.teams.mu.Unlock()
 	if err != nil {
 		return ReassignResult{}, err
 	}
-	res := ReassignResult{Path: f.Path, Team: t.Name, From: strings.ToLower(from), Owner: email, After: after}
+	res := ReassignResult{Path: f.Path, Team: t.Name, From: addr.Canonical(from), Owner: email, After: after}
 	d.logf("reassigned %s from %s to %s after version %d", f.Path, from, email, after)
 	if bp.SameEmail(email, d.self.Email) {
 		h := &held{dir: t, st: st}
@@ -154,7 +155,7 @@ func (d *Node) takeReassigned(h *held, id, note string) (PublishResult, bool) {
 		return PublishResult{}, false // the releases up to the cut-off have not arrived yet
 	}
 	if note == "" {
-		note = "reassigned to " + strings.ToLower(d.self.Email)
+		note = "reassigned to " + addr.Canonical(d.self.Email)
 	}
 	r, err := d.release(f.Path, relOpts{mode: modeAuto, note: note})
 	if err != nil {

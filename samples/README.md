@@ -21,7 +21,7 @@ Without `gh`, the references show as unresolved and everything else works.
 
 | File | What it exercises |
 |---|---|
-| `kalka-core-sync-domain.md` | A domain document (`kind: domain`, `domain: sync`): glossary table, invariants, the team log's operations. Publishing it to `kalka-core` makes version 1, which the two blueprints below refer to (`kalka-core/sync@v1`). |
+| `kalka-core-sync-domain.md` | A domain document (`kalka_kind: domain`, `kalka_domain: sync`): glossary table, invariants, the team log's operations. Publishing it to `kalka-core` makes version 1, which the two blueprints below refer to (`kalka-core/sync@v1`). |
 | `push-during-round.md` | A full blueprint opted into the reference: every section, so no hints; a Mermaid diagram; `gh:` links in the text; a trace block whose code nodes link to their lines, with one divergence to review (C4, implementation-only); a critical section. |
 | `retry-first-release.md` | A short opted-in plan with `gh:` links: hints for no verification plan, no critical sections and no operations. |
 | `relay-indicator.md` | No frontmatter at all: listed in Personal as a local blueprint until published. |

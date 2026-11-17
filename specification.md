@@ -69,7 +69,7 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 | Member | Anyone the team log currently lists. |
 | Peer | A member of a team you share, identified by the email and key that team's log binds (8). |
 | Personal | The local, never replicated part of the folder, for unshared drafts (14). |
-| Team document | A document in a team's folder with `team:` naming that team and a valid release; replicated to every member (20.1). |
+| Team document | A document in a team's folder with `kalka_team:` naming that team and a valid release; replicated to every member (20.1). |
 | Publish | Moving a document from Personal into a team, with its first release (20.1). |
 | Release | A signed entry that makes a version of a team document's plan official (20.4). |
 | Handoff | A release by the owner naming another member as owner (7.2). |
@@ -78,8 +78,8 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 | Transfer | A copy or move of a document into another team, accepted there by a team owner (20.7). |
 | Attested entry | An entry brought in by a transfer: vouched for by the person who started it and the owner who accepted it, not verified against the destination's log (20.7). |
 | Waiting item | Something only the local user can move forward, counted per team (11.3). |
-| Seed | A blueprint with `status: seed`: an idea split off from a growing blueprint (6.11). |
-| Domain document | A team document with `kind: domain` holding a team's shared language (6.12). |
+| Seed | A blueprint with `kalka_status: seed`: an idea split off from a growing blueprint (6.11). |
+| Domain document | A team document with `kalka_kind: domain` holding a team's shared language (6.12). |
 | Rendezvous | The signaling server (PeerJS protocol) that lets two peers find each other. |
 | Key ID | The peer ID a daemon registers at the rendezvous, derived from its public key (9.2). |
 | Rev | Short hash of the normalized body. Tells which body an entry was written against. |
@@ -161,8 +161,8 @@ None of these files is ever asked for or edited by the user.
 ```markdown
 ---
 kalka_id: 6f1c2a0e-8d1b-4c57-9a43-0e2b7c9d51aa
-owner: ewa@example.org
-team: parcel-ops
+kalka_owner: ewa@example.org
+kalka_team: parcel-ops
 repo: org/depot-service      # opaque to the core; read by plugins
 base_sha: 3f9c2a1
 ---
@@ -200,7 +200,7 @@ Moved the weight check into the intake handler because …
 | `team` | team name (19.2) | The team the document belongs to (20.1) | On publish; on a transfer |
 | `status` | `[a-z][a-z0-9-]*` | `seed` marks a seed (6.11); other values are labels | On seed creation; on promotion |
 | `parent` | UUID | The blueprint a seed was split from | On seed creation |
-| `origin` | 12 hex | The entry id that triggered a seed | On seed creation |
+| `origin` | 32 hex | The entry id that triggered a seed | On seed creation |
 | `created` | RFC 3339 UTC | When a seed was created | On seed creation |
 | `copied-from` | `<team name>/<kalka_id>` | The source of a copy (20.7) | On a copy |
 | `moved-from` | `<team name>/<kalka_id>` | The source of a move (20.7) | On a move |
@@ -214,7 +214,7 @@ Moved the weight check into the intake handler because …
 - Key names are bare, as above. A team whose own pipeline already uses one of these names with another meaning must rename its key, or accept that `kalka` reads it when the shape matches.
 - The `repo` and `base_sha` keys in the example above are an instance of this: they mean something to the `gh` plugin only. So does `repos`, its map of further repositories (10.4).
 - A file without `kalka_id` is a *local* blueprint: listed in Personal, not yet in any team.
-- **Publish** adds `kalka_id`, `owner: <config email>` if absent, and `team:`, creating the frontmatter block if the file has none. Whenever `kalka` edits frontmatter it must change only the lines it writes and must not re-serialize the rest (key order and comments stay intact).
+- **Publish** adds `kalka_id`, `kalka_owner: <config email>` if absent, and `kalka_team:`, creating the frontmatter block if the file has none. Whenever `kalka` edits frontmatter it must change only the lines it writes and must not re-serialize the rest (key order and comments stay intact).
 
 ### 6.3 Body
 
@@ -222,7 +222,7 @@ Everything after the frontmatter except the review log section. Free-form Markdo
 
 ### 6.4 Review log
 
-- Exactly one H2 with the text `Review log` (case-insensitive). Its extent runs to the next H1/H2 or to end of file. It should be the last section, but `kalka` must cope if another tool has appended sections after it.
+- The log starts at the first line that is exactly `## Review log` (case-insensitive; spaces allowed after `##` and at the end), at the start of the line and outside a code fence. This is a line rule, not a Markdown parse, so what is hashed never depends on a parser's edge cases. A later such line is ordinary body text, with a warning. Its extent runs to the next H1/H2 line outside a fence, or to end of file. It should be the last section, but `kalka` must cope if another tool has appended sections after it.
 - If absent, `kalka` creates it at end of file when the first entry is added.
 - Content between entries that does not parse as an entry is preserved and shown as "unparsed" in the UI. It never blocks anything. It belongs to the entry before it (or to the log heading, if it comes before the first entry) and moves with that entry when the log is rewritten in canonical order (20.4). It is not part of that entry's body or `id`.
 
@@ -231,18 +231,19 @@ Everything after the frontmatter except the review log section. Free-form Markdo
 Header line, strict:
 
 ```
-### <kind> · <author-email> · <timestamp> · §<anchor> · rev:<8 hex> · id:<12 hex>
+### <kind> · <author-email> · <timestamp> · §<anchor> · rev:<8 hex> · id:<32 hex>[ · <name>:<value>]…[ · sig:[<term>.]<base64url>]
 ```
 
 - Separator is ` · ` (space, U+00B7, space).
 - `kind`: `comment` (a remark), `deviation` (a proposed or actual departure from the plan as written, recorded instead of editing the body), `release` (20.4), `budded` (6.11), `transfer` and `transfer-withdrawn` (20.7). `release` and the transfer kinds have behaviour in the core; `budded` is rendered as a link to the seed; `comment` and `deviation` differ in label and styling alone. The set of `deviation` entries is the document's *deviation log* (6.13). Unknown kinds matching `[a-z][a-z0-9-]*` must be preserved, merged and rendered generically, so a team's own workflow can introduce kinds without changes to `kalka`.
 - `timestamp`: UTC, RFC 3339, second precision, `Z` suffix.
-- `anchor`: slug of the body heading the entry refers to, or empty (`§`) for a general entry. Slug rule: lower-case; drop everything except letters, digits, spaces and hyphens; spaces to hyphens; duplicates get `-1`, `-2`… in document order (GitHub's algorithm). A node inside a trace block (6.10) is addressed as `§<slug>#<node-id>`, where the slug is the section containing the block.
+- `anchor`: slug of the body heading the entry refers to, or empty (`§`) for a general entry. A header is valid when the slug holds only ASCII lower-case letters, digits, `-` and `_`, and non-ASCII letters and digits; no Unicode tables are consulted, so a toolchain update cannot invalidate a header. Slug rule: lower-case; drop everything except letters, digits, spaces and hyphens; spaces to hyphens; duplicates get `-1`, `-2`… in document order (GitHub's algorithm). A node inside a trace block (6.10) is addressed as `§<slug>#<node-id>`, where the slug is that of the nearest heading above the block.
 - `rev`: first 8 hex characters of SHA-256 over the normalized body (6.6) at the time of writing.
-- `id`: first 12 hex characters of SHA-256 over `kind \n author \n timestamp \n anchor \n rev \n normalized entry body`. An entry whose `id` does not match its content is invalid and is dropped on merge with a visible warning.
-- `sig`: an optional seventh field ` · sig:<base64url>`, with no padding, holding an ed25519 signature by the author's identity key. It is not part of the `id` input. The message is `"kalka-entry-v2\n" + kalka_id + "\n" + hex(SHA-256 of the id input)`. It covers the full 256-bit digest, so it cannot be moved to another text. `kalka` signs every entry it creates, of every kind, in the UI and in `kalka comment`.
+- `id`: first 32 hex characters (128 bits) of SHA-256 over `kind \n author \n timestamp \n anchor \n rev \n extension fields \n normalized entry body`, where the extension fields are written as in the header, joined by ` · `, and are an empty line when there are none. 128 bits keep anyone from searching out a second entry with someone else's id. An entry whose `id` does not match its content is *edited*: a warning, not an error, so one edited entry never takes the document out of the replica. Peers do not take it; if the team holds the original, the next merge puts it back, and otherwise the text stays in the file as unparsed content.
+- Extension fields: up to 8 fields `<name>:<value>` between `id` and `sig`, with `name` matching `[a-z][a-z0-9-]{0,31}` (not `rev`, `id` or `sig`) and a value without spaces. They are for fields a later `kalka` adds: kept as written, shown, part of the `id` input and so covered by the signature, and otherwise ignored.
+- `sig`: an optional last field ` · sig:[<term>.]<base64url>`, with no padding, holding an ed25519 signature by the author's identity key. It is not part of the `id` input. `term` is the first 16 hex of the team log operation (create-team or add-member, 19.1) that bound the signing key to the author in the team whose copy this is; it is absent outside a team. The message is `"kalka-entry-v2\n" + kalka_id + "\n" + term + "\n" + hex(SHA-256 of the id input)`. It covers the full 256-bit digest, so it cannot be moved to another text, and the term, which names one key in one team. `kalka` signs every entry it creates, of every kind, in the UI and in `kalka comment`, under the user's current term in the document's team.
 
-**Checking a signature.** A signature covers the `kalka_id`, so entries written in a file that has none yet stay unsigned. In a team document, a signature is checked against the keys the team log has ever bound to the author's email (19.1). In Personal, it is checked against the local key when the author is the local user, and against the keys any held team log binds to the author otherwise. The UI shows:
+**Checking a signature.** A signature covers the `kalka_id`, so entries written in a file that has none yet stay unsigned. In a team document, a signature is checked against the one key its term names, which must be a term of this team that bound the author's email (19.1); a signature without a term, or with a term of another team, does not verify there. Terms of removed members still resolve, so their entries keep verifying. When a document written in Personal is published, `kalka` signs the user's own entries again under the team's term; it never signs anyone else's. In Personal, it is checked against the local key when the author is the local user, and against the keys any held team log binds to the author otherwise. The UI shows:
 
 | State | When |
 |---|---|
@@ -271,7 +272,7 @@ Used for comparison and hashing only; never changes what is on disk.
 
 1. Decode as UTF-8; strip a leading BOM.
 2. Convert CRLF and lone CR to LF.
-3. Strip trailing spaces and tabs from every line.
+3. Strip trailing spaces and tabs from every line. Two trailing spaces are a Markdown hard line break: the hash does not cover them, so adding or removing one does not change an `id`.
 4. Strip leading and trailing blank lines of the unit being hashed (body, frontmatter, or entry body).
 
 On write, `kalka` preserves the file's existing line-ending style (CRLF if the file predominantly uses it) and writes UTF-8 without BOM.
@@ -295,72 +296,82 @@ File at most 2 MiB; entry body at most 64 KiB. Larger inputs are rejected with a
 
 ### 6.10 Trace blocks
 
-A trace block describes the same process at two or more levels of abstraction and links the levels. Its purpose is to make visible where a high-level description (the idea) and its formalization (typically code) stop lining up, because those are the details a reviewer needs and prose loses.
+A trace block describes the same process at two or more levels of abstraction and links the levels. Its purpose is to make visible where a high-level description (the idea) and its formalization (typically code) stop lining up, because those are the details a reviewer needs and prose loses. The language is defined in full in [`docs/trace.md`](docs/trace.md); this section summarizes it.
 
-It is a fenced code block with the info string `trace`, containing YAML. It is part of the body, so only the owner can change it. It is intended to be written by an agent and read by people; `kalka` renders it and never edits it.
+It is a fenced code block with the info string `trace v1`, containing YAML in a restricted form. It is part of the body, so only the owner can change it. It is intended to be written by an agent and read by people; `kalka` renders it and never edits it.
 
 ````markdown
-```trace
+```trace v1
 lanes: [business, code]
 nodes:
-  - {id: B1, lane: business, text: Receive uploaded files, next: [B2]}
-  - {id: B2, lane: business, text: Extract text, next: [B3]}
-  - {id: B3, lane: business, text: Classify the document, next: [B4]}
-  - {id: B4, lane: business, text: Notify the user}
+  - id: D1
+    lane: business
+    text: "Extract text"
+    next: [D2]
+  - id: D2
+    lane: business
+    text: "Classify the document"
 
-  - {id: C1, lane: code, text: Upload endpoint handlers, realizes: [B1],
-     ref: "gh:src/upload/handlers.py#L40-L120", next: [C2]}
-  - {id: C2, lane: code, text: Skip files larger than 20 MB,
-     ref: "gh:src/import/size_guard.py#L12-L48", next: [C3],
-     why: the parser runs out of memory on larger files}
-  - {id: C3, lane: code, text: Extract and classify in one pass,
-     realizes: [B2, B3], ref: "gh:src/import/parse.py#L200-L310", next: [C4],
-     why: avoids parsing each file twice}
-  - {id: C4, lane: code, text: Batch and rate-limit per user,
-     realizes: [B4], ref: "gh:src/notify/batch.py#L15-L90"}
+  - id: I1
+    lane: code
+    text: "Is the file larger than 20 MB?"
+    ref: "gh:src/import/size_guard.py#L12-L48"
+    why: "the parser runs out of memory on larger files"
+    next:
+      I2: "no"
+  - id: I2
+    lane: code
+    text: "Extract and classify in one pass"
+    realizes: [D1, D2]
+    ref: "gh:src/import/parse.py#L200-L310"
 ```
 ````
 
-**Schema**
+**Syntax.** One YAML document with no anchors, aliases, tags or merge keys, and no key twice in one mapping. Every scalar is text (`404` and `yes` are texts). Each node is a block mapping, one key per line; free text should be in double quotes. `trace` with no version is read as v1 with a warning; a newer version (`trace v2`) is not interpreted and is shown as code with "needs a newer kalka".
 
 | Key | Where | Meaning |
 |---|---|---|
-| `lanes` | block | Ordered list of two or more free-form lane names, most abstract first. The core attaches no meaning to the names. |
-| `nodes` | block | Flat list of nodes. |
-| `id` | node | Required. `[A-Za-z][A-Za-z0-9_-]*`, unique within the block; should be unique within the section so anchors are unambiguous. |
+| `lanes` | block | 2 to 5 distinct lane names, most abstract first. The core attaches no meaning to the names. |
+| `nodes` | block | 1 to 40 nodes (20 or fewer advised). |
+| `id` | node | Required. `[A-Za-z][A-Za-z0-9_-]*`, at most 32 characters, unique in the block. |
 | `lane` | node | Required. One of `lanes`. |
 | `text` | node | Required. One short line. |
-| `next` | node | Optional. Ids of nodes in the *same* lane that follow this one. An item may be `{to: <id>, label: <text>}` to name a branch. |
-| `realizes` | node | Optional. Ids of nodes in any *more abstract* lane that this node implements. |
-| `ref` | node | Optional. A reference as in 10.1, resolved by plugins. |
-| `why` | node | Optional. Reason this node exists or differs from the more abstract view. |
+| `next` | node | Nodes of the same lane that follow: a list of ids, or a mapping of id to a label saying when the edge is taken. `next` edges never form a cycle. |
+| `back` | node | Nodes of the same lane the flow returns to (a loop or retry): the node itself or one before it. Same forms as `next`. |
+| `realizes` | node | Ids of nodes in more abstract lanes that this node implements. |
+| `ref` | node | A reference target `scheme:payload` (the target of a link as in 10.1, without the Markdown), resolved by plugins. |
+| `why` | node | Why the step exists or differs from the lanes above. Expected on a step that realizes nothing. |
+| `change` | node | `new`, `modified` or `removed`: what the plan does to the step. Absent means unchanged. |
 
-Unknown keys on the block or on a node are ignored by the core and left in place.
+A key starting with `x-` belongs to the author and is ignored silently; any other unknown key is ignored with a warning naming the nearest known key.
 
-**Validation** (`kalka check`, and on render): YAML parses; ids unique; every `lane`, `next` and `realizes` target exists; `next` stays within one lane; `realizes` points to a more abstract lane; at most 40 nodes per block (authors should aim for 20 or fewer and use several blocks). An invalid block is shown as a plain code block with the error beside it. It never blocks anything.
+**Validation** (`kalka check`, and on render) returns errors and warnings, each with an identifier (`T001`…), a file line and the node. A block with errors is shown as a plain code block with the errors beside it; a block with only warnings is drawn with them. Neither ever blocks anything, and neither changes the exit code of `kalka check`.
 
-**Divergences** are computed by `kalka` from the graph, never declared by the author:
+**Planned change.** A trace with `change` keys describes the state after the plan. A removed step stays in the flow where it is today, drawn struck through; order passes through it, and it takes no part in divergences. A new step is never unverified for lack of a `ref`.
+
+**Divergences** are computed by `kalka` from the graph, never declared by the author, over live (not removed) nodes. "A precedes B" means a path of `next` edges leads from A to B; `back` edges take no part.
 
 | Class | Definition |
 |---|---|
-| Implementation-only | A node outside the most abstract lane with no `realizes`. |
+| Implementation-only | A node outside the most abstract lane that realizes nothing. |
 | Unrealized | A node outside the least abstract lane that nothing realizes. |
-| Merged | One node realizes two or more nodes. |
-| Expanded | One node is realized by two or more nodes. |
-| Scattered | The nodes realizing one node do not form a connected run in their own lane's flow. |
-| Reordered | A precedes B in the abstract flow, but a realizer of B precedes a realizer of A in the lower flow and not the other way round. |
-| Unverified | A node in the least abstract lane has no `ref`, or its `ref` has no plugin or fails to resolve. |
+| Merged | One node realizes two or more nodes of one lane above. |
+| Expanded | One node is realized by two or more nodes of one lane below. |
+| Scattered | Another step of the realizers' lane, which realizes something itself, lies between two realizers of one node. |
+| Reordered | A precedes B above, but in a lane below a realizer of B precedes a realizer of A and never the other way round; only the minimal pairs are reported. |
+| Skipped | A node realizes M directly across a middle lane that has no step between them. |
+| Unverified | A live node not marked new with no `ref` in the least abstract lane, or whose `ref`, in any lane, has no plugin or fails to resolve. |
 | Stale | A plugin returned a warning for the node's `ref`. |
 
-The last two depend on the reader's plugins and may differ between peers.
+The last two depend on the reader's plugins and may differ between peers. The exact definitions and a reference algorithm are in `docs/trace.md`, section 5.
 
-A trace shows that referenced code exists, not that the mapping is correct. The divergence list exists to make each claim quick for a reviewer to check.
+A trace shows that a mapping was claimed and that referenced code exists, not that the mapping is correct. The divergence list exists to make each claim quick for a reviewer to check.
 
 Fenced blocks with the info string `mermaid` are rendered as diagrams by a bundled renderer (no network access) and carry no semantics for `kalka`. They remain the place for free-form sketches.
 
 ### 6.11 Seeds
 
-A *seed* is a blueprint with `status: seed`: an idea split off from a blueprint whose scope is growing, kept small until someone takes it up. There is no new document type. Everything that holds for a blueprint holds for a seed: one `owner`, append-only entries, releases, handoff and reassignment as usual.
+A *seed* is a blueprint with `kalka_status: seed`: an idea split off from a blueprint whose scope is growing, kept small until someone takes it up. There is no new document type. Everything that holds for a blueprint holds for a seed: one `owner`, append-only entries, releases, handoff and reassignment as usual.
 
 - Optional keys: `parent` (the `kalka_id` of the blueprint it was split from), `origin` (the `id` of the entry that triggered it, usually a deviation), `created` (6.2).
 - Body: an H1 title, `## Problem` and `## Why it was split off`. `kalka` writes exactly this when it creates a seed, from the text the user typed. This is the one document `kalka` assembles.
@@ -368,7 +379,7 @@ A *seed* is a blueprint with `status: seed`: an idea split off from a blueprint 
 **Budding.** From any blueprint a member holds, as owner or not, "Create seed" (UI) or `kalka seed` (CLI) does the following:
 
 1. If the parent has no `kalka_id`, it gets one first.
-2. The seed file is written, with a fresh `kalka_id`, `owner:` the budding user, `status: seed`, `parent`, `origin` when started from an entry, and `created`.
+2. The seed file is written, with a fresh `kalka_id`, `kalka_owner:` the budding user, `kalka_status: seed`, `parent`, `origin` when started from an entry, and `created`.
 3. A signed `budded` entry is appended to the parent, anchored like the entry it came from, with `re: <origin id>` when there is one. Body: the line `budded: <seed kalka_id>`, then the seed's title.
 4. If step 3 fails, the UI offers "add the backlink" (`kalka seed backlink`) and never creates a second seed.
 5. The seed is written in the parent's directory, named after its title. A seed of a team document is published to the same team at once (its first release); a seed of a Personal document stays in Personal.
@@ -384,9 +395,9 @@ The parent's frontmatter and body are not touched. The backlink reaches the pare
 A *domain document* holds a team's shared language for one domain: glossary, bounded contexts, invariants, domain events. Agents read it as context when they work on blueprints. A team may have several domains.
 
 - File name: `<team>-<domain>-domain.md`, created by its author. `kalka` finds domain documents by frontmatter, never by file name.
-- Frontmatter: `kind: domain`, `team`, `domain`, `owner`, `version`. It is always a team document (20.1).
+- Frontmatter: `kalka_kind: domain`, `team`, `domain`, `owner`, `version`. It is always a team document (20.1).
 - It is an ordinary document. Its owner releases versions, hands it off, and can have it reassigned by a team owner, exactly as for any document (7). There is no separate domain role.
-- **One document per domain name in a team.** Publishing a domain document, or accepting one by transfer, when the team already holds one with the same `domain:` is refused (`domain-exists`). Two published concurrently are both kept and both flagged "two documents claim this domain"; a reference to that name is shown as ambiguous until a team owner deletes one.
+- **One document per domain name in a team.** Publishing a domain document, or accepting one by transfer, when the team already holds one with the same `kalka_domain:` is refused (`domain-exists`). Two published concurrently are both kept and both flagged "two documents claim this domain"; a reference to that name is shown as ambiguous until a team owner deletes one.
 - Members propose changes as signed comments, exactly as in blueprint review.
 
 **Releasing.** The owner edits the body with their own tools and then releases: *Release* in the UI or `kalka release`. `kalka` increments `version`, appends a signed `release` entry whose body lists the incorporated comment ids and a summary, and replicates it. Edits that are not released do not travel. Comments are never removed; the UI folds those a release incorporated under "incorporated in v<N>".
@@ -395,7 +406,7 @@ A *domain document* holds a team's shared language for one domain: glossary, bou
 
 A blueprint's reference to a version that is not kept here is shown as such ("not kept here"), as is a reference to a domain of which no document is held.
 
-**References from blueprints.** A blueprint names the domain version it was written against with `domain: <team>/<domain>@v<N>`. When a newer version of that domain is held locally, the review view shows a dismissible "newer domain version available (v<M>)" indicator. It never blocks anything. A reference to a team name held twice (19.2) is shown as ambiguous.
+**References from blueprints.** A blueprint names the domain version it was written against with `kalka_domain: <team>/<domain>@v<N>`. When a newer version of that domain is held locally, the review view shows a dismissible "newer domain version available (v<M>)" indicator. It never blocks anything. A reference to a team name held twice (19.2) is shown as ambiguous.
 
 ### 6.13 Blueprint reference and hints
 
@@ -403,25 +414,25 @@ A blueprint's reference to a version that is not kept here is shown as such ("no
 
 It describes what a blueprint useful to agents usually contains, as guidance, never as a requirement. Each section comes with a short reason it helps agents, and examples use invented everyday services (parcel logistics, library lending):
 
-1. **Domain reference**: which domain document and version applies (`domain:`, 6.12).
+1. **Domain reference**: which domain document and version applies (`kalka_domain:`, 6.12).
 2. **Scope**: the bounded contexts and modules expected to be touched. Work beyond the scope becomes a seed (6.11), not a larger change.
 3. **Verification plan**: invariants, edge cases, and what a human reviewer must specifically check. Written at planning time, not at review time.
 4. **Critical sections**: where the design deliberately departs from the clean model, for example for performance, and why. Agents must not "clean them up"; human review is required there.
 5. **Operations**: failure modes, what to observe, how to roll back.
 6. **Deviation log**: the `deviation` entries of the review log (6.5), recorded with `kalka comment --kind deviation`, never a body section.
 
-**Hints** are opt-in. Only a document whose frontmatter says `reference: kalka-blueprint@v1` gets them: one hint per recommended body section (1 to 5) that has no heading with the matching slug (at any level; a `-N` duplicate suffix is ignored), for example "no verification plan". A frontmatter `domain:` key of the form `<team>/<domain>@v<N>` also satisfies the domain-reference hint. The hint codes are `hint-no-domain-reference`, `hint-no-scope`, `hint-no-verification-plan`, `hint-no-critical-sections` and `hint-no-operations`; an unknown version gives `hint-unknown-reference`. There is no hint for the deviation log, since a plan not yet implemented has none. Hints are information only: they never change the exit code of `kalka check`, never stop a sync, and can be dismissed per document in the UI. Dismissal is kept in the browser, not in the file or the config. A document naming an unknown reference version gets one information line and no hints. Every other document gets no hints at all.
+**Hints** are opt-in. Only a document whose frontmatter says `kalka_reference: kalka-blueprint@v1` gets them: one hint per recommended body section (1 to 5) that has no heading with the matching slug (at any level; a `-N` duplicate suffix is ignored), for example "no verification plan". A frontmatter `kalka_domain:` key of the form `<team>/<domain>@v<N>` also satisfies the domain-reference hint. The hint codes are `hint-no-domain-reference`, `hint-no-scope`, `hint-no-verification-plan`, `hint-no-critical-sections` and `hint-no-operations`; an unknown version gives `hint-unknown-reference`. There is no hint for the deviation log, since a plan not yet implemented has none. Hints are information only: they never change the exit code of `kalka check`, never stop a sync, and can be dismissed per document in the UI. Dismissal is kept in the browser, not in the file or the config. A document naming an unknown reference version gets one information line and no hints. Every other document gets no hints at all.
 
 ---
 
 ## 7. Ownership
 
-Every document has one owner. In a team, ownership is decided by the document's release chain together with the team log (20.4): the `owner:` line is what people read, the chain is the authority.
+Every document has one owner. In a team, ownership is decided by the document's release chain together with the team log (20.4): the `kalka_owner:` line is what people read, the chain is the authority.
 
 ### 7.1 Owner
 
 - The owner of a team document is the member the head of its release chain names, or the new owner an effective reassignment names (7.3). Only the owner changes the plan and signs the next release.
-- In Personal, the owner is the local user, whatever `owner:` says; nothing there leaves the machine.
+- In Personal, the owner is the local user, whatever `kalka_owner:` says; nothing there leaves the machine.
 - The UI shows non-owners a read-only body. Edits by a non-owner on their own disk are not blocked; they never travel, and the next replication that brings a release replaces them, keeping a copy (7.5).
 
 ### 7.2 Handoff
@@ -429,10 +440,10 @@ Every document has one owner. In a team, ownership is decided by the document's 
 *Hand off…* in the UI, or `kalka handoff <file> <email>`, by the owner:
 
 1. The recipient must be a current member of the document's team in the local replay. A Personal document cannot be handed off; publish it first.
-2. `kalka` writes `owner: <recipient>` and releases the next version, naming the recipient in the release (20.4). This is the whole handoff: there is no prompt, no connection and no acknowledgement. It works offline and while paused, and replicates when it can.
+2. `kalka` writes `kalka_owner: <recipient>` and releases the next version, naming the recipient in the release (20.4). This is the whole handoff: there is no prompt, no connection and no acknowledgement. It works offline and while paused, and replicates when it can.
 3. The recipient gets a notice and a waiting item (11.3) when the release reaches them, and can hand it back the same way.
 
-The release that changes `owner:` is the record; the UI renders it as "handed off to <recipient>".
+The release that changes `kalka_owner:` is the record; the UI renders it as "handed off to <recipient>".
 
 ### 7.3 Reassignment by a team owner
 
@@ -530,7 +541,7 @@ One reliable, ordered data channel labelled `kalka/1` per session. Messages are 
 
 | Message | Fields | Notes |
 |---|---|---|
-| `hello` | `proto`, `email`, `pubkey`, `nonce`, optional `invite` | Both directions, first. `invite` carries a join proof (19.7). |
+| `hello` | `proto`, `proto_min`, `features`, `email`, `pubkey`, `nonce`, optional `invite` | Both directions, first. `invite` carries a join proof (19.7). |
 | `auth` | `sig` | Both directions, second. |
 | `team_sync` | `team`, `heads`, `digest` | Opens a replication session (20.3): the log heads and one digest over the inventory. |
 | `team_log` | `team`, `ops` | Log operations the other side is missing. Also sent once by an owner who admits a joiner (19.7 step 5). |
@@ -540,7 +551,9 @@ One reliable, ordered data channel labelled `kalka/1` per session. Messages are 
 | `bye` | optional `reason`, `detail` | Either side. Reasons include `not-member`, `invite-*` (19.7) and `proto`. |
 | `keepalive` | — | Keeps a slow session open. |
 
-Unknown message types are ignored. A `proto` mismatch ends the session with a human-readable error. A session closes when both sides are done or after 30 s of silence. Nothing on the wire asks a person anything.
+**Versions.** The channel label `kalka/1` never changes; versions live in `hello`. Each side announces the highest protocol version it speaks (`proto`) and the lowest (`proto_min`, equal to `proto` when absent). The session runs at the lower of the two `proto` values; if that is below either side's `proto_min`, the side that sees it sends `bye` with reason `proto` and `detail` `<min>-<max>` (its own range) and both show which side needs to update. `features` lists optional capabilities by name; names a side does not know are ignored. This version of `kalka` speaks protocol 1 only and announces no features.
+
+Unknown message types are ignored, also as the first message after `auth`. A session closes when both sides are done or after 30 s of silence. Nothing on the wire asks a person anything.
 
 The responder dispatches on the first message after `auth`: `team_sync` starts a session; a `hello` with an invite proof is a join (19.7); anything else gets `bye` `not-member`.
 
@@ -636,7 +649,7 @@ Every view below shows the selected scope. In Personal the Team and Domains view
 - **Blueprints** — files in the scope: title (first H1), role (owner / member), owner, entry count, validity problems. In Personal each file offers *Publish to team…*. In a team folder, a file that does not replicate says why: "not shared: publish it or move it to Personal".
 - **Review (linear)** — rendered body; entries shown next to the section they anchor to; general entries at the end; badges for outdated and orphaned and for signature states (6.5), attested entries included; resolved references shown inline with snippet and warnings; hints for documents opted into the reference (6.13); the "newer domain version available" indicator (6.12); `budded` entries as links. Actions: add comment, add deviation, reply, *Create seed*, *Promote*, and for the owner *Release*, *Hand off…*, *Copy to team…*, *Move to team…*, *Delete for the team*; for team owners *Reassign…*, with the take-over wording of 7.4 on owner actions. Banners: unreleased edits; "reassigned to <owner>, pending"; "being moved to <team>; comments added now will not travel"; ownership disputed; last release withdrawn.
 - **Review (canvas)** — the same data as an annotated graph: each body section is a fixed read-only card laid out in reading order; each entry is a note connected to its section's card; references are small cards beside the section. Replies hang under the note they answer; the General and Orphaned groups of the linear view get cards of their own after the body. Layout is computed from the text, not saved, so there is no canvas state to persist. Selecting a note or a section card opens the linear view scrolled to it. Freehand drawing is out of scope.
-- **Trace** — each trace block rendered as lanes side by side, most abstract on the left, flow running top to bottom within a lane. A lower-lane node is placed level with the first node it realizes; realization links are drawn across lanes in a style distinct from flow arrows. Nodes with a divergence are visibly marked, and a gap is left (and labelled) in the abstract lane opposite an implementation-only node. A side panel lists the computed divergences; selecting a node replaces it with that node's detail: `why`, what it realizes, the resolved reference with snippet and warnings, entries anchored to the node, and a comment box that anchors to `§<slug>#<node-id>`. A Diagram / Source toggle shows the raw YAML. Layout is computed, nothing is saved. The same block appears inline in the linear review view at reduced size.
+- **Trace** — each trace block rendered as lanes side by side, most abstract on the left, flow running top to bottom within a lane. A lower-lane node is placed level with the first node it realizes; realization links are drawn across lanes in a style distinct from flow arrows, and `back` edges around the side of the lane in a style of their own, with their labels. New, modified and removed steps are marked, removed ones struck through. Nodes with a divergence are visibly marked, and a gap is left (and labelled) in the abstract lane opposite an implementation-only node. A side panel lists the computed divergences; selecting a node replaces it with that node's detail: `why`, what it realizes, the resolved reference with snippet and warnings, entries anchored to the node, and a comment box that anchors to `§<slug>#<node-id>`. Validation warnings are listed in the side panel and under the inline block. A Diagram / Source toggle shows the raw YAML. Layout is computed, nothing is saved. The same block appears inline in the linear review view at reduced size.
 - **Pre-backlog** — seeds held in the scope (6.11): title, owner, parent, age; *Promote*.
 - **Team** — members and owners with presence (9.3), open invites with *Copy link*, *Copy token* and *Cancel*, the log rendered as a readable history with discarded operations and their reasons, a replication status line (last round, members reached, documents refused and why) with *Sync now*, transfers in and out (20.7), and *Invite*, *Remove* (with a preview of the documents to be reassigned), *Make owner*, *Remove as owner*.
 - **Domains** — the team's domain documents with version and owner; *Release* for the owner, with a checklist of open comments to mark as incorporated; a version switcher over local snapshots.
@@ -818,8 +831,8 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 ```
 
 - **Location decides scope.** A document belongs to the team whose folder it lies in (at any depth below it), or to Personal. Files directly in `<folder>/` count as Personal too, so "drop a file in the folder" keeps working. `setup` creates `personal/`.
-- **A team document** lies in the team's folder, has `team:` naming that team, and has a valid release; or is a valid pending transfer in `.kalka/incoming/`. Only such files replicate (20.1). One function decides this.
-- **Mismatches are shown, never replicated:** a file in a team folder without that `team:` or without a release is "not shared"; a file in Personal with `team:` shows "has `team:` but lies in Personal".
+- **A team document** lies in the team's folder, has `kalka_team:` naming that team, and has a valid release; or is a valid pending transfer in `.kalka/incoming/`. Only such files replicate (20.1). One function decides this.
+- **Mismatches are shown, never replicated:** a file in a team folder without that `kalka_team:` or without a release is "not shared"; a file in Personal with `kalka_team:` shows "has `kalka_team:` but lies in Personal".
 - `personal` is a reserved team name. Two teams with one name: the second folder held gets a suffix (`-2`), and the switcher shows a short hash.
 - Within its team folder a user may move a file into subfolders; documents are found by `kalka_id` within their scope, never by path. The store also indexes `moved-from` and `copied-from`, so links to a document's former id still resolve.
 - Watch `folder` recursively for `*.md`; ignore domain snapshots `*@v<N>.md` (6.12), dotfiles and dot-directories (so `.kalka/` is never indexed). Debounce events (≈300 ms); editors save by rename.
@@ -887,14 +900,14 @@ Choices that are not obvious from the rules alone, and why they were made.
 10. **The UI renders hostile input.** A received blueprint is untrusted Markdown shown by a page that can write files, so sanitization and the hardening of the local API are requirements, not polish (11.2, 13).
 11. **No offline queue on a server.** Team documents travel through whichever members are online (20.3).
 12. **Workflow-agnostic.** The core interprets the frontmatter keys of 6.2 and one section heading; everything else in the file is pass-through.
-13. **Trace blocks (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge instead of trusting the author to say so.
+13. **Trace blocks (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge instead of trusting the author to say so. The language is a strict subset of YAML (block-style nodes, every scalar a text, unknown keys warned about) because the common failures of free YAML, a text cut at a comma in a flow mapping or a misspelt key silently ignored, make the tool state something false about the code. Loops are written as `back` edges so that "comes before" is a partial order the classes can rely on. The version is in the fence, so a later version may change the syntax entirely.
 14. **Unparsed log content moves with the entry before it.** "Preserved in place" and "rewritten in canonical order" cannot both hold literally (6.4).
 15. **A key-derived peer id does not stop posing on a stock server:** any holder of the public key can register it. Channel binding prevents posing; on `kalka-rendezvous` a proof of the key also prevents squatting (8.3, 9.2, 9.6).
 16. **Team documents carry signed releases,** so whoever relays a document does not matter (20.4). Judging "body edits only by the owner" by the sender would refuse every relay.
 17. **"Removal wins; the senior owner wins a mutual removal."** A rule like "the lower hash wins" would let a removed owner undo the removal by back-dating an operation and grinding its hash (19.4).
 18. **Team owners act by taking a document over** (7.4). Letting a team owner do anything a document owner can would let two people sign one version and make disputes ordinary.
 19. **A reassignment cites the version its signer saw.** Document releases are not in the team log's graph, so "releases not causally before a reassignment" cannot be decided; everything above the cited version by anyone else is void, and every reassignment is an anchor (7.3, 20.4).
-20. **Location decides what replicates** (14). Choosing documents by the `team:` name anywhere in the folder would let two teams with one name leak into each other.
+20. **Location decides what replicates** (14). Choosing documents by the `kalka_team:` name anywhere in the folder would let two teams with one name leak into each other.
 21. **Countersigned history is attested, not verified.** The destination of a transfer cannot check source signatures; the badge says who vouches (20.7, 21).
 
 ### Residual risks
@@ -915,13 +928,12 @@ Choices that are not obvious from the rules alone, and why they were made.
 Each question has the answer kalka currently implements.
 
 1. **Access control at the rendezvous.** Which mechanism will sit in front of a hosted `kalka-rendezvous` (SSO proxy, network policy)? *Default: network policy.*
-2. **Showing the planned change in a trace.** Should nodes be markable as new, modified or removed? *Default: not in v1; unknown node keys are already preserved, so a `change:` key can be added later.*
-3. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
-4. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
-5. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
-6. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
-7. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
-8. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
+2. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
+3. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
+4. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
+5. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
+6. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
+7. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
 
 ---
 
@@ -933,13 +945,13 @@ A team is a **signed, append-only set of operations**, not an editable document.
 
 - File: `<folder>/<team>/<team>-team.log`, one operation per line, as JSON. It is not Markdown, because hashes must cover exact bytes and editors change whitespace. It is not meant to be edited; the UI and `kalka team log` render it as a readable history. The index ignores it (it is not `*.md`).
 - One operation: `{v, team, op, args, prev, signer, at, sig}`.
-  - `v`: the rule version that replays it. All current operations are `v: 2`. A later rule change uses a new version and never changes how an existing operation replays.
+  - `v`: the rule version that replays it. All current operations are `v: 2`. A later rule change uses a new version and never changes how an existing operation replays. An operation of a newer version than a `kalka` reads is verified, kept byte for byte and passed on, and stays pending with everything built on it until that `kalka` is updated (`docs/teamlog.md`).
   - `team`: the team hash (19.2); empty in `create-team` itself.
   - `op` and `args`: one of the operations below.
   - `prev`: the hashes of the operations it builds on: the heads of the signer's log when it was made. These links make the log a causal graph.
   - `signer`: the signer's public key. `at`: the signer's clock, for display only; it plays no part in replay.
-  - `sig`: an ed25519 signature over `"kalka-teamlog-v2\n" + hash`.
-- An operation's hash is SHA-256 over its canonical encoding without `sig`: UTF-8 JSON with keys in lexicographic order, no insignificant whitespace, no floating-point numbers, `prev` sorted. The exact encoding is fixed in `docs/teamlog.md` and is part of rule version 2. Keys and signatures are base64url without padding.
+  - `sig`: an ed25519 signature over `"kalka-teamlog-sig\n" + hash`, with the same context for every rule version.
+- An operation's hash is SHA-256 over its canonical encoding without `sig`: UTF-8 JSON with keys in lexicographic order, no insignificant whitespace, no floating-point numbers, `prev` sorted. A line must be in exactly that form, so the hash can be taken from the line without knowing the operation's kind. The exact encoding is fixed in `docs/teamlog.md`. Keys and signatures are base64url without padding.
 - An operation is *known* once a peer holds it and has checked its signature. Operations are exchanged by hash (20.3), never as a whole file.
 
 | Operation | `args` | Who may sign |
@@ -957,7 +969,7 @@ Every operation is a team owner's; members sign entries and releases in document
 
 ### 19.2 Team identity
 
-A team's identity is the hash of its `create-team` operation. Its name is a label: `[a-z0-9][a-z0-9-]*`, used in file names and in `domain:` references. Two different teams with the same name can exist; the second one held locally gets a suffix on its folder, and a reference to that name is shown as ambiguous. A member's identity within a team is the pair of email and key bound by `add-member`.
+A team's identity is the hash of its `create-team` operation. Its name is a label: `[a-z0-9][a-z0-9-]*`, used in file names and in `kalka_domain:` references. Two different teams with the same name can exist; the second one held locally gets a suffix on its folder, and a reference to that name is shown as ambiguous. A member's identity within a team is the pair of email and key bound by `add-member`.
 
 ### 19.3 Roles
 
@@ -994,7 +1006,7 @@ Replay reports the discarded operations with their reasons, and the Team view sh
 - `reassign-document {doc, from, owner, after, plan}` is how a team owner names a document's next owner (7.3). `after` is the highest valid release of the document the signer holds; `plan` is that release's plan hash. `from` is the owner the signer saw: it is for the history and the notices, and replay does not judge it.
 - **Removing a member.** Together with `remove-member`, the remover's `kalka` emits one `reassign-document` per team document it holds whose owner is the removed member, giving each to the remover. They do not depend on the removal: if the remover loses a mutual removal, their term ends and rule 2 discards the reassignments with it; if the removal is discarded for another reason (rule 6), the reassignments stand, since a team owner could have made them anyway.
 - A document whose owner is no longer a member and that no reassignment covers (one the remover did not hold) is a waiting item for the team's owners (11.3).
-- The `owner:` line follows: when the new owner's `kalka` holds the operation and the release at `after`, it rewrites `owner:` and releases version `after`+1.
+- The `kalka_owner:` line follows: when the new owner's `kalka` holds the operation and the release at `after`, it rewrites `kalka_owner:` and releases version `after`+1.
 
 ### 19.6 Transfer decisions
 
@@ -1027,7 +1039,7 @@ Single use holds in two places: the issuing owner's `invites.yaml`, and the repl
 
 Every member keeps a full replica of the team's documents: the team log, the team documents (blueprints, seeds, domain documents and their snapshots), tombstones and pending transfers. **Replication never crosses teams**: a session is for one team, and a peer you share one team with gets nothing of another unless they are a member of it too. **Personal never takes part**: no Personal file enters an inventory, and a request for its `kalka_id` gets the same answer as a request for an id that does not exist (14).
 
-A document enters a team when its owner publishes it: *Publish to team…* in Personal, or `kalka publish <file> --team <team>`. Only a member can publish, only to a team they belong to. `kalka` adds `kalka_id` and `owner` if missing, writes `team:`, makes the first release (20.4), and moves the file into the team's folder; the result carries the new path. No acceptance is needed and the member stays the owner. A document belongs to exactly one team or to Personal. Leaving a team is a tombstone: deletion (20.6) or a move (20.7); copies already replicated cannot be recalled.
+A document enters a team when its owner publishes it: *Publish to team…* in Personal, or `kalka publish <file> --team <team>`. Only a member can publish, only to a team they belong to. `kalka` adds `kalka_id` and `owner` if missing, writes `kalka_team:`, makes the first release (20.4), and moves the file into the team's folder; the result carries the new path. No acceptance is needed and the member stays the owner. A document belongs to exactly one team or to Personal. Leaving a team is a tombstone: deletion (20.6) or a move (20.7); copies already replicated cannot be recalled.
 
 ### 20.2 Trust between members
 
@@ -1051,14 +1063,14 @@ Members trust each other through the team log: the keys it binds are the team's 
 **Releases.** A `release` entry makes a version of a team document's plan official:
 
 ```
-### release · ewa@example.org · 2026-11-20T09:00:00Z · § · rev:<8 hex> · id:<12 hex> · sig:<base64url>
+### release · ewa@example.org · 2026-11-20T09:00:00Z · § · rev:<8 hex> · id:<32 hex> · sig:<term>.<base64url>
 v7 · plan:<64 hex SHA-256 of the normalized frontmatter and body> · owner:ewa@example.org
-incorporates: 7c2e91ab04f3, a41b77c09e12
+incorporates: 7c2e91ab04f3d81a6b0e55c2f9a41b77, a41b77c09e12f3d8e6a0b5c4d2e1f907
 Renamed "consignment" to "parcel"; added the invariant on redelivery attempts.
 ```
 
-- The first line is `v<N> · plan:<hash> · owner:<email>`, followed by ` · deleted` for a deletion and ` · deleted · moved:<team name>/<kalka_id>` for a move (20.6). `owner` is the `owner:` of the released plan: the one who may release the next version. `incorporates` and the note are optional.
-- The v2 signature covers the entry's full digest, which includes the version, the plan hash and the owner. Every release needs a v2 signature by a key the team log has bound to its author.
+- The first line is `v<N> · plan:<hash> · owner:<email>`, followed by ` · deleted` for a deletion and ` · deleted · moved:<team name>/<kalka_id>` for a move (20.6), and then by any number of ` · <name>:<value>` tokens a later `kalka` may add, which are signed with the body and otherwise ignored. `owner` is the `kalka_owner:` of the released plan: the one who may release the next version. `incorporates` and the note are optional.
+- The signature covers the entry's full digest, which includes the version, the plan hash and the owner. Every release needs a signature under a term of this team that bound its author (6.5).
 
 **The release chain.** The valid releases of a document form a chain. An *anchor* is an effective `reassign-document` of the document (its `after` and `owner`) or an effective `accept-transfer` for it (cut-off 0 and its `owner`). The *expected signer* of version n+1 is:
 
@@ -1081,10 +1093,10 @@ Any team owner settles either with one reassignment, whose anchor restarts the c
 
 **Last release withdrawn.** A release made by the `owner` of a reassignment that replay later discards (its signer lost an owner term concurrently) becomes void. Peers that took its plan keep the file, mark it "last release withdrawn", and take the next valid release they are offered.
 
-- Domain documents also carry `version:` in frontmatter; blueprints and seeds carry the version only in their releases.
+- Domain documents also carry `kalka_version:` in frontmatter; blueprints and seeds carry the version only in their releases.
 - **Releases are made on an action, not on save:** *Publish*, *Release*, *Hand off*, *Promote*, *Delete for the team*, and the release a new owner's `kalka` makes after a reassignment or an accepted transfer. An owner with unreleased edits sees a banner.
 
-**Entries.** The union of all valid entries from both sides, de-duplicated by `id`, sorted by `(timestamp, id)`; where both sides hold an entry with the same `id`, the copy whose `sig` verifies is kept, so a relay cannot strip a signature. Unparsed log content from the side whose plan was kept is preserved. An entry enters the replica only if its v2 signature verifies against a key the log has ever bound to the author's email, or it is attested by an effective transfer (20.7). Others stay in the file that holds them, *local only*. The merge is idempotent, commutative on the entry set, and never drops a valid entry.
+**Entries.** The union of all valid entries from both sides, de-duplicated by `id`, sorted by `(timestamp, id)`; where both sides hold an entry with the same `id`, the copy whose `sig` verifies is kept, so a relay cannot strip a signature. Unparsed log content from the side whose plan was kept is preserved. An entry enters the replica only if its signature verifies under a term of this team that bound the author's email (6.5), or it is attested by an effective transfer (20.7). Others stay in the file that holds them, *local only*. The merge is idempotent, commutative on the entry set, and never drops a valid entry.
 
 ### 20.5 Where received documents go
 
@@ -1092,11 +1104,11 @@ Documents received from members are created in `<folder>/<team>/`, with the sani
 
 ### 20.6 Deletion
 
-- Only a document's owner deletes it for the team: *Delete for the team* or `kalka delete <file>`. This makes a release with the next version, marked as a deletion, whose plan is a **stub**: the frontmatter with `deleted: true` and nothing else.
+- Only a document's owner deletes it for the team: *Delete for the team* or `kalka delete <file>`. This makes a release with the next version, marked as a deletion, whose plan is a **stub**: the frontmatter and nothing else. The release decides that a document is deleted; no frontmatter key does.
 - It spreads like any release, and no release above a tombstone is valid. A tombstone beats any older copy, in both directions of a merge.
 - On each peer the file leaves the folder. The stub goes to `<folder>/<team>/.kalka/tombstones/<kalka_id>.md` and the last full copy to `<folder>/<team>/.kalka/trash/`. Replication reads the tombstone directory, so an offer of an older copy is answered with the tombstone.
 - The stub keeps only its release entries, the tombstone included, so that every peer can check the chain that leads to it. This is the one place where valid entries are dropped (2).
-- **A move's tombstone** (20.7) is the same, with `moved:<team name>/<kalka_id>` in the release line and `moved-to:` in the stub. The source team shows "moved to <team>" in place of the document.
+- **A move's tombstone** (20.7) is the same, with `moved:<team name>/<kalka_id>` in the release line and `kalka_moved_to:` in the stub. The source team shows "moved to <team>" in place of the document.
 - Tombstones are kept forever; each is a few hundred bytes.
 - A plain file deletion is not a tombstone (14).
 
@@ -1115,14 +1127,14 @@ A transfer has three parts in three places:
 **Starting.** `kalka copy <file> --to <team>` or `kalka move <file> --to <team>`, or *Copy to team…* / *Move to team…*:
 
 1. Checks, all local: the actor is a member of the source and of the destination; the actor is the document's owner or a source team owner; the document is not disputed; no transfer of it is pending (`transfer-pending`). A non-member of the destination is refused with `not-member`.
-2. A new document is built: a fresh `kalka_id`; `team: <destination>`; `copied-from: <source team name>/<source kalka_id>`, or `moved-from:` for a move; `owner:` the actor for now; the plan of the source's head release (unreleased edits do not travel: a file that differs from its head release is refused until its edits are released or undone); every valid entry of the source, byte for byte, with their signatures.
+2. A new document is built: a fresh `kalka_id`; `kalka_team: <destination>`; `kalka_copied_from: <source team name>/<source kalka_id>`, or `kalka_moved_from:` for a move; `kalka_owner:` the actor for now; the plan of the source's head release (unreleased edits do not travel: a file that differs from its head release is refused until its edits are released or undone); every valid entry of the source, byte for byte, with their signatures.
 3. The actor's `kalka` appends a signed `transfer` entry and writes the file to `<folder>/<destination>/.kalka/incoming/<new id>.md`, from where destination replication carries it.
 4. For a move, a signed `transfer` entry is also appended to the source document, so the source team sees "being moved to <team>; comments added now will not travel". A copy leaves the source unchanged byte for byte.
 
 **The `transfer` entry** is the actor's countersignature:
 
 ```
-### transfer · ewa@example.org · 2026-12-01T10:00:00Z · § · rev:<8 hex> · id:<12 hex> · sig:<base64url>
+### transfer · ewa@example.org · 2026-12-01T10:00:00Z · § · rev:<8 hex> · id:<32 hex> · sig:<term>.<base64url>
 move · from:parcel-ops/<source kalka_id> · source:<64 hex team hash> · to:library-desk/<64 hex team hash>
 plan:<64 hex>
 history:<64 hex> · entries: 7c2e91ab04f3, a41b77c09e12
@@ -1131,7 +1143,7 @@ history:<64 hex> · entries: 7c2e91ab04f3, a41b77c09e12
 - The first body line is `copy` or `move`, the source document, and both teams by hash; `to` also names the destination, so source members who are not in it can read the banner. `plan` is the plan hash of the offered plan.
 - `history` is SHA-256 over the lines `<64 hex digest of the entry's id input> <sig or "-">\n`, one per listed entry, in `(timestamp, id)` order. It covers the full digests, not the 48-bit ids, and the original signature text.
 - `entries` lists the ids of the attested set, so every peer knows which entries the digest speaks for, also after members add their own.
-- The entry's own v2 signature covers its body and the new `kalka_id`. So the actor signs the mode, both teams, the plan and the exact history.
+- The entry's own signature, under the actor's term in the destination team, covers its body and the new `kalka_id`. So the actor signs the mode, both teams, the plan and the exact history.
 - In the source document of a move, the same entry (with the source's `kalka_id`) records the start.
 
 **Reaching the owners.** The pending document is part of the destination's replica: its inventory line is marked pending, and it is offered and fetched like a team document, so any destination member relays it and the actor can go offline once one other member holds it. It stays outside the index and is shown only to the team's owners (to decide) and to the actor (to watch or withdraw). A peer takes a pending document only if all of this holds:
@@ -1145,7 +1157,7 @@ Anything else is refused and listed in the Team view with the reason.
 
 **Deciding.** Any destination team owner, in the Waiting view or with `kalka transfer accept|decline <id>`:
 
-- **Accept** signs `accept-transfer {doc, owner, transfer}` (19.6), with `owner` the accepting owner unless `--owner <member>` names another member. The named owner's `kalka` then rewrites `owner:`, makes release 1, and moves the file from `.kalka/incoming/` into the team folder. From there it is an ordinary team document; its owner can hand it off to anyone in the team.
+- **Accept** signs `accept-transfer {doc, owner, transfer}` (19.6), with `owner` the accepting owner unless `--owner <member>` names another member. The named owner's `kalka` then rewrites `kalka_owner:`, makes release 1, and moves the file from `.kalka/incoming/` into the team folder. From there it is an ordinary team document; its owner can hand it off to anyone in the team.
 - **Decline** signs `decline-transfer {doc, transfer}`. Every peer replaces the pending file by a stub in `.kalka/tombstones/` holding the `transfer` entry only, so a lagging replica cannot bring the offer back; the full offer is kept in `.kalka/trash/<kalka_id>.offer.md`, so an accept that wins after all (below) restores it. A copy is thereby discarded. For a move, the actor's `kalka` appends a `transfer-withdrawn` entry answering the source's `transfer` entry (`re: <id>`, body `move declined`), and nothing else changes there.
 - **Withdraw:** the actor signs a `transfer-withdrawn` entry on the pending document (`re: <id>`, body `withdrawn`). It has the effect of a decline unless an accept counts: the stub keeps the withdrawal, so it travels as one. For a move, the source gets `move withdrawn` in the same way.
 - Concurrent decisions: an accept beats a decline or a withdrawal; of two accepts the first in replay order counts (19.4 rule 8). So there is never a second version 1.
@@ -1159,9 +1171,9 @@ Anything else is refused and listed in the Team view with the reason.
 - A move withdrawn and then accepted all the same (an accept beats a withdrawal) also ends as a copy: the source's entry is already answered.
 - Entries added in the source after the transfer started are not carried. They stay in the source and in its trash copy after the tombstone.
 
-**Identity.** Copy and move both get a new `kalka_id`. A tombstone is final for its id on every peer of its team, so with the id kept a document could never move back; and a member of both teams would hold two live files with one id. The store indexes `moved-from` and `copied-from` (14), so a seed's `parent:` and a `budded:` link still resolve to a moved document that is held.
+**Identity.** Copy and move both get a new `kalka_id`. A tombstone is final for its id on every peer of its team, so with the id kept a document could never move back; and a member of both teams would hold two live files with one id. The store indexes `moved-from` and `copied-from` (14), so a seed's `kalka_parent:` and a `budded:` link still resolve to a moved document that is held.
 
-**Domain documents and seeds.** `version:` restarts with release 1 in the destination; snapshots are not carried. An accept is refused (`domain-exists`) when the destination holds a document for that domain. A seed keeps `parent` and `origin`.
+**Domain documents and seeds.** `kalka_version:` restarts with release 1 in the destination; snapshots are not carried. An accept is refused (`domain-exists`) when the destination holds a document for that domain. A seed keeps `parent` and `origin`.
 
 ---
 

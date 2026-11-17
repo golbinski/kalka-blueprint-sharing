@@ -1,6 +1,6 @@
 ---
-reference: kalka-blueprint@v1
-domain: kalka-core/sync@v1
+kalka_reference: kalka-blueprint@v1
+kalka_domain: kalka-core/sync@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 618f7edcaba5b7419069a76c039151fd26366718
 ---
@@ -37,23 +37,45 @@ flowchart LR
 
 ### The push path
 
-```trace
+```trace v1
 lanes: [business, code]
 nodes:
-  - {id: B1, lane: business, text: The owner releases a version, next: [B2]}
-  - {id: B2, lane: business, text: Online teammates get it within seconds, next: [B3]}
-  - {id: B3, lane: business, text: A release during a sync is not held back}
+  - id: B1
+    lane: business
+    text: "The owner releases a version"
+    next: [B2]
+  - id: B2
+    lane: business
+    text: "Online teammates get it within seconds"
+    next: [B3]
+  - id: B3
+    lane: business
+    text: "A release during a sync is not held back"
 
-  - {id: C1, lane: code, text: Set the push flag and kick after PushDelay, realizes: [B1],
-     ref: "gh:internal/core/replicate.go#L845-L850", next: [C2]}
-  - {id: C2, lane: code, text: One round per team at a time; it clears the flag as it starts,
-     realizes: [B2], ref: "gh:internal/core/replicate.go#L942-L955", next: [C3],
-     why: two rounds of one team would fetch the same documents twice}
-  - {id: C3, lane: code, text: When a round ends, kick again if the flag was set,
-     realizes: [B3], ref: "gh:internal/core/replicate.go#L930-L939", next: [C4]}
-  - {id: C4, lane: code, text: No new round once the daemon is stopping,
-     ref: "gh:internal/core/replicate.go#L936-L938",
-     why: shutdown waits for running rounds, so a new one would delay it}
+  - id: C1
+    lane: code
+    text: "Set the push flag and kick after PushDelay"
+    realizes: [B1]
+    ref: "gh:internal/core/replicate.go#L845-L850"
+    next: [C2]
+  - id: C2
+    lane: code
+    text: "One round per team at a time; it clears the flag as it starts"
+    realizes: [B2]
+    ref: "gh:internal/core/replicate.go#L942-L955"
+    why: "two rounds of one team would fetch the same documents twice"
+    next: [C3]
+  - id: C3
+    lane: code
+    text: "When a round ends, kick again if the flag was set"
+    realizes: [B3]
+    ref: "gh:internal/core/replicate.go#L930-L939"
+    next: [C4]
+  - id: C4
+    lane: code
+    text: "No new round once the daemon is stopping"
+    ref: "gh:internal/core/replicate.go#L936-L938"
+    why: "shutdown waits for running rounds, so a new one would delay it"
 ```
 
 ## Verification plan

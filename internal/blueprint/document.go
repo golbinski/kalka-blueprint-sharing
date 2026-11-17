@@ -99,7 +99,10 @@ type Document struct {
 
 var (
 	h12Re = regexp.MustCompile(`^ {0,3}#{1,2}(?:[ \t]|$)`)
-	h3Re  = regexp.MustCompile(`^ {0,3}###(?:[ \t]|$)`)
+	// logHeadRe is the line that starts the review log: at the start of
+	// the line, outside a code fence.
+	logHeadRe = regexp.MustCompile(`(?i)^## +review log *$`)
+	h3Re      = regexp.MustCompile(`^ {0,3}###(?:[ \t]|$)`)
 )
 
 // Parse reads a blueprint. It fails only for input that cannot be a
@@ -133,17 +136,24 @@ func Parse(data []byte) (*Document, error) {
 		return sort.Search(len(starts), func(i int) bool { return starts[i] > n.Pos() }) - 1
 	}
 
+	// The review log starts at a line rule, not at what a Markdown parser
+	// takes for a heading: what is hashed must not depend on a parser's
+	// edge cases (spec 6.4).
 	logStart := -1
-	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
-		h, ok := n.(*ast.Heading)
-		if !ok || h.Level != 2 || !strings.EqualFold(strings.TrimSpace(inlineText(h, []byte(lf))), LogTitle) {
+	var fence fenceState
+	for i, l := range rest {
+		if fence.step(l) || fence.open {
+			continue
+		}
+		if !logHeadRe.MatchString(content(l)) {
 			continue
 		}
 		if logStart < 0 {
-			logStart = lineOf(h)
+			logStart = i
 		} else {
-			d.problem(Warning, "log-duplicate", base+lineOf(h)+1, "a second \"## Review log\" heading is ordinary body text; only the first is the review log")
+			d.problem(Warning, "log-duplicate", base+i+1, "a second \"## Review log\" heading is ordinary body text; only the first is the review log")
 		}
+		fence = fenceState{}
 	}
 
 	logEnd := len(rest)
@@ -366,7 +376,9 @@ func (d *Document) checkEntries() {
 	for _, it := range d.items {
 		e := it.Entry
 		if !e.Valid() {
-			d.problem(Error, "entry-id", it.Line, fmt.Sprintf("entry id %s does not match its content (want %s); peers drop it on merge", e.ID, e.ComputeID()))
+			// A warning, not an error: one edited entry must not take the
+			// whole document out of the replica (spec 6.6).
+			d.problem(Warning, "entry-id", it.Line, fmt.Sprintf("entry %s was edited: its id no longer matches its content (want %s); peers do not take it; if the team holds the original, the next sync restores it", e.ID, e.ComputeID()))
 			continue
 		}
 		if seen[e.ID] {

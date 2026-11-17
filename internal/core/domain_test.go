@@ -14,10 +14,10 @@ import (
 )
 
 const lockersDomain = `---
-kind: domain
-team: parcels
-domain: lockers
-owner: %s
+kalka_kind: domain
+kalka_team: parcels
+kalka_domain: lockers
+kalka_owner: %s
 ---
 # Parcel lockers
 
@@ -119,13 +119,13 @@ func TestDomainReleaseByNonOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	forged.SetFrontmatter(bp.KeyVersion, "2")
-	e, err := bp.NewRelease(forged, courier.email, courier.w.now(), 2, false, nil, "", courier.d.signer())
+	e, err := bp.NewRelease(forged, courier.email, courier.w.now(), 2, false, nil, "", courier.d.signerAt(cpath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	forged.AddEntry(e)
 	os.WriteFile(cpath, forged.Bytes(), 0o644)
-	waitStored(t, courier, cpath, "version: 2")
+	waitStored(t, courier, cpath, "kalka_version: 2")
 
 	// Each peer that takes from the courier says why it did not apply v2.
 	// (The first session also gives the courier the valid v1 back, so the
@@ -229,7 +229,7 @@ func TestDomainIncorporatedAndReferences(t *testing.T) {
 	if rows := depot.d.Domains(); len(rows) != 1 || rows[0].Open != 1 || !rows[0].You {
 		t.Fatalf("domains: %+v", rows)
 	}
-	if _, err := depot.d.Release(path, "", []string{"000000000000"}); err == nil {
+	if _, err := depot.d.Release(path, "", []string{"00000000000000000000000000000000"}); err == nil {
 		t.Fatal("released incorporating an unknown entry")
 	}
 	editFile(t, depot, path, "the lockers at one depot.", "the lockers at one depot, up to 40.")
@@ -253,13 +253,13 @@ func TestDomainIncorporatedAndReferences(t *testing.T) {
 
 	// A blueprint written against v1 shows that v2 is held; one against v9
 	// shows that version is not kept here.
-	depot.write("locker-pickup.md", "---\ndomain: parcels/lockers@v1\n---\n# Locker pickup\n")
+	depot.write("locker-pickup.md", "---\nkalka_domain: parcels/lockers@v1\n---\n# Locker pickup\n")
 	waitStored(t, depot, depot.path("locker-pickup.md"), "Locker pickup")
 	v, err = depot.d.Document(context.Background(), "locker-pickup.md")
 	if err != nil || v.DomainRef == nil || !v.DomainRef.Held || v.DomainRef.Latest != 2 || v.DomainRef.Missing {
 		t.Fatalf("reference: %+v %v", v.DomainRef, err)
 	}
-	depot.write("locker-pickup.md", "---\ndomain: parcels/lockers@v9\n---\n# Locker pickup\n")
+	depot.write("locker-pickup.md", "---\nkalka_domain: parcels/lockers@v9\n---\n# Locker pickup\n")
 	waitStored(t, depot, depot.path("locker-pickup.md"), "@v9")
 	if v, _ = depot.d.Document(context.Background(), "locker-pickup.md"); !v.DomainRef.Missing {
 		t.Fatalf("missing version not flagged: %+v", v.DomainRef)

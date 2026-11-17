@@ -19,11 +19,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golbinski/kalka/internal/addr"
 	"github.com/golbinski/kalka/internal/name"
 )
 
 // RuleVersion is the replay rule version of every operation this package
-// writes. An operation with another version is held as unsupported.
+// writes and replays. An operation of a higher version is verified, kept
+// as its line and passed on, and pending with everything built on it.
 const RuleVersion = 2
 
 // Operation kinds (spec 19.1).
@@ -83,7 +85,15 @@ type Op struct {
 	Signer string   // ed25519 public key, base64url without padding
 	At     string   // the signer's clock, RFC 3339; display only
 	Sig    string   // base64url without padding
+
+	// raw is the line of an operation of a rule version this package does
+	// not implement, kept byte for byte; Kind and Args are then empty.
+	raw []byte
 }
+
+// Supported reports whether the operation's rule version is the one this
+// package implements; only then are Kind and Args set.
+func (o *Op) Supported() bool { return o.raw == nil }
 
 var (
 	teamNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
@@ -126,19 +136,7 @@ func value(a Args, key string) any {
 // integers only. withSig adds the signature, for the file line.
 func (o *Op) canonical(withSig bool) []byte {
 	var b bytes.Buffer
-	str := func(s string) {
-		if plainASCII(s) {
-			b.WriteByte('"')
-			b.WriteString(s)
-			b.WriteByte('"')
-			return
-		}
-		var e bytes.Buffer
-		enc := json.NewEncoder(&e)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(s)
-		b.Write(bytes.TrimSuffix(e.Bytes(), []byte("\n")))
-	}
+	str := func(s string) { writeString(&b, s) }
 	keys := append([]string(nil), argKeys[o.Kind]...)
 	if o.Kind == AddMember && o.Args.Invite != "" {
 		keys = append(keys, "invite")
@@ -195,10 +193,17 @@ func plainASCII(s string) bool {
 	return true
 }
 
-// Hash is the operation's identity: hex SHA-256 of its canonical encoding
-// without the signature.
+// Hash is the operation's identity: hex SHA-256 of its line without the
+// sig member. Lines are canonical byte for byte, so for an operation this
+// package implements that is its canonical encoding without the
+// signature, and for any other it is computed without knowing the kind.
 func (o *Op) Hash() string {
-	sum := sha256.Sum256(o.canonical(false))
+	var sum [32]byte
+	if o.raw != nil {
+		sum = sha256.Sum256(withoutSig(o.raw))
+	} else {
+		sum = sha256.Sum256(o.canonical(false))
+	}
 	return hex.EncodeToString(sum[:])
 }
 
@@ -254,7 +259,12 @@ func normPrev(p []string) []string {
 }
 
 // Encode returns the file line of an operation, without newline.
-func (o *Op) Encode() []byte { return o.canonical(true) }
+func (o *Op) Encode() []byte {
+	if o.raw != nil {
+		return append([]byte(nil), o.raw...)
+	}
+	return o.canonical(true)
+}
 
 type wireOp struct {
 	V      *json.Number               `json:"v"`
@@ -278,6 +288,20 @@ func Decode(line []byte) (Op, error) {
 	if len(line) > MaxLine {
 		return o, errors.New("operation too long")
 	}
+	// One line per operation: whitespace, escaping, key order and
+	// duplicate keys cannot make two lines of one operation.
+	c, err := canonicalJSON(line)
+	if err != nil {
+		return o, fmt.Errorf("operation: %w", err)
+	}
+	if !bytes.Equal(c, line) {
+		return o, errors.New("operation: not in canonical form")
+	}
+	if v, err := ruleVersion(line); err != nil {
+		return o, err
+	} else if v > RuleVersion {
+		return decodeNewer(line, v)
+	}
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.DisallowUnknownFields()
 	dec.UseNumber()
@@ -298,7 +322,7 @@ func Decode(line []byte) (Op, error) {
 	o = Op{V: v, Team: *w.Team, Kind: *w.Op, Prev: w.Prev, Signer: *w.Signer, At: *w.At, Sig: *w.Sig}
 	keys, known := argKeys[o.Kind]
 	if v != RuleVersion {
-		return o, errUnsupported
+		return o, fmt.Errorf("operation: rule version %d is no longer read", v)
 	}
 	if !known {
 		return o, fmt.Errorf("operation: unknown kind %q", o.Kind)
@@ -368,11 +392,178 @@ func Decode(line []byte) (Op, error) {
 	return o, nil
 }
 
-var errUnsupported = errors.New("operation: unsupported rule version")
+// ruleVersion reads v from a line.
+func ruleVersion(line []byte) (int, error) {
+	var w struct {
+		V *json.Number `json:"v"`
+	}
+	d := json.NewDecoder(bytes.NewReader(line))
+	d.UseNumber()
+	if err := d.Decode(&w); err != nil || w.V == nil {
+		return 0, errors.New("operation: missing rule version")
+	}
+	v, err := strconv.Atoi(w.V.String())
+	if err != nil || v < 1 {
+		return 0, errors.New("operation: bad rule version")
+	}
+	return v, nil
+}
 
-// IsUnsupported reports whether Decode refused an operation only for its
-// rule version.
-func IsUnsupported(err error) bool { return errors.Is(err, errUnsupported) }
+// decodeNewer reads an operation of a rule version above RuleVersion:
+// only what verifying, storing and passing it on needs. Kind and Args are
+// left empty; replay holds it as pending.
+func decodeNewer(line []byte, v int) (Op, error) {
+	var w struct {
+		Team   *string  `json:"team"`
+		Prev   []string `json:"prev"`
+		Signer *string  `json:"signer"`
+		At     string   `json:"at"`
+		Sig    *string  `json:"sig"`
+	}
+	if err := json.Unmarshal(line, &w); err != nil {
+		return Op{}, fmt.Errorf("operation: %w", err)
+	}
+	if w.Team == nil || w.Prev == nil || w.Signer == nil || w.Sig == nil {
+		return Op{}, errors.New("operation: missing field")
+	}
+	o := Op{V: v, Team: *w.Team, Prev: w.Prev, Signer: *w.Signer, At: w.At, Sig: *w.Sig, raw: append([]byte(nil), line...)}
+	if _, err := DecodeKey(o.Signer); err != nil {
+		return Op{}, errors.New("operation: bad signer key")
+	}
+	if !hashRe.MatchString(o.Team) {
+		return Op{}, errors.New("operation: bad team hash")
+	}
+	for _, p := range o.Prev {
+		if !hashRe.MatchString(p) {
+			return Op{}, errors.New("operation: bad prev hash")
+		}
+	}
+	if !equalStrings(o.Prev, normPrev(o.Prev)) {
+		return Op{}, errors.New("operation: prev not sorted or has duplicates")
+	}
+	return o, nil
+}
+
+// withoutSig is a canonical line with its sig member removed.
+func withoutSig(line []byte) []byte {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(line, &m); err != nil {
+		return line
+	}
+	delete(m, "sig")
+	b, _ := json.Marshal(m) // only to rebuild; canonicalJSON fixes the form
+	c, err := canonicalJSON(b)
+	if err != nil {
+		return line
+	}
+	return c
+}
+
+var intRe = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+
+// canonicalJSON re-encodes one JSON value in the canonical encoding of
+// docs/teamlog.md: object keys in byte order, no whitespace, strings as
+// the canonical encoder writes them, integers only. A duplicate key is an
+// error.
+func canonicalJSON(in []byte) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(in))
+	dec.UseNumber()
+	var b bytes.Buffer
+	if err := canonValue(dec, &b); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err == nil {
+		return nil, errors.New("trailing data")
+	}
+	return b.Bytes(), nil
+}
+
+func canonValue(dec *json.Decoder, b *bytes.Buffer) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch t := tok.(type) {
+	case json.Delim:
+		switch t {
+		case '{':
+			members := map[string][]byte{}
+			var keys []string
+			for dec.More() {
+				kt, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				k := kt.(string)
+				if _, dup := members[k]; dup {
+					return fmt.Errorf("key %q appears twice", k)
+				}
+				var v bytes.Buffer
+				if err := canonValue(dec, &v); err != nil {
+					return err
+				}
+				members[k] = v.Bytes()
+				keys = append(keys, k)
+			}
+			if _, err := dec.Token(); err != nil {
+				return err
+			}
+			sort.Strings(keys)
+			b.WriteByte('{')
+			for i, k := range keys {
+				if i > 0 {
+					b.WriteByte(',')
+				}
+				writeString(b, k)
+				b.WriteByte(':')
+				b.Write(members[k])
+			}
+			b.WriteByte('}')
+		case '[':
+			b.WriteByte('[')
+			for i := 0; dec.More(); i++ {
+				if i > 0 {
+					b.WriteByte(',')
+				}
+				if err := canonValue(dec, b); err != nil {
+					return err
+				}
+			}
+			if _, err := dec.Token(); err != nil {
+				return err
+			}
+			b.WriteByte(']')
+		}
+	case string:
+		writeString(b, t)
+	case json.Number:
+		if !intRe.MatchString(t.String()) {
+			return fmt.Errorf("number %s is not an integer", t)
+		}
+		b.WriteString(t.String())
+	case bool:
+		b.WriteString(strconv.FormatBool(t))
+	case nil:
+		b.WriteString("null")
+	}
+	return nil
+}
+
+// writeString writes s as the canonical encoding does: as Go's
+// encoding/json with HTML escaping off.
+func writeString(b *bytes.Buffer, s string) {
+	if plainASCII(s) {
+		b.WriteByte('"')
+		b.WriteString(s)
+		b.WriteByte('"')
+		return
+	}
+	var e bytes.Buffer
+	enc := json.NewEncoder(&e)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	b.Write(bytes.TrimSuffix(e.Bytes(), []byte("\n")))
+}
 
 func (o *Op) checkShape() error {
 	if _, err := DecodeKey(o.Signer); err != nil {
@@ -399,6 +590,10 @@ func (o *Op) checkShape() error {
 	email := func(s string) error {
 		if len(s) > 254 || !emailRe.MatchString(s) {
 			return fmt.Errorf("operation: bad email %q", s)
+		}
+		// One spelling per address: replay compares emails as bytes.
+		if !addr.IsCanonical(s) {
+			return fmt.Errorf("operation: email %q is not in canonical form (ASCII letters in lower case)", s)
 		}
 		return nil
 	}

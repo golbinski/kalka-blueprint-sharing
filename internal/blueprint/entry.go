@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golbinski/kalka/internal/addr"
 	"github.com/golbinski/kalka/internal/name"
 )
 
@@ -36,8 +37,9 @@ var (
 	emailRe  = regexp.MustCompile(`^[^\s@\x{00b7}]+@[^\s@\x{00b7}]+$`)
 	tsRe     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
 	revRe    = regexp.MustCompile(`^[0-9a-f]{8}$`)
-	idRe     = regexp.MustCompile(`^[0-9a-f]{12}$`)
-	sigRe    = regexp.MustCompile(`^[A-Za-z0-9_-]{86}$`)
+	idRe     = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	extRe    = regexp.MustCompile(`^([a-z][a-z0-9-]{0,31}):(\S+)$`)
+	sigRe    = regexp.MustCompile(`^(?:([0-9a-f]{16})\.)?([A-Za-z0-9_-]{86})$`)
 	nodeIDRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 )
 
@@ -49,13 +51,34 @@ type Entry struct {
 	Anchor    string // without the leading §; "" for a general entry
 	Rev       string
 	ID        string
-	Sig       string // handoff signature, base64url without padding; "" if none
+	// Ext are the extension fields between id and sig, in header order:
+	// fields a later kalka may add. They are kept, shown, and part of the
+	// id input, so the signature covers them.
+	Ext []Field
+	Sig string // signature, base64url without padding; "" if none
+	// Term names the member term the signature was made under: the first
+	// TermLen hex of the create-team or add-member that bound the key, in
+	// the team whose copy this is. "" for a signature outside a team.
+	Term string
 
 	// Body is the entry body as found on disk, LF line endings, without
 	// leading or trailing blank lines. Trailing spaces are kept: they can be
 	// Markdown hard breaks.
 	Body string
 }
+
+// Field is an extension field of an entry header: name:value.
+type Field struct{ Name, Value string }
+
+// IDLen is the length of an entry id in hex: 128 bits, so that no one can
+// search for an entry of their own with someone else's id.
+const IDLen = 32
+
+// MaxExt is the most extension fields one header may carry.
+const MaxExt = 8
+
+// reservedExt are names an extension field may not take.
+var reservedExt = map[string]bool{"rev": true, "id": true, "sig": true}
 
 // ParseHeader parses a strict entry header line (spec 6.5). The line may
 // carry its terminator and trailing whitespace.
@@ -66,8 +89,8 @@ func ParseHeader(line string) (*Entry, error) {
 		return nil, errors.New("entry header must start with \"### \"")
 	}
 	f := strings.Split(rest, Sep)
-	if len(f) != 6 && len(f) != 7 {
-		return nil, fmt.Errorf("entry header has %d fields separated by \" · \", want 6 (7 with sig)", len(f))
+	if len(f) < 6 {
+		return nil, fmt.Errorf("entry header has %d fields separated by \" · \", want at least 6", len(f))
 	}
 	e := &Entry{Kind: f[0], Author: f[1], Timestamp: f[2]}
 	if !kindRe.MatchString(e.Kind) {
@@ -94,14 +117,47 @@ func ParseHeader(line string) (*Entry, error) {
 		return nil, fmt.Errorf("rev field %q must be rev:<8 hex>", f[4])
 	}
 	if e.ID, ok = strings.CutPrefix(f[5], "id:"); !ok || !idRe.MatchString(e.ID) {
-		return nil, fmt.Errorf("id field %q must be id:<12 hex>", f[5])
+		return nil, fmt.Errorf("id field %q must be id:<%d hex>", f[5], IDLen)
 	}
-	if len(f) == 7 {
-		if e.Sig, ok = strings.CutPrefix(f[6], "sig:"); !ok || !sigRe.MatchString(e.Sig) {
-			return nil, fmt.Errorf("sig field %q must be sig:<86 base64url characters>", f[6])
+	more := f[6:]
+	if n := len(more); n > 0 && strings.HasPrefix(more[n-1], "sig:") {
+		v, _ := strings.CutPrefix(more[n-1], "sig:")
+		m := sigRe.FindStringSubmatch(v)
+		if m == nil {
+			return nil, fmt.Errorf("sig field %q must be sig:[<%d hex term>.]<86 base64url characters>", more[n-1], TermLen)
 		}
+		e.Term, e.Sig = m[1], m[2]
+		more = more[:n-1]
+	}
+	if len(more) > MaxExt {
+		return nil, fmt.Errorf("entry header has %d extension fields, at most %d", len(more), MaxExt)
+	}
+	for _, x := range more {
+		m := extRe.FindStringSubmatch(x)
+		if m == nil || reservedExt[m[1]] {
+			return nil, fmt.Errorf("field %q must be name:value, between id and sig", x)
+		}
+		e.Ext = append(e.Ext, Field{m[1], m[2]})
 	}
 	return e, nil
+}
+
+// anchorSlug checks the slug of an anchor by a fixed rule: ASCII lower
+// case letters, digits, '-' and '_', and any non-ASCII letter or digit as
+// written. No Unicode case tables are involved, so a Go release cannot
+// change which headers are valid.
+func anchorSlug(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+		case r < 0x80 || r == 0xB7 || r == 0xA0 || r >= 0x2000 && r <= 0x206F || r == 0x3000 || r == 0xFEFF:
+			return false // other ASCII, the field separator, spaces and punctuation
+		}
+	}
+	return true
 }
 
 func validAnchor(a string) error {
@@ -109,7 +165,7 @@ func validAnchor(a string) error {
 		return nil
 	}
 	slug, node, hasNode := strings.Cut(a, "#")
-	if slug != BaseSlug(slug) || strings.ContainsAny(slug, " ") {
+	if !anchorSlug(slug) {
 		return fmt.Errorf("anchor %q is not a heading slug", a)
 	}
 	if hasNode && !nodeIDRe.MatchString(node) {
@@ -123,20 +179,48 @@ func (e *Entry) Header() string {
 	h := "### " + strings.Join([]string{
 		e.Kind, e.Author, e.Timestamp, "§" + e.Anchor, "rev:" + e.Rev, "id:" + e.ID,
 	}, Sep)
+	if x := e.extLine(); x != "" {
+		h += Sep + x
+	}
 	if e.Sig != "" {
-		h += Sep + "sig:" + e.Sig
+		h += Sep + "sig:"
+		if e.Term != "" {
+			h += e.Term + "."
+		}
+		h += e.Sig
 	}
 	return h
 }
 
 // ComputeID returns the content hash the id field must equal (spec 6.5).
 // The anchor is hashed without its § prefix and the author as written.
-func (e *Entry) ComputeID() string { return e.Digest()[:12] }
+func (e *Entry) ComputeID() string { return e.Digest()[:IDLen] }
 
-// Digest is the full SHA-256 of the id input, in hex: what a v2
-// signature covers.
+// extLine is the extension fields as the header writes them.
+func (e *Entry) extLine() string {
+	parts := make([]string, len(e.Ext))
+	for i, x := range e.Ext {
+		parts[i] = x.Name + ":" + x.Value
+	}
+	return strings.Join(parts, Sep)
+}
+
+// ExtValue returns the value of extension field name, if the header has it.
+func (e *Entry) ExtValue(name string) (string, bool) {
+	for _, x := range e.Ext {
+		if x.Name == name {
+			return x.Value, true
+		}
+	}
+	return "", false
+}
+
+// Digest is the full SHA-256 of the id input, in hex: what a signature
+// covers. The input is kind, author, timestamp, anchor, rev, the
+// extension fields (an empty line when there are none) and the normalized
+// body, joined by newlines; no field can hold a newline.
 func (e *Entry) Digest() string {
-	in := strings.Join([]string{e.Kind, e.Author, e.Timestamp, e.Anchor, e.Rev, Normalize(e.Body)}, "\n")
+	in := strings.Join([]string{e.Kind, e.Author, e.Timestamp, e.Anchor, e.Rev, e.extLine(), Normalize(e.Body)}, "\n")
 	sum := sha256.Sum256([]byte(in))
 	return hex.EncodeToString(sum[:])
 }
@@ -190,10 +274,15 @@ func (e *Entry) Quote() string {
 	return strings.Join(q, "\n")
 }
 
+// TermLen is the length in hex of a term reference in a signature.
+const TermLen = 16
+
 // SigMessage is the message every entry signature covers (spec 6.5): the
-// full digest of the entry.
-func SigMessage(kalkaID, digest string) []byte {
-	return []byte(name.EntrySigContext + "\n" + kalkaID + "\n" + digest)
+// document, the member term the key was bound by ("" outside a team; it
+// also names the team, as that operation belongs to one), and the full
+// digest of the entry.
+func SigMessage(kalkaID, term, digest string) []byte {
+	return []byte(name.EntrySigContext + "\n" + kalkaID + "\n" + term + "\n" + digest)
 }
 
 // SigState is the result of checking an entry's signature.
@@ -219,7 +308,7 @@ func (e *Entry) Verify(kalkaID string, pub ed25519.PublicKey) SigState {
 	if err != nil || len(pub) != ed25519.PublicKeySize || !e.Valid() {
 		return SigBad
 	}
-	if ed25519.Verify(pub, SigMessage(kalkaID, e.Digest()), sig) {
+	if ed25519.Verify(pub, SigMessage(kalkaID, e.Term, e.Digest()), sig) {
 		return SigOK
 	}
 	return SigBad
@@ -230,14 +319,31 @@ func (e *Entry) VerifySig(kalkaID string, pub ed25519.PublicKey) bool {
 	return e.Verify(kalkaID, pub) == SigOK
 }
 
-// Sign sets a v2 signature. Only entries the local user writes are signed
-// (spec 6.5).
+// Sign signs the entry under sign's term. Only entries the local user
+// writes are signed (spec 6.5).
 func (e *Entry) Sign(kalkaID string, sign Signer) {
-	e.Sig = base64.RawURLEncoding.EncodeToString(sign(SigMessage(kalkaID, e.Digest())))
+	e.Term = sign.Term
+	e.Sig = base64.RawURLEncoding.EncodeToString(sign.Fn(SigMessage(kalkaID, e.Term, e.Digest())))
 }
 
-// Signer signs a message with the local identity key.
-type Signer func(msg []byte) []byte
+// Signer signs with the local identity key. Term is the local user's
+// member term in the document's team, as TermOf gives it; "" outside a
+// team.
+type Signer struct {
+	Fn   func(msg []byte) []byte
+	Term string
+}
+
+// Ok reports whether the signer can sign.
+func (s Signer) Ok() bool { return s.Fn != nil }
+
+// TermOf is the term reference of an operation hash.
+func TermOf(opHash string) string {
+	if len(opHash) < TermLen {
+		return ""
+	}
+	return opHash[:TermLen]
+}
 
 // NewEntry builds an entry written now by author. The body is prepared as
 // user input (PrepareBody) and the id is computed.
@@ -356,7 +462,7 @@ func (f *fenceState) step(line string) bool {
 func (f *fenceState) closer() string { return strings.Repeat(string(f.char), f.n) }
 
 // SameEmail compares email addresses case-insensitively (spec 6.2).
-func SameEmail(a, b string) bool { return strings.EqualFold(a, b) }
+func SameEmail(a, b string) bool { return addr.Same(a, b) }
 
 // ValidEmail reports whether s looks like an email address.
 func ValidEmail(s string) bool { return emailRe.MatchString(s) }

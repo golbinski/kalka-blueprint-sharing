@@ -71,7 +71,7 @@ func TestReferenceExport(t *testing.T) {
 // Hints show in `kalka check --verbose` and JSON, and never fail it.
 func TestCheckHints(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "plan.md")
-	os.WriteFile(f, []byte("---\nreference: kalka-blueprint@v1\n---\n# Redelivery\n\n## Scope\nThe redelivery module.\n"), 0o644)
+	os.WriteFile(f, []byte("---\nkalka_reference: kalka-blueprint@v1\n---\n# Redelivery\n\n## Scope\nThe redelivery module.\n"), 0o644)
 
 	code, out, _ := runCLI("check", f)
 	if code != exitOK || strings.Contains(out, "hint-") {

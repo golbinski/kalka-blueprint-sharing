@@ -121,7 +121,7 @@ func TestSetupWritesConfig(t *testing.T) {
 // `kalka comment` signs with the identity key (spec 6.5), and `kalka
 // check` counts the signature as verified with that key.
 func TestCommentSigns(t *testing.T) {
-	path := setup(t, "---\nkalka_id: 6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40\nowner: bob@corp.com\n---\n# Locker pickup\n\n## Plan\nAdd a pickup code.\n")
+	path := setup(t, "---\nkalka_id: 6f1c2b9e-4d7a-4c3e-9b1a-2e5f8c7d6a40\nkalka_owner: bob@corp.com\n---\n# Locker pickup\n\n## Plan\nAdd a pickup code.\n")
 	if code, _, errs := call("", "comment", path, "--anchor", "plan", "-m", "Codes expire after 48 hours."); code != 0 {
 		t.Fatalf("comment: %d %s", code, errs)
 	}

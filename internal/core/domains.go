@@ -25,7 +25,7 @@ type DomainInfo struct {
 	Owner string `json:"owner,omitempty"`
 }
 
-// DomainRefView is a blueprint's `domain:` reference (spec 6.12).
+// DomainRefView is a blueprint's `kalka_domain:` reference (spec 6.12).
 type DomainRefView struct {
 	Ref     string `json:"ref"`
 	Team    string `json:"team"`
@@ -135,7 +135,7 @@ func (d *Node) domainInfo(live string, doc *bp.Document, viewing int64) (*Domain
 	return di, incorporated(ch)
 }
 
-// domainRef resolves a blueprint's `domain:` reference against the domain
+// domainRef resolves a blueprint's `kalka_domain:` reference against the domain
 // documents held here.
 func (d *Node) domainRef(doc *bp.Document) *DomainRefView {
 	ref, ok := doc.DomainRef()

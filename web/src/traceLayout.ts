@@ -8,6 +8,9 @@
 //   mockup). It never moves above the node before it in its own lane.
 // - A node realizing nothing takes the row after its predecessor; a row is
 //   inserted for it in the lanes to its left, which shows as a labelled gap.
+// - next edges have no cycles (the daemon refuses them); back edges, which
+//   return to an earlier step, take no part in the order and are drawn
+//   around the right side of the lane, outside the forward edges.
 //
 // Nothing is saved: the same block always gives the same picture.
 import type { Trace, TraceNode } from './api'
@@ -39,7 +42,7 @@ export interface Gap {
 }
 
 export interface Edge {
-  kind: 'flow' | 'realizes'
+  kind: 'flow' | 'back' | 'realizes'
   from: string
   to: string
   label?: string
@@ -57,8 +60,9 @@ export interface Layout {
   edges: Edge[]
 }
 
-// flowOrder orders a lane's nodes along their next edges; ties and cycles
-// fall back to the order in the block.
+// flowOrder orders a lane's nodes along their next edges; ties fall back
+// to the order in the block. next has no cycles in a valid block; should
+// one arrive, the earliest remaining node is taken.
 export function flowOrder(nodes: TraceNode[]): TraceNode[] {
   const ids = new Set(nodes.map((n) => n.id))
   const indeg = new Map(nodes.map((n) => [n.id, 0]))
@@ -181,6 +185,25 @@ export function layout(t: Trace): Layout {
           ly: (y1 + y2) / 2,
         })
       }
+    }
+    // Back: from this step's right edge, further out than forward edges,
+    // up to the step the flow returns to. A step that repeats itself gets
+    // a small loop.
+    for (const x of p.node.back ?? []) {
+      const q = placed.get(x.to)
+      if (!q) continue
+      const side = p.x + CARD_W + 32
+      const y1 = p.y + p.h / 2 + (q === p ? 12 : 0)
+      const y2 = q.y + q.h / 2 - (q === p ? 12 : 0)
+      edges.push({
+        kind: 'back',
+        from: p.node.id,
+        to: q.node.id,
+        label: x.label,
+        d: `M ${p.x + CARD_W} ${y1} L ${side} ${y1} L ${side} ${y2} L ${q.x + CARD_W + 4} ${y2}`,
+        lx: side + 6,
+        ly: (y1 + y2) / 2,
+      })
     }
     // Realization: from the realizer's left edge to the realized node's
     // right edge, at the realized node's middle when the realizer covers it.

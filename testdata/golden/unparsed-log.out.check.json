@@ -23,7 +23,7 @@
       "kind": "comment",
       "author": "carol@corp.com",
       "anchor": "plan",
-      "id": "5aca97415978",
+      "id": "079ec96e4fe3b0d7a1b4f107f24e91d4",
       "valid": true,
       "unparsed_lines_after": 0
     },
@@ -32,7 +32,7 @@
       "kind": "comment",
       "author": "bob@corp.com",
       "anchor": "plan",
-      "id": "bd60a5e93698",
+      "id": "0d4676ce612b8b7835aed299abe57e45",
       "valid": true,
       "unparsed_lines_after": 2
     }
@@ -48,7 +48,7 @@
       "severity": "warning",
       "code": "log-unparsed",
       "line": 21,
-      "message": "not an entry header, kept as unparsed content: entry header has 1 fields separated by \" · \", want 6 (7 with sig)"
+      "message": "not an entry header, kept as unparsed content: entry header has 1 fields separated by \" · \", want at least 6"
     }
   ]
 }

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/golbinski/kalka/internal/addr"
 	"strconv"
 	"strings"
 
@@ -47,7 +48,7 @@ type PublishResult struct {
 }
 
 // Publish publishes a document to a team, or releases the next version of
-// one already published (spec 20.1): `team:` and a release, by the owner.
+// one already published (spec 20.1): `kalka_team:` and a release, by the owner.
 // A file in Personal moves into the team's folder; the result has the new
 // path. A file in a team's folder belongs to that team (spec 14).
 func (d *Node) Publish(path, teamName, note string) (PublishResult, error) {
@@ -56,7 +57,7 @@ func (d *Node) Publish(path, teamName, note string) (PublishResult, error) {
 
 // Release releases the next version of a team document (spec 20.4): the
 // owner's plan as it stands, listing the comments it incorporates. A
-// domain document's `version:` is raised.
+// domain document's `kalka_version:` is raised.
 func (d *Node) Release(path, note string, incorporates []string) (PublishResult, error) {
 	return d.release(path, relOpts{mode: modeRelease, note: note, incorporates: incorporates})
 }
@@ -125,6 +126,37 @@ func (d *Node) release(path string, o relOpts) (PublishResult, error) {
 	}
 }
 
+// resignOwn signs the local user's own entries of doc under the user's
+// term in h where they carry another, such as entries written in Personal
+// before the document was published: they would not verify in h.
+// Entries by anyone else are never signed (spec 6.5).
+func (d *Node) resignOwn(doc *bp.Document, h *held) (*bp.Document, error) {
+	s := d.signerIn(h)
+	id := doc.KalkaID()
+	if s.Term == "" || id == "" {
+		return doc, nil
+	}
+	changed := false
+	items := make([]*bp.Item, len(doc.Items()))
+	for i, it := range doc.Items() {
+		c := *it
+		if e := it.Entry; e.Term != s.Term && bp.SameEmail(e.Author, d.self.Email) && e.Verify(id, d.pub) == bp.SigOK {
+			ne := *e
+			ne.Sign(id, s)
+			c.Entry, changed = &ne, true
+		}
+		items[i] = &c
+	}
+	if !changed {
+		return doc, nil
+	}
+	out, err := bp.Compose(doc, doc.EOL(), doc.Lead(), items)
+	if err != nil {
+		return nil, err
+	}
+	return out.Reparse()
+}
+
 // releaseLocked is one attempt of release, holding the document's lock.
 // again is set when the file changed underneath and the caller retries.
 func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal bool, teamName, id string, o relOpts) (res PublishResult, again bool, err error) {
@@ -137,7 +169,7 @@ func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal 
 		return res, false, &store.ErrDuplicate{KalkaID: id, Paths: []string{f.Path, dup.Path}}
 	}
 	if doc.IsDomain() && doc.DomainName() == "" {
-		return res, false, errors.New("a domain document needs `domain:` with a name of lower-case letters, digits and dashes")
+		return res, false, errors.New("a domain document needs `kalka_domain:` with a name of lower-case letters, digits and dashes")
 	}
 	if doc.IsDomain() {
 		if other := d.domainHolder(h, doc.DomainName(), id); other != "" {
@@ -145,6 +177,9 @@ func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal 
 		}
 	}
 	doc.SetFrontmatter(bp.KeyTeam, teamName)
+	if doc, err = d.resignOwn(doc, h); err != nil {
+		return res, false, err
+	}
 	team := h.team()
 	ch := merge.Releases(entriesOf(doc), id, team)
 	head, released := ch.Head()
@@ -171,9 +206,9 @@ func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal 
 	}
 	// The released plan names its owner: the local user, also after a
 	// reassignment (spec 7.3), or the recipient of a handoff (7.2).
-	owner := strings.ToLower(d.self.Email)
+	owner := addr.Canonical(d.self.Email)
 	if o.mode == modeHandoff {
-		owner = strings.ToLower(o.owner)
+		owner = addr.Canonical(o.owner)
 	}
 	if !bp.SameEmail(doc.Owner(), owner) {
 		doc.SetFrontmatter(name.FrontmatterOwner, owner)
@@ -194,7 +229,7 @@ func (d *Node) releaseLocked(f *store.File, doc *bp.Document, h *held, personal 
 	if doc.IsDomain() {
 		doc.SetFrontmatter(bp.KeyVersion, strconv.FormatInt(v, 10))
 	}
-	e, err := bp.NewRelease(doc, strings.ToLower(d.self.Email), d.now(), v, false, o.incorporates, o.note, d.signer())
+	e, err := bp.NewRelease(doc, addr.Canonical(d.self.Email), d.now(), v, false, o.incorporates, o.note, d.signerIn(h))
 	if err != nil {
 		return res, false, err
 	}
@@ -232,7 +267,7 @@ var errTaken = errors.New("already released by the new owner")
 
 // publishTarget is the team a publish goes to, and whether the file lies in
 // Personal and so moves. A file in a team's folder belongs to that team;
-// one in Personal goes to the team named, or to its `team:`, or to the
+// one in Personal goes to the team named, or to its `kalka_team:`, or to the
 // only team held.
 func (d *Node) publishTarget(f *store.File, doc *bp.Document, teamName string) (*held, bool, error) {
 	if t, ok := d.teamDirAt(f.Path); ok {
@@ -321,9 +356,9 @@ func (d *Node) deleteLocked(h *held, f *store.File, ch merge.ReleaseChain, moved
 		if stub, err = stub.Reparse(); err != nil {
 			return err
 		}
-		e, err = bp.NewMoveTombstone(stub, strings.ToLower(d.self.Email), d.now(), v, moved, d.signer())
+		e, err = bp.NewMoveTombstone(stub, addr.Canonical(d.self.Email), d.now(), v, moved, d.signerIn(h))
 	} else {
-		e, err = bp.NewRelease(stub, strings.ToLower(d.self.Email), d.now(), v, true, nil, "", d.signer())
+		e, err = bp.NewRelease(stub, addr.Canonical(d.self.Email), d.now(), v, true, nil, "", d.signerIn(h))
 	}
 	if err != nil {
 		return err
@@ -340,8 +375,8 @@ func (d *Node) deleteLocked(h *held, f *store.File, ch merge.ReleaseChain, moved
 	return d.writeTombstone(h, final, f)
 }
 
-// stubOf is a tombstone's plan: the frontmatter with deleted: true, no
-// body (spec 20.6).
+// stubOf is a tombstone's plan: the frontmatter and no body (spec 20.6).
+// The deleted release that follows makes it a tombstone.
 func stubOf(doc *bp.Document) (*bp.Document, error) {
 	inner := ""
 	if fm := doc.Frontmatter(); fm != nil {
@@ -351,8 +386,7 @@ func stubOf(doc *bp.Document) (*bp.Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	stub.SetFrontmatter(bp.KeyDeleted, "true")
-	return stub.Reparse()
+	return stub, nil
 }
 
 // releaseOwn makes a release after one of kalka's own changes to a
