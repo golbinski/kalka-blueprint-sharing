@@ -7,7 +7,8 @@
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
-    theme: 'neutral',
+    // The frame follows the system's dark mode, as the page does.
+    theme: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'neutral',
     fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   })
   var out = document.getElementById('out')

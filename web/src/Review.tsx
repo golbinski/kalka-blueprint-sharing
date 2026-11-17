@@ -5,10 +5,10 @@ import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
 import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
-import { groupEntries, oldThread, versionAt } from './entries'
+import { groupEntries, oldThread, thread, versionAt } from './entries'
 import { attestedBadge, shortName } from './scope'
 import { DocHeader } from './DocHeader'
-import { docHref, localTime, plural } from './util'
+import { canvasHref, docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -595,6 +595,8 @@ export function Review({
   }
 
   return (
+    <div className="review-wrap">
+      <Outline doc={doc} bySlug={bySlug} replies={replies} general={general.length} orphaned={orphaned.length} />
     <RefLayer doc={doc} className="review">
       <DocHeader doc={doc} reload={reload} onSeed={onSeed && (() => onSeed())} onPublish={onPublish} />
       <DomainRefStrip doc={doc} />
@@ -650,5 +652,69 @@ export function Review({
         </section>
       )}
     </RefLayer>
+    </div>
+  )
+}
+
+// Outline is the rail beside the document (spec 11.1): its sections with
+// how many comments each has and a dot where there is a deviation, the
+// general comments, and the map of the document (the canvas).
+function Outline({
+  doc,
+  bySlug,
+  replies,
+  general,
+  orphaned,
+}: {
+  doc: Doc
+  bySlug: Map<string, Entry[]>
+  replies: Map<string, Entry[]>
+  general: number
+  orphaned: number
+}) {
+  const go = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
+  const rows = doc.sections.filter((s) => s.heading && s.heading.level <= 3)
+  if (rows.length < 2) return null
+  return (
+    <nav className="doc-outline" aria-label="Outline">
+      <div className="doc-outline-title">Outline</div>
+      <ul>
+        {rows.map((s) => {
+          const h = s.heading!
+          const all = (bySlug.get(h.slug) ?? []).flatMap((e) => thread(e, replies).map((x) => x.e))
+          const notes = all.filter((e) => e.kind !== 'release' && e.kind !== 'budded')
+          const dev = notes.some((e) => e.kind === 'deviation')
+          return (
+            <li key={h.slug} className={'lv' + h.level}>
+              <a href={'#s-' + h.slug} onClick={go('s-' + h.slug)}>
+                <span className="doc-outline-text">{h.text}</span>
+                {dev && <span className="doc-outline-dev" title="has a deviation" aria-label="has a deviation" />}
+                {notes.length > 0 && <span className="doc-outline-count">{notes.length}</span>}
+              </a>
+            </li>
+          )
+        })}
+        <li className="lv2">
+          <a href="#general" onClick={go('general')}>
+            <span className="doc-outline-text">General</span>
+            {general > 0 && <span className="doc-outline-count">{general}</span>}
+          </a>
+        </li>
+        {orphaned > 0 && (
+          <li className="lv2">
+            <a href="#orphaned" onClick={go('orphaned')}>
+              <span className="doc-outline-text">On removed sections</span>
+              <span className="doc-outline-count">{orphaned}</span>
+            </a>
+          </li>
+        )}
+      </ul>
+      <a className="small" href={canvasHref(doc.rel)}>
+        Open as map
+      </a>
+    </nav>
   )
 }

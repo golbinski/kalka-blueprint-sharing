@@ -15,19 +15,36 @@ function graphDivs(t: Trace, id: string): Divergence[] {
   return t.divergences.filter((d) => d.node === id && !NEUTRAL.has(d.class))
 }
 
-export function badgeText(d: Divergence): string {
+// laneOf is the lane of a node, or "".
+function laneAt(t: Trace, id: string): string {
+  return t.nodes?.find((n) => n.id === id)?.lane ?? ''
+}
+
+// badgeText is a divergence on a node, in words a reader knows (spec
+// 6.10): the class names stay in the YAML, the spec and --json.
+export function badgeText(d: Divergence, t?: Trace): string {
+  const lanes = t?.lanes ?? []
+  const lane = t ? laneAt(t, d.node) : ''
+  const next = lanes[lanes.indexOf(lane) + 1] ?? 'the next lane'
   switch (d.class) {
+    case 'implementation-only':
+      return `${lane || 'this lane'} only`
+    case 'unrealized':
+      return `no ${next} yet`
     case 'merged':
+      return `does ${(d.nodes ?? []).join(' + ')}`
     case 'expanded':
-      return `${d.class} · ${(d.nodes ?? []).join(' + ')}`
+      return `split into ${(d.nodes ?? []).join(' + ')}`
     case 'scattered':
+      return 'split, not adjacent'
     case 'reordered':
+      return 'out of order'
     case 'skipped':
-      return `${d.class} in ${d.lane}`
+      return `skips ${d.lane}`
     case 'stale':
-      return d.detail && d.detail.length <= 32 ? d.detail : 'stale'
+      return 'link changed'
     case 'unverified':
-      return d.detail === 'resolving…' ? 'resolving…' : 'unverified'
+      return d.detail === 'resolving…' ? 'resolving…' : 'link not opened'
     default:
       return d.class
   }
@@ -81,12 +98,12 @@ function NodeCard({
         {n.change && <span className={'tbadge chg chg-' + n.change}>{n.change}</span>}
         {divs.map((d, i) => (
           <span key={i} className="tbadge div">
-            {badgeText(d)}
+            {badgeText(d, t)}
           </span>
         ))}
         {neutral.map((d, i) => (
           <span key={'n' + i} className="tbadge outline" title={d.detail}>
-            {badgeText(d)}
+            {badgeText(d, t)}
           </span>
         ))}
         {comments > 0 && <span className="tbadge count">{plural(comments, 'comment')}</span>}
@@ -217,8 +234,8 @@ function counts(t: Trace, doc: Doc): string {
   const nodes = t.nodes ?? []
   const links = nodes.reduce((a, n) => a + (n.realizes?.length ?? 0), 0)
   const stale = t.divergences.filter((d) => d.class === 'stale').length
-  const parts = [plural(nodes.length, 'step'), plural(links, 'realization link'), plural(t.graph, 'divergence')]
-  if (stale) parts.push(plural(stale, 'stale reference'))
+  const parts = [plural(nodes.length, 'step'), plural(links, 'link'), plural(t.graph, 'difference')]
+  if (stale) parts.push(plural(stale, 'changed link'))
   const c = nodeEntries(doc, t).length
   if (c) parts.push(plural(c, 'comment'))
   return parts.join(' · ')
@@ -227,12 +244,13 @@ function counts(t: Trace, doc: Doc): string {
 // TraceInline is the reduced block in the linear review.
 export function TraceInline({ t, doc }: { t: Trace; doc: Doc }) {
   const box = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0.55)
+  // Never so small that a step cannot be read: a wide trace scrolls.
+  const [scale, setScale] = useState(0.75)
   useEffect(() => {
     const el = box.current
     if (!el || !t.nodes) return
     const w = layout(t).width
-    const fit = () => setScale(Math.max(0.35, Math.min(0.6, el.clientWidth / w)))
+    const fit = () => setScale(Math.max(0.72, Math.min(0.9, el.clientWidth / w)))
     fit()
     const ro = new ResizeObserver(fit)
     ro.observe(el)
@@ -274,50 +292,52 @@ function divCard(t: Trace, d: Divergence): { head: string; title: string; text: 
   const why = n?.why ? ` Why: ${n.why}.` : ''
   const names = (ids?: string[]) => (ids ?? []).map((x) => nodeName(t, x))
   const id = d.node
+  const k = (d.nodes ?? []).length
+  const count = (x: number) => ['', 'One', 'Two', 'Three', 'Four', 'Five'][x] ?? String(x)
   switch (d.class) {
     case 'implementation-only':
-      return { head: `IMPLEMENTATION-ONLY · ${id}`, title: n?.text ?? id, text: `No ${lanes.slice(0, li).join(' or ')} step describes this.${why}` }
+      return { head: `${cap(n?.lane ?? '')} only · ${id}`, title: n?.text ?? id, text: `No ${lanes.slice(0, li).join(' or ')} step describes this.${why}` }
     case 'unrealized':
-      return { head: `UNREALIZED · ${id}`, title: n?.text ?? id, text: `No ${lanes.slice(li + 1).join(' or ')} step realizes this.${why}` }
+      return { head: `No ${lanes.slice(li + 1).join(' or ')} for this step · ${id}`, title: n?.text ?? id, text: `Nothing in ${lanes.slice(li + 1).join(' or ')} carries this out yet.${why}` }
     case 'merged':
       return {
-        head: `MERGED · ${id} REALIZES ${(d.nodes ?? []).join(' + ')}`,
+        head: `${count(k)} ${d.lane} steps, one ${n?.lane} step · ${id}`,
         title: n?.text ?? id,
         text: `${names(d.nodes).join(' and ')}, in ${d.lane}, are one ${n?.lane} step: they cannot change independently.${why}`,
       }
     case 'expanded':
       return {
-        head: `EXPANDED · ${id} REALIZED BY ${(d.nodes ?? []).join(' + ')}`,
+        head: `One ${n?.lane} step, ${count(k).toLowerCase()} ${d.lane} steps · ${id}`,
         title: n?.text ?? id,
-        text: `${plural((d.nodes ?? []).length, d.lane + ' step')} carry out this one: ${names(d.nodes).join(', ')}.`,
+        text: `${plural(k, d.lane + ' step')} carry this out: ${names(d.nodes).join(', ')}.`,
       }
     case 'scattered': {
       const r = d.nodes ?? []
       const x = r[r.length - 1]
       return {
-        head: `SCATTERED · ${id}`,
+        head: `Its ${d.lane} steps are apart in the flow · ${id}`,
         title: n?.text ?? id,
         text: `In ${d.lane}, ${nodeName(t, x)} runs between the steps for this (${r.slice(0, -1).join(', ')}).`,
       }
     }
     case 'skipped':
       return {
-        head: `SKIPPED · ${id} IN ${d.lane?.toUpperCase()}`,
+        head: `Skips ${d.lane} · ${id}`,
         title: n?.text ?? id,
-        text: `${names(d.nodes).join(', ')} realize${(d.nodes ?? []).length === 1 ? 's' : ''} this directly; no ${d.lane} step stands between them.`,
+        text: `${names(d.nodes).join(', ')} carr${k === 1 ? 'ies' : 'y'} this out directly; no ${d.lane} step stands between them.`,
       }
     case 'reordered': {
       const [b, early, late] = d.nodes ?? []
       return {
-        head: `REORDERED · ${id} AND ${b}`,
+        head: `Different order in ${n?.lane} and ${d.lane} · ${id}, ${b}`,
         title: `${n?.text ?? id} / ${node(t, b)?.text ?? b}`,
         text: `${id} comes before ${b} in ${n?.lane}, but in ${d.lane} ${early} (for ${b}) runs before ${late} (for ${id}).`,
       }
     }
     case 'stale':
-      return { head: `STALE REFERENCE · ${id}`, title: n?.text ?? id, text: d.detail ?? '' }
+      return { head: `The linked lines changed since this plan was written · ${id}`, title: n?.text ?? id, text: d.detail ?? '' }
     default:
-      return { head: `${d.class.toUpperCase()} · ${id}`, title: n?.text ?? id, text: d.detail ?? '' }
+      return { head: `${d.class} · ${id}`, title: n?.text ?? id, text: d.detail ?? '' }
   }
 }
 
@@ -325,7 +345,8 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
   const lanes = t.lanes ?? []
   const first = lanes[0]
   const last = lanes[lanes.length - 1]
-  const shown = t.divergences.filter((d) => d.class !== 'unverified')
+  const shown = t.divergences.filter((d) => !NEUTRAL.has(d.class))
+  const links = t.divergences.filter((d) => d.class === 'stale')
   const unverified = t.divergences.filter((d) => d.class === 'unverified')
   // Steps expected to point at code: live steps of the last lane, except
   // new ones.
@@ -336,10 +357,15 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
   return (
     <>
       <div>
-        <div className="panel-title">Where the {['two', 'three', 'four', 'five'][lanes.length - 2] ?? lanes.length} views differ</div>
-        <div className="muted small">Computed from the trace, not written by the author</div>
+        <div className="panel-title">
+          {shown.length === 0
+            ? `${cap(lanes.slice(0, -1).join(', '))} and ${last} line up`
+            : `${plural(shown.length, 'place')} where ${lanes.slice(0, -1).join(', ')} and ${last} differ`}
+        </div>
+        <div className="muted small">
+          kalka worked these out from the arrows; the author did not write them. They are questions for review, not errors. Click one for the step.
+        </div>
       </div>
-      {shown.length === 0 && <div className="muted">The lanes line up: no divergences.</div>}
       <TraceWarnings t={t} />
       {shown.map((d, i) => {
         const c = divCard(t, d)
@@ -351,9 +377,20 @@ function Summary({ t, doc, onSelect }: { t: Trace; doc: Doc; onSelect: (id: stri
           </button>
         )
       })}
+      {(links.length > 0 || unverified.length > 0) && <div className="group-title">Links</div>}
+      {links.map((d, i) => {
+        const c = divCard(t, d)
+        return (
+          <button key={'l' + i} type="button" className="divcard neutral" onClick={() => onSelect(d.node)}>
+            <span className="divcard-head">{c.head}</span>
+            <span className="divcard-title">{c.title}</span>
+            <span className="divcard-text">{c.text}</span>
+          </button>
+        )
+      })}
       {unverified.length > 0 && (
         <div className="divcard neutral static">
-          <span className="divcard-head">UNVERIFIED · {unverified.map((d) => d.node).join(', ')}</span>
+          <span className="divcard-head">The link could not be opened · {unverified.map((d) => d.node).join(', ')}</span>
           {[...reasons].map(([why, ids]) => (
             <span key={why} className="divcard-text">
               {ids.join(', ')}: {why}
@@ -427,7 +464,7 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
         </span>
         {divs.map((d, i) => (
           <span key={i} className={'tbadge ' + (NEUTRAL.has(d.class) ? 'outline' : 'div')} title={d.detail}>
-            {badgeText(d)}
+            {badgeText(d, t)}
           </span>
         ))}
         <span className="grow" />
@@ -454,13 +491,13 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
         )}
         {li > 0 && (
           <div className="mt2">
-            <b>Realizes:</b>{' '}
+            <b>Carries out:</b>{' '}
             {n.realizes?.length ? n.realizes.map((r) => nodeName(t, r)).join(', ') : `nothing in the ${lanes.slice(0, li).join(' or ')} lane${li > 1 ? 's' : ''}.`}
           </div>
         )}
         {li < lanes.length - 1 && (
           <div className="mt2">
-            <b>Realized by:</b> {realizedBy.length ? realizedBy.map((m) => nodeName(t, m.id)).join(', ') : 'nothing yet.'}
+            <b>Carried out by:</b> {realizedBy.length ? realizedBy.map((m) => nodeName(t, m.id)).join(', ') : 'nothing yet.'}
           </div>
         )}
       </div>
@@ -493,7 +530,7 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
 const CHANGE: Record<string, string> = {
   new: 'the plan adds this step.',
   modified: 'the plan changes this step.',
-  removed: 'the plan deletes this step; it is kept here where it is today, and takes no part in the divergences.',
+  removed: 'the plan deletes this step; it is kept here where it is today, and takes no part in the differences.',
 }
 
 const ZOOMS = [0.4, 0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5]
@@ -530,6 +567,7 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
   const n = doc.traces.length
   return (
     <div className="trace-page">
+      <h1 className="sr-only">Trace of “{doc.title}”</h1>
       <div className="trace-main">
         <div className="trace-head">
           <div>
@@ -589,7 +627,7 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
                 <b>↺</b> back: the flow returns
               </span>
               <span>
-                <span className="legend-dash">- - -</span> realizes
+                <span className="legend-dash">- - -</span> carries out
               </span>
               {t.nodes.some((n) => n.change) && (
                 <span>
@@ -598,8 +636,9 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
                 </span>
               )}
               <span>
-                <span className="legend-div">orange</span> divergence
+                <span className="legend-div">orange</span> where the lanes differ: a question for review
               </span>
+              <span>click a step for details and comments</span>
             </div>
           </div>
         )}

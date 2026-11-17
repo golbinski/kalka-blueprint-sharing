@@ -15,7 +15,7 @@ import { NeedsPage } from './Needs'
 import { SyncChip } from './Sync'
 import { inDesktopWindow } from './shell'
 import { findTeam, PERSONAL, rememberedScope, rememberScope, resolveScope } from './scope'
-import { canvasHref, docHref, scopeHref, traceHref, useRoute, type ScopedView } from './util'
+import { docHref, scopeHref, traceHref, useRoute, type ScopedView } from './util'
 
 type Toast = { id: number; text: string; href: string }
 
@@ -256,11 +256,8 @@ export function App() {
         {inDoc && doc && (
           <>
             <nav className="tabs" aria-label="Views">
-              <a className={route.view === 'doc' ? 'active' : ''} href={docHref(doc.rel)}>
+              <a className={route.view === 'doc' || route.view === 'canvas' ? 'active' : ''} href={docHref(doc.rel)}>
                 Document
-              </a>
-              <a className={route.view === 'canvas' ? 'active' : ''} href={canvasHref(doc.rel)}>
-                Canvas
               </a>
               {doc.traces.length > 0 ? (
                 <a className={route.view === 'trace' ? 'active' : ''} href={traceHref(doc.rel, route.view === 'trace' ? route.index : 0)}>
@@ -282,7 +279,7 @@ export function App() {
         )}
       </header>
 
-      <div className="banners">
+      <div className="banners" role="status" aria-live="polite">
         {status.notice && <div className="banner notice">{status.notice}</div>}
         {status.paused && (
           <div className="banner warn">
@@ -343,7 +340,7 @@ export function App() {
         )}
         {inDoc && doc && doc.problems.some((p) => p.severity === 'error') && (
           <div className="banner warn">
-            This file has format errors and cannot be published:
+            This blueprint has format errors and cannot be published:
             <ul>
               {doc.problems
                 .filter((p) => p.severity === 'error')

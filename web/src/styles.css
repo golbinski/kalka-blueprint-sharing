@@ -24,7 +24,53 @@
   --ok-soft: #e8f4ec;
   --sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --edge: #6b6a65;
+  --edge-soft: #8d8c86;
+  --card-hover: #fbfbfa;
+  --line-strong: #a3a29c;
+  --accent-soft: #e7edfb;
+  --online: #2e9d57;
+  --offline: #9a9993;
+  --shadow: rgb(0 0 0 / 0.12);
+  --shadow-strong: rgb(0 0 0 / 0.18);
   color-scheme: light;
+}
+
+/* Dark mode follows the system (spec 11.1): the same tokens, a second
+   palette. The accent, orange and red keep their meaning. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #1b1b1a;
+    --panel: #262624;
+    --card: #222220;
+    --line: #42413d;
+    --line-soft: #34332f;
+    --text: #ecebe6;
+    --text-2: #cfcec8;
+    --muted: #a3a29b;
+    --accent: #5a86ea;
+    --accent-ink: #ffffff;
+    --link: #8fb0f5;
+    --link-hover: #b9cdf9;
+    --div: #d9762a;
+    --div-soft: #33261a;
+    --div-line: #7a4a22;
+    --div-ink: #f0a868;
+    --danger: #e0574d;
+    --danger-soft: #3a1f1c;
+    --ok: #5cc184;
+    --ok-soft: #1c3124;
+    --edge: #9c9b94;
+    --edge-soft: #7d7c76;
+    --card-hover: #2a2a28;
+    --line-strong: #6d6c66;
+    --accent-soft: #24304d;
+    --online: #4cc07a;
+    --offline: #77766f;
+    --shadow: rgb(0 0 0 / 0.45);
+    --shadow-strong: rgb(0 0 0 / 0.55);
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -95,7 +141,7 @@ button.danger {
   color: #fff;
 }
 button.link {
-  min-height: 0;
+  min-height: 24px;
   padding: 0;
   border: 0;
   background: none;
@@ -325,7 +371,7 @@ header.top {
   background: var(--panel);
 }
 .role-owner {
-  background: #e7edfb;
+  background: var(--accent-soft);
   color: var(--link);
 }
 .dot {
@@ -337,10 +383,10 @@ header.top {
   vertical-align: middle;
 }
 .dot.online {
-  background: #2e9d57;
+  background: var(--online);
 }
 .dot.offline {
-  background: #9a9993;
+  background: var(--offline);
 }
 
 /* Linear review: the plan on the left, its entries beside each section. */
@@ -664,7 +710,7 @@ dialog.modal::backdrop {
 }
 .toast {
   background: var(--text);
-  color: #fff;
+  color: var(--ground);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13px;
@@ -707,21 +753,21 @@ dialog.modal::backdrop {
 }
 .tflow {
   fill: none;
-  stroke: #6b6a65;
+  stroke: var(--edge);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .tback {
   fill: none;
-  stroke: #6b6a65;
+  stroke: var(--edge);
   stroke-width: 1.5;
   stroke-dasharray: 2 4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .tarrow-head {
-  fill: #6b6a65;
+  fill: var(--edge);
 }
 .trealizes {
   fill: none;
@@ -767,8 +813,8 @@ button.tnode {
   cursor: pointer;
 }
 button.tnode:hover:not(:disabled) {
-  background: #fbfbfa;
-  border-color: #a3a29c;
+  background: var(--card-hover);
+  border-color: var(--line-strong);
 }
 .tnode.div,
 button.tnode.div:hover:not(:disabled) {
@@ -987,7 +1033,7 @@ button.tnode.div:hover:not(:disabled) {
 }
 .seg button.on {
   background: var(--text);
-  color: #fff;
+  color: var(--ground);
   font-weight: 600;
 }
 .trace-area {
@@ -1156,7 +1202,7 @@ button.icon {
 .snippet-line .ln {
   min-width: 28px;
   text-align: right;
-  color: #a3a29c;
+  color: var(--line-strong);
   user-select: none;
 }
 .snippet-line .snippet-text {
@@ -1403,7 +1449,7 @@ a.cv-card:focus-visible {
 }
 .cv-edge {
   fill: none;
-  stroke: #8d8c86;
+  stroke: var(--edge-soft);
   stroke-width: 1.5;
 }
 .cv-edge-ref {
@@ -1648,7 +1694,7 @@ button.link.danger {
   margin: 0 0 1rem;
 }
 .join-facts dt {
-  color: var(--muted, #6b7280);
+  color: var(--muted);
 }
 .join-facts dd {
   margin: 0;
@@ -1695,7 +1741,7 @@ button.link.danger {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+  box-shadow: 0 6px 24px var(--shadow);
 }
 .switcher-menu hr {
   border: 0;
@@ -1860,12 +1906,12 @@ button.sync-chip {
   white-space: nowrap;
 }
 a.toast {
-  color: #fff;
+  color: var(--ground);
   text-decoration: none;
   cursor: pointer;
 }
 a.toast:hover {
-  color: #fff;
+  color: var(--ground);
   text-decoration: underline;
 }
 
@@ -2056,7 +2102,7 @@ a.toast:hover {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  box-shadow: 0 8px 24px var(--shadow);
   padding: 6px;
 }
 .menu-list hr {
@@ -2130,7 +2176,7 @@ button.badge.warn {
   z-index: 40;
   transform: translateX(-50%);
   min-height: 32px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+  box-shadow: 0 4px 12px var(--shadow-strong);
 }
 
 /* Facts as a list of terms and values: Settings, Team details. */
@@ -2157,4 +2203,83 @@ dl.facts .row {
 }
 .page h2 {
   margin-top: 20px;
+}
+
+/* The outline rail beside the document (spec 11.1). */
+.review-wrap {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+.doc-outline {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  padding: 24px 0 24px 20px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doc-outline-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.doc-outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.doc-outline li a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.doc-outline li a:hover {
+  background: var(--panel);
+}
+.doc-outline li.lv3 a {
+  padding-left: 18px;
+}
+.doc-outline-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-outline-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.doc-outline-dev {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--div);
+}
+@media (max-width: 1100px) {
+  .review-wrap {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .doc-outline {
+    display: none;
+  }
+}
+
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -35,14 +35,14 @@ function Section({ doc, c }: { doc: Doc; c: SecCard }) {
         </div>
       )}
       <div className="cv-foot muted small">
-        {[c.entries > 0 ? plural(c.entries, 'entry', 'entries') : 'no entries', c.traces > 0 && plural(c.traces, 'trace block')].filter(Boolean).join(' · ')}
+        {[c.entries > 0 ? plural(c.entries, 'comment') : 'no comments', c.traces > 0 && plural(c.traces, 'trace block')].filter(Boolean).join(' · ')}
       </div>
     </>
   )
   const cls = 'cv-card cv-sec cv-' + c.kind
   if (!target) return <div className={cls} style={style}>{body}</div>
   return (
-    <a className={cls} style={style} href={atHref(doc.rel, target)} title="Open in the document view">
+    <a className={cls} style={style} href={atHref(doc.rel, target)} title="Open in the document">
       {body}
     </a>
   )
@@ -50,7 +50,7 @@ function Section({ doc, c }: { doc: Doc; c: SecCard }) {
 
 function Note({ doc, n }: { doc: Doc; n: NoteCard }) {
   const e = n.entry
-  const flags = [e.orphaned && 'orphaned', e.outdated && !e.orphaned && 'outdated', !e.valid && 'damaged', e.valid && e.sig === 'invalid' && 'signature invalid']
+  const flags = [e.orphaned && 'section removed', e.outdated && !e.orphaned && 'on an earlier version', !e.valid && 'damaged', e.valid && e.sig === 'invalid' && 'signature invalid']
     .filter(Boolean)
     .join(' · ')
   return (
@@ -58,7 +58,7 @@ function Note({ doc, n }: { doc: Doc; n: NoteCard }) {
       className={'cv-card cv-note kind-' + e.kind}
       style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
       href={atHref(doc.rel, 'e-' + e.id)}
-      title="Show this entry in the document view"
+      title="Show this comment in the document"
     >
       <div className="cv-note-head">
         <span className={'kind kind-' + e.kind}>{e.kind}</span>
@@ -91,12 +91,13 @@ export function CanvasPage({ doc }: { doc: Doc }) {
   const bodySections = l.sections.filter((s) => s.kind === 'section').length
   return (
     <div className="canvas-page">
+      <h1 className="sr-only">Map of “{doc.title}”</h1>
       <div className="trace-head">
         <div>
           <div className="trace-title">Canvas</div>
           <div className="muted small">
-            {plural(bodySections, 'section')} · {plural(doc.entries.length, 'entry', 'entries')} · {plural(new Set(l.refs.map((r) => r.ref)).size, 'reference')}
-            {' · '}select a card to open it in the document view
+            {plural(bodySections, 'section')} · {plural(doc.entries.length, 'comment')} · {plural(new Set(l.refs.map((r) => r.ref)).size, 'reference')}
+            {' · '}select a card to open it in the document
           </div>
         </div>
         <div className="trace-foot">
@@ -116,7 +117,7 @@ export function CanvasPage({ doc }: { doc: Doc }) {
               <span className="legend-dash">- - -</span> reference
             </span>
             <span>
-              <b>—</b> entry on a section
+              <b>—</b> comment on a section
             </span>
             <span>
               <span className="legend-div">orange</span> deviation
