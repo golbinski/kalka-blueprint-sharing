@@ -9,9 +9,9 @@ func hintCodes(ps []Problem) string {
 	var c []string
 	for _, p := range ps {
 		if p.Severity != Info {
-			c = append(c, "NOT-INFO:"+p.Code)
+			c = append(c, "NOT-INFO:"+p.Rule)
 		}
-		c = append(c, p.Code)
+		c = append(c, p.Rule)
 	}
 	return strings.Join(c, ",")
 }
@@ -29,7 +29,7 @@ func TestHintsOptIn(t *testing.T) {
 	}
 	// Opted in, nothing present: every section, in order.
 	got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\n---\n# Plan\n")))
-	want := "hint-no-domain-reference,hint-no-scope,hint-no-verification-plan,hint-no-critical-sections,hint-no-operations"
+	want := "H001,H002,H003,H004,H005"
 	if got != want {
 		t.Fatalf("got %s", got)
 	}
@@ -38,7 +38,7 @@ func TestHintsOptIn(t *testing.T) {
 		t.Fatalf("all present: %v", h)
 	}
 	// An unknown version: one information line.
-	if got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v9\n---\n# Plan\n"))); got != "hint-unknown-reference" {
+	if got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v9\n---\n# Plan\n"))); got != "H010" {
 		t.Fatalf("v9: %s", got)
 	}
 }
@@ -64,7 +64,7 @@ func TestHintsEach(t *testing.T) {
 	}
 	// A malformed key does not count.
 	d = mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\nkalka_domain: delivery\n---\n"+strings.Replace(allSections, "## Domain reference", "## Background", 1))
-	if got := hintCodes(Hints(d)); got != "hint-no-domain-reference" {
+	if got := hintCodes(Hints(d)); got != "H001" {
 		t.Fatalf("malformed domain key: %s", got)
 	}
 }
@@ -76,7 +76,7 @@ func TestHintsAreNotProblems(t *testing.T) {
 		t.Fatalf("errors: %v", d.Problems())
 	}
 	for _, p := range d.Problems() {
-		if strings.HasPrefix(p.Code, "hint-") {
+		if strings.HasPrefix(p.Rule, "H") {
 			t.Fatalf("hint among problems: %v", p)
 		}
 	}

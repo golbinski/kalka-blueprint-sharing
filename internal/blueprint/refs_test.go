@@ -1,9 +1,35 @@
 package blueprint
 
 import (
+	"encoding/json"
+	"os"
 	"reflect"
 	"testing"
 )
+
+// The shared corpus: web/src/markdown.ts classifies the same targets the
+// same way (its test reads this file too).
+func TestPluginRefCorpus(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/refs/corpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Cases []struct {
+			Target string  `json:"target"`
+			Scheme *string `json:"scheme"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil || len(c.Cases) < 20 {
+		t.Fatal(err, len(c.Cases))
+	}
+	for _, x := range c.Cases {
+		s, _, ok := PluginRef(x.Target)
+		if want := x.Scheme; ok != (want != nil) || (ok && s != *want) {
+			t.Errorf("%q: %q %v", x.Target, s, ok)
+		}
+	}
+}
 
 func TestPluginRef(t *testing.T) {
 	for in, want := range map[string]string{

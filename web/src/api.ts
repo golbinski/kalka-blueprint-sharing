@@ -163,13 +163,35 @@ export interface Entry {
   team_state?: 'member' | 'removed-member' | 'local-only' | 'attested'
   /** The domain version whose release took this comment up (spec 6.12). */
   incorporated_in?: number
+  /** A release entry as the daemon read it (spec 20.4). */
+  release?: { version: number; plan: string; owner: string; deleted?: boolean; incorporates?: number; note?: string }
 }
 
+/** A diagnostic (spec 6.17), as kalka check reports it. */
 export interface Problem {
+  rule: string
   severity: 'info' | 'warning' | 'error'
-  code: string
   line?: number
+  column?: number
+  end_line?: number
+  end_column?: number
   message: string
+  node?: string
+  /** A structural error: the file cannot be published. */
+  blocks?: boolean
+  fix?: { text: string; line: number; column: number; end_line: number; end_column: number }
+}
+
+/** A rule of the registry (spec 6.17). */
+export interface Rule {
+  id: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  meaning: string
+  why: string
+  wrong?: string
+  right?: string
+  blocks?: boolean
 }
 
 export type Role = 'owner' | 'reviewer' | 'local'
@@ -267,9 +289,8 @@ export interface Doc {
   headings: Heading[]
   entries: Entry[]
   log_lead?: string
+  /** Diagnostics (spec 6.17), hints (H…) included. */
   problems: Problem[]
-  /** Soft hints of the blueprint reference (spec 6.13); never errors. */
-  hints: Problem[]
   duplicate?: boolean
   /** "personal" or the name of the team whose folder holds the file. */
   scope: string
@@ -620,6 +641,7 @@ export const api = {
   decideTransfer: (id: string, action: 'accept' | 'decline' | 'withdraw', owner = '') =>
     call<TransferView | { id: string }>('POST', `/api/transfers/${enc(id)}/${action}`, { owner }),
   about: () => call<About>('GET', '/api/about'),
+  rules: () => call<Rule[]>('GET', '/api/rules'),
   /** The blueprint reference as text (spec 6.13). */
   reference: async () => {
     const r = await fetch(referenceURL, { credentials: 'same-origin' })

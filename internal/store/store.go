@@ -254,7 +254,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 			}
 		}
 		for _, pr := range d.Problems() {
-			if pr.Severity == bp.Error {
+			if pr.Blocks {
 				info.Errors++
 			}
 		}

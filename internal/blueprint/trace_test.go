@@ -313,10 +313,10 @@ func TestTraceErrors(t *testing.T) {
 			if e.Code != c.code || !strings.Contains(e.Message, c.want) || e.Node != c.node || e.Line < tr.Line {
 				t.Fatalf("errors %+v", tr.Errors)
 			}
-			// Reported with block, node and code, as a warning: it never
-			// blocks a sync.
+			// Reported with block and node under its own rule, as an error
+			// that never blocks a sync.
 			p := d.Problems()[0]
-			if p.Code != "trace-invalid" || p.Severity != Warning || !strings.HasPrefix(p.Message, "trace 1 (Import pipeline)") || !strings.Contains(p.Message, c.code+": ") || d.HasErrors() {
+			if p.Rule != c.code || p.Severity != Error || p.Blocks || !strings.HasPrefix(p.Message, "trace 1 (Import pipeline)") || d.HasErrors() {
 				t.Fatalf("problem %+v", d.Problems())
 			}
 			if c.node != "" && !strings.Contains(p.Message, "node "+c.node+":") {
@@ -387,7 +387,7 @@ func TestTraceWarnings(t *testing.T) {
 			}
 			found := false
 			for _, p := range d.Problems() {
-				found = found || p.Code == "trace-warning" && strings.Contains(p.Message, c.code+": ")
+				found = found || p.Rule == c.code && p.Severity == Warning
 			}
 			if !found || d.HasErrors() {
 				t.Fatalf("problems %+v", d.Problems())
@@ -449,12 +449,12 @@ func TestTracePlacementAndNodeAnchors(t *testing.T) {
 	if got := tcodes(trs[1].Warnings); !reflect.DeepEqual(got, []string{"T120", "T120"}) {
 		t.Fatalf("warnings %v", got)
 	}
-	var msgs []string
+	var ids []string
 	for _, p := range d.Problems() {
-		msgs = append(msgs, p.Message)
+		ids = append(ids, p.Rule)
 	}
-	if all := strings.Join(msgs, "\n"); strings.Count(all, "T122") != 1 || strings.Count(all, "T120") != 2 {
-		t.Fatalf("problems\n%s", all)
+	if all := strings.Join(ids, " "); strings.Count(all, "T122") != 1 || strings.Count(all, "T120") != 2 {
+		t.Fatalf("problems %s", all)
 	}
 
 	// Removing the node orphans the comment.
@@ -465,7 +465,7 @@ func TestTracePlacementAndNodeAnchors(t *testing.T) {
 	}
 	found := false
 	for _, p := range d2.Problems() {
-		if p.Code == "orphaned" && strings.Contains(p.Message, "no trace node") {
+		if p.Rule == "B015" && strings.Contains(p.Message, "no trace node") {
 			found = true
 		}
 	}

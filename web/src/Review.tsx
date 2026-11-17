@@ -7,6 +7,8 @@ import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
 import { groupEntries, oldThread, thread, versionAt } from './entries'
 import { attestedBadge, shortName } from './scope'
+import { DiagnosticsPanel } from './Diagnostics'
+import { hintsOf } from './diag'
 import { DocHeader } from './DocHeader'
 import { canvasHref, docHref, localTime, plural } from './util'
 
@@ -42,10 +44,10 @@ export function HintStrip({ doc }: { doc: Doc }) {
   const id = doc.kalka_id || doc.rel
   const [, bump] = useState(0)
   const [showAll, setShowAll] = useState(false)
-  const hints = doc.hints ?? []
+  const hints = hintsOf(doc)
   if (hints.length === 0) return null
-  const dismissed = hints.filter((h) => hintDismissed(id, h.code))
-  const shown = showAll ? hints : hints.filter((h) => !hintDismissed(id, h.code))
+  const dismissed = hints.filter((h) => hintDismissed(id, h.rule))
+  const shown = showAll ? hints : hints.filter((h) => !hintDismissed(id, h.rule))
   const toggle = (code: string, on: boolean) => {
     setHintDismissed(id, code, on)
     bump((n) => n + 1)
@@ -53,12 +55,12 @@ export function HintStrip({ doc }: { doc: Doc }) {
   return (
     <div className="hints" aria-label="Blueprint reference hints">
       {shown.map((h) => {
-        const off = hintDismissed(id, h.code)
+        const off = hintDismissed(id, h.rule)
         return (
-          <div key={h.code} className={'hint' + (off ? ' off' : '')}>
+          <div key={h.rule} className={'hint' + (off ? ' off' : '')}>
             <span className="hint-label">hint</span>
             <span className="hint-text">{h.message}</span>
-            <button type="button" className="link" onClick={() => toggle(h.code, !off)}>
+            <button type="button" className="link" onClick={() => toggle(h.rule, !off)}>
               {off ? 'Restore' : 'Dismiss'}
             </button>
           </div>
@@ -188,8 +190,6 @@ export interface Draft {
   quote?: string
 }
 
-const releaseRe = /^v(\d+) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted)?$/
-
 // ReleaseBody renders a release entry (spec 20.4) in words; a body that is
 // not a release is shown as written.
 interface Badge {
@@ -231,16 +231,13 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 // VersionLine is a release in the review log: history, not conversation.
 function VersionLine({ e }: { e: Entry }) {
-  const [first, ...rest] = e.body.split('\n')
-  const m = releaseRe.exec(first)
-  if (!m) return <Markdown src={e.body} className="entry-body" />
-  const note = rest.filter((l) => !l.startsWith('incorporates: ')).join(' ').trim()
-  const inc = rest.find((l) => l.startsWith('incorporates: '))
+  const r = e.release
+  if (!r) return <Markdown src={e.body} className="entry-body" />
   return (
-    <div className="version-line" id={'e-' + e.id} title={`plan ${m[2]}`}>
-      <b>{m[4] ? `Deleted for the team at v${m[1]}` : `v${m[1]}`}</b> · {localTime(e.timestamp)} · {shortName(m[3])}
-      {note && <> · {note}</>}
-      {inc && <span className="muted"> · takes up {plural(inc.slice('incorporates: '.length).split(/[ ,]+/).filter(Boolean).length, 'comment')}</span>}
+    <div className="version-line" id={'e-' + e.id} title={`plan ${r.plan}`}>
+      <b>{r.deleted ? `Deleted for the team at v${r.version}` : `v${r.version}`}</b> · {localTime(e.timestamp)} · {shortName(r.owner)}
+      {r.note && <> · {r.note.replace(/\s+/g, ' ')}</>}
+      {!!r.incorporates && <span className="muted"> · takes up {plural(r.incorporates, 'comment')}</span>}
     </div>
   )
 }
@@ -602,6 +599,7 @@ export function Review({
       <DomainRefStrip doc={doc} />
       <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
+      <DiagnosticsPanel doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This blueprint has no text yet.</p>}
       {selection && !readOnly && !draft && (
         <button

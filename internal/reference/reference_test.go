@@ -24,8 +24,12 @@ func TestVersionAndShape(t *testing.T) {
 	// The six recommended sections, in order; trace blocks are explained
 	// in a part of their own.
 	var heads []string
+	in := false
 	for _, h := range d.Headings() {
-		if h.Level == 3 {
+		if h.Level == 2 {
+			in = h.Text == "The sections"
+		}
+		if in && h.Level == 3 {
 			heads = append(heads, h.Text)
 		}
 	}

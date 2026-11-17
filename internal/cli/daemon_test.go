@@ -28,6 +28,18 @@ func TestMain(m *testing.M) {
 	if os.Getenv("KALKA_CLI_MAIN") == "1" {
 		os.Exit(Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	// Tests never read the developer's configuration: kalka check would
+	// read domain versions from their folder.
+	if os.Getenv("KALKA_CONFIG_DIR") == "" {
+		dir, err := os.MkdirTemp("", "kalka-cli-test")
+		if err != nil {
+			panic(err)
+		}
+		os.Setenv("KALKA_CONFIG_DIR", dir)
+		code := m.Run()
+		os.RemoveAll(dir)
+		os.Exit(code)
+	}
 	os.Exit(m.Run())
 }
 

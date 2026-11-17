@@ -65,8 +65,8 @@ func malformed(d *bp.Document) string {
 		return "file has no owner"
 	}
 	for _, p := range d.Problems() {
-		switch p.Code {
-		case "id-invalid", "owner-invalid", "entry-too-large", "frontmatter-unterminated", "body-open-block":
+		switch p.Rule {
+		case "F001", "F002", "F004", "B001", "B012":
 			return p.Message
 		}
 	}

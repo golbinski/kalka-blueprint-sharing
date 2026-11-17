@@ -1,7 +1,8 @@
 // Hardening tests for spec 11.2: content from a received blueprint
 // must not run script or produce dangerous links.
 import { describe, expect, it } from 'vitest'
-import { render } from './markdown'
+import { pluginRef, render } from './markdown'
+import corpus from '../../testdata/refs/corpus.json'
 
 function dom(src: string): HTMLElement {
   const div = document.createElement('div')
@@ -76,4 +77,12 @@ describe('plugin references', () => {
     const quoted = render('[x](gh:a"onmouseover="alert(1))')
     expect(quoted).not.toMatch(/data-ref="[^"]*"onmouseover/)
   })
+})
+
+// The shared corpus: internal/blueprint classifies the same targets the
+// same way (TestPluginRefCorpus reads this file too).
+describe('plugin references, shared with the daemon', () => {
+  for (const c of corpus.cases) {
+    it(JSON.stringify(c.target), () => expect(pluginRef(c.target)).toBe(c.scheme))
+  }
 })

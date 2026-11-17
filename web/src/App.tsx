@@ -5,6 +5,7 @@ import { PublishDialog, SeedDialog } from './Dialogs'
 import { noticeHref, notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
 import { CanvasPage } from './Canvas'
+import { blocking } from './diag'
 import { Review } from './Review'
 import { Blueprints, PreBacklog, Setup } from './Views'
 import { JoinScreen } from './Join'
@@ -338,12 +339,11 @@ export function App() {
         {inDoc && doc?.duplicate && (
           <div className="banner warn">Another file in the folder has the same kalka_id. Publishing is refused until one is removed.</div>
         )}
-        {inDoc && doc && doc.problems.some((p) => p.severity === 'error') && (
+        {inDoc && doc && blocking(doc).length > 0 && (
           <div className="banner warn">
             This blueprint has format errors and cannot be published:
             <ul>
-              {doc.problems
-                .filter((p) => p.severity === 'error')
+              {blocking(doc)
                 .map((p, i) => (
                   <li key={i}>
                     {p.line ? `line ${p.line}: ` : ''}

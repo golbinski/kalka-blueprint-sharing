@@ -39,15 +39,15 @@
   ],
   "problems": [
     {
-      "severity": "warning",
-      "code": "log-unparsed",
       "line": 12,
+      "rule": "B003",
+      "severity": "warning",
       "message": "content before the first entry is kept as unparsed content"
     },
     {
-      "severity": "warning",
-      "code": "log-unparsed",
       "line": 21,
+      "rule": "B003",
+      "severity": "warning",
       "message": "not an entry header, kept as unparsed content: entry header has 1 fields separated by \" · \", want at least 6"
     }
   ]

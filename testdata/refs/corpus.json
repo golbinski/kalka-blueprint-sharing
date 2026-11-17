@@ -1,0 +1,105 @@
+{
+  "about": "Link targets and whether each is a reference for a plugin (spec 10.1), with its scheme. internal/blueprint and web/src/markdown.ts both read this file and must agree. White space is Unicode white space as Go's unicode.IsSpace defines it.",
+  "cases": [
+    {
+      "target": "gh:src/loans/renew.py#L10-L40",
+      "scheme": "gh"
+    },
+    {
+      "target": "jira:LEND-42",
+      "scheme": "jira"
+    },
+    {
+      "target": "gh+enterprise:a/b",
+      "scheme": "gh+enterprise"
+    },
+    {
+      "target": "x-tool.v2:thing",
+      "scheme": "x-tool.v2"
+    },
+    {
+      "target": "gh:",
+      "scheme": "gh"
+    },
+    {
+      "target": "https://example.org/loans",
+      "scheme": null
+    },
+    {
+      "target": "http://example.org",
+      "scheme": null
+    },
+    {
+      "target": "mailto:desk@library.example",
+      "scheme": null
+    },
+    {
+      "target": "javascript:alert(1)",
+      "scheme": null
+    },
+    {
+      "target": "data:text/html,x",
+      "scheme": null
+    },
+    {
+      "target": "file:///etc/passwd",
+      "scheme": null
+    },
+    {
+      "target": "about:blank",
+      "scheme": null
+    },
+    {
+      "target": "blob:abc",
+      "scheme": null
+    },
+    {
+      "target": "vbscript:x",
+      "scheme": null
+    },
+    {
+      "target": "GH:src/a.py",
+      "scheme": null
+    },
+    {
+      "target": "1gh:src",
+      "scheme": null
+    },
+    {
+      "target": "#overdue-reminders",
+      "scheme": null
+    },
+    {
+      "target": "loans.md",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a b.py",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a\tb.py",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a\u00a0b.py",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a\u2003b.py",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a\u0085b.py",
+      "scheme": null
+    },
+    {
+      "target": "gh:src/a\ufeffb.py",
+      "scheme": "gh"
+    },
+    {
+      "target": "gh:src/a\u2028b.py",
+      "scheme": null
+    }
+  ]
+}

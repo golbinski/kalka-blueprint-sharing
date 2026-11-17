@@ -14,6 +14,7 @@ import (
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/reference"
+	"github.com/golbinski/kalka/internal/rules"
 )
 
 // DaemonFile tells the CLI where the API is and holds its token (spec 13).
@@ -136,6 +137,11 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		d.Bus().Publish(core.BusEvent{Type: "ui-show", Data: ev})
 		writeJSON(w, http.StatusOK, map[string]bool{"shown": true})
+	})
+	// The rule registry (spec 6.17): the app shows a rule's title and
+	// meaning beside its diagnostics.
+	mux.HandleFunc("GET /api/rules", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, rules.All())
 	})
 	mux.HandleFunc("GET /api/about", func(w http.ResponseWriter, _ *http.Request) {
 		a := d.opts.About

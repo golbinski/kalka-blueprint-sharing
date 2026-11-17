@@ -19,15 +19,18 @@ func TestDocumentHints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Hints) != 4 {
-		t.Fatalf("hints %+v", v.Hints)
-	}
-	for _, p := range v.Problems {
-		if strings.HasPrefix(p.Code, "hint-") {
-			t.Fatalf("hint among problems: %+v", p)
+	hints := func(v *DocView) (n int) {
+		for _, p := range v.Problems {
+			if strings.HasPrefix(p.Rule, "H") {
+				n++
+			}
 		}
+		return n
 	}
-	if v, _ := alice.d.Document(ctx, "plain.md"); v == nil || v.Hints == nil || len(v.Hints) != 0 {
+	if hints(v) != 4 {
+		t.Fatalf("hints %+v", v.Problems)
+	}
+	if v, _ := alice.d.Document(ctx, "plain.md"); v == nil || hints(v) != 0 {
 		t.Fatalf("no opt-in: %+v", v)
 	}
 	waitIndexed(t, alice, 2)

@@ -47,16 +47,13 @@ export function thread(e: Entry, replies: Map<string, Entry[]>, depth = 0, seen 
   return out
 }
 
-const releaseLine = /^v(\d+) · plan:/
-
 // versionAt is the version that was current when an entry was written:
 // the last release before it, or 0 when there was none.
 export function versionAt(entries: Entry[], at: string): number {
   let v = 0
   for (const e of entries) {
     if (e.kind !== 'release' || e.timestamp > at) continue
-    const m = releaseLine.exec(e.body)
-    if (m) v = Math.max(v, Number(m[1]))
+    if (e.release) v = Math.max(v, e.release.version)
   }
   return v
 }

@@ -199,7 +199,7 @@ func entries(d *bp.Document) []*bp.Entry {
 func problemCodes(d *bp.Document) map[string]int {
 	m := map[string]int{}
 	for _, p := range d.Problems() {
-		m[p.Code]++
+		m[p.Rule]++
 	}
 	return m
 }

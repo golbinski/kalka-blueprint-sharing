@@ -39,9 +39,9 @@
   ],
   "problems": [
     {
-      "severity": "warning",
-      "code": "entry-id",
       "line": 15,
+      "rule": "B010",
+      "severity": "warning",
       "message": "entry 0123456789abcdef0123456789abcdef was edited: its id no longer matches its content (want 7d5f28812cd7517a27f88c99a72c1e63); peers do not take it; if the team holds the original, the next sync restores it"
     }
   ]

@@ -3,14 +3,12 @@
 package cli
 
 import (
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -146,177 +144,6 @@ func writeJSON(w io.Writer, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
-}
-
-type checkResult struct {
-	File     string       `json:"file"`
-	OK       bool         `json:"ok"`
-	KalkaID  string       `json:"kalka_id,omitempty"`
-	Owner    string       `json:"owner,omitempty"`
-	Title    string       `json:"title,omitempty"`
-	Rev      string       `json:"rev,omitempty"`
-	Entries  int          `json:"entries"`
-	Problems []bp.Problem `json:"problems"`
-	Traces   []traceInfo  `json:"traces,omitempty"`
-	// Signatures counts entry signatures (spec 6.5). Signed entries whose
-	// author has no key here (no config, or not a pinned peer) are
-	// unchecked.
-	Signatures sigCounts `json:"signatures"`
-}
-
-type sigCounts struct {
-	Verified  int `json:"verified"`
-	Unchecked int `json:"unchecked"`
-	Invalid   int `json:"invalid"`
-	Unsigned  int `json:"unsigned"`
-}
-
-// traceInfo summarizes a trace block for agents: where it is, whether it
-// is valid, its errors and warnings with their codes, and the divergences
-// computed from its graph (spec 6.10).
-type traceInfo struct {
-	Index       int             `json:"index"`
-	Line        int             `json:"line"`
-	Section     string          `json:"section,omitempty"`
-	Title       string          `json:"title,omitempty"`
-	Version     int             `json:"version"`
-	Valid       bool            `json:"valid"`
-	Lanes       []string        `json:"lanes,omitempty"`
-	Nodes       int             `json:"nodes"`
-	Divergences []bp.Divergence `json:"divergences"`
-	Errors      []bp.TraceError `json:"errors,omitempty"`
-	Warnings    []bp.TraceError `json:"warnings,omitempty"`
-}
-
-func cmdCheck(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	asJSON := fs.Bool("json", false, "machine-readable output")
-	verbose := fs.Bool("verbose", false, "also show informational notes")
-	files, err := parseInterspersed(fs, args)
-	if err != nil {
-		return exitUsage
-	}
-	if len(files) == 0 {
-		fmt.Fprintln(stderr, "check: name at least one file")
-		return exitUsage
-	}
-	code := exitOK
-	var results []checkResult
-	keys := localKeys()
-	for _, f := range files {
-		r := checkFile(f, keys)
-		if !r.OK {
-			code = exitProblems
-		}
-		results = append(results, r)
-		if *asJSON {
-			continue
-		}
-		for _, p := range r.Problems {
-			if p.Severity == bp.Info && !*verbose {
-				continue
-			}
-			loc := f
-			if p.Line > 0 {
-				loc = fmt.Sprintf("%s:%d", f, p.Line)
-			}
-			fmt.Fprintf(stdout, "%s: %s: %s [%s]\n", loc, p.Severity, p.Message, p.Code)
-		}
-		if *verbose {
-			for _, t := range r.Traces {
-				for _, d := range t.Divergences {
-					fmt.Fprintf(stdout, "%s:%d: info: trace %d: %s %s", f, t.Line, t.Index+1, d.Class, d.Node)
-					if len(d.Nodes) > 0 {
-						fmt.Fprintf(stdout, " (%s)", strings.Join(d.Nodes, ", "))
-					}
-					if d.Lane != "" {
-						fmt.Fprintf(stdout, " in %s", d.Lane)
-					}
-					fmt.Fprintln(stdout, " [divergence]")
-				}
-			}
-		}
-	}
-	if *asJSON {
-		writeJSON(stdout, results)
-	}
-	return code
-}
-
-// localKeys returns the key this installation knows, its own, without
-// creating a config or a key. With no config, no signature can be checked.
-func localKeys() func(string) (ed25519.PublicKey, bool) {
-	none := func(string) (ed25519.PublicKey, bool) { return nil, false }
-	dir, err := config.Dir()
-	if err != nil {
-		return none
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return none
-	}
-	var own ed25519.PublicKey
-	if _, err := os.Stat(filepath.Join(dir, identity.KeyFile)); err == nil {
-		if k, err := identity.LoadOrCreateKey(dir); err == nil {
-			own = k.Public().(ed25519.PublicKey)
-		}
-	}
-	return func(email string) (ed25519.PublicKey, bool) {
-		if own != nil && bp.SameEmail(email, cfg.Email) {
-			return own, true
-		}
-		return nil, false
-	}
-}
-
-func checkFile(path string, keys func(string) (ed25519.PublicKey, bool)) checkResult {
-	r := checkResult{File: path, Problems: []bp.Problem{}}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		r.Problems = append(r.Problems, bp.Problem{Severity: bp.Error, Code: "read", Message: err.Error()})
-		return r
-	}
-	d, err := bp.Parse(raw)
-	if err != nil {
-		r.Problems = append(r.Problems, bp.Problem{Severity: bp.Error, Code: "unreadable", Message: err.Error()})
-		return r
-	}
-	r.OK = !d.HasErrors()
-	r.KalkaID, r.Owner, r.Title, r.Rev, r.Entries = d.KalkaID(), d.Owner(), d.Title(), d.Rev(), len(d.Items())
-	r.Problems = append(r.Problems, d.Problems()...)
-	// Hints (spec 6.13) are information: shown with --verbose, never
-	// counted against OK.
-	r.Problems = append(r.Problems, bp.Hints(d)...)
-	for _, it := range d.Items() {
-		e := it.Entry
-		if !e.Valid() {
-			continue
-		}
-		switch k, ok := keys(e.Author); {
-		case e.Sig == "":
-			r.Signatures.Unsigned++
-		case !ok:
-			r.Signatures.Unchecked++
-		case e.Verify(r.KalkaID, k) == bp.SigBad:
-			r.Signatures.Invalid++
-		default:
-			r.Signatures.Verified++
-		}
-	}
-	if s := r.Signatures; s != (sigCounts{}) {
-		r.Problems = append(r.Problems, bp.Problem{Severity: bp.Info, Code: "signatures",
-			Message: fmt.Sprintf("signatures: %d verified, %d unchecked (no key here for the author), %d invalid, %d unsigned", s.Verified, s.Unchecked, s.Invalid, s.Unsigned)})
-	}
-	for _, t := range d.Traces() {
-		ti := traceInfo{Index: t.Index, Line: t.Line, Section: t.Section, Title: t.Title, Version: t.Version, Valid: t.Valid(),
-			Lanes: t.Lanes, Nodes: len(t.Nodes), Divergences: t.Divergences, Errors: t.Errors, Warnings: t.Warnings}
-		if ti.Divergences == nil {
-			ti.Divergences = []bp.Divergence{}
-		}
-		r.Traces = append(r.Traces, ti)
-	}
-	return r
 }
 
 func cmdComment(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {

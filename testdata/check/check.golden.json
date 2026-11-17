@@ -1,0 +1,151 @@
+{
+  "rules": "v1",
+  "kalka": "dev",
+  "files": [
+    {
+      "file": "../../testdata/check/corpus/clean.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        }
+      ]
+    },
+    {
+      "file": "../../testdata/check/corpus/errors.md",
+      "diagnostics": [
+        {
+          "line": 2,
+          "rule": "F002",
+          "severity": "error",
+          "message": "kalka_id \"overdue-plan\" is not a UUID v4",
+          "blocks": true
+        },
+        {
+          "line": 15,
+          "rule": "T040",
+          "severity": "error",
+          "message": "trace 1 (The renewal path), node D1: next names D9, which is not a node of this block",
+          "node": "D1"
+        }
+      ],
+      "traces": [
+        {
+          "index": 0,
+          "line": 9,
+          "section": "the-renewal-path",
+          "title": "The renewal path",
+          "valid": false,
+          "nodes": 0,
+          "divergences": []
+        }
+      ]
+    },
+    {
+      "file": "../../testdata/check/corpus/hints.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        },
+        {
+          "rule": "H003",
+          "severity": "info",
+          "message": "no verification plan: an invariants block saying what must hold and how each is verified, or a “Verification plan” section"
+        },
+        {
+          "rule": "H004",
+          "severity": "info",
+          "message": "no critical sections: places that deliberately depart from the clean design, so agents leave them alone"
+        },
+        {
+          "rule": "H005",
+          "severity": "info",
+          "message": "no operations: failure modes, what to watch, how to roll back"
+        },
+        {
+          "line": 3,
+          "rule": "R003",
+          "severity": "info",
+          "message": "v2 of lending/loans is available; the plan is written against v1"
+        }
+      ]
+    },
+    {
+      "file": "../../testdata/check/corpus/lending/lending-loans-domain.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        }
+      ]
+    },
+    {
+      "file": "../../testdata/check/corpus/missing-domain.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        },
+        {
+          "line": 2,
+          "rule": "R001",
+          "severity": "info",
+          "message": "lending/loans@v9 is not kept here (v2 is), so the glossary and invariant rules were not run; another version is never used instead"
+        }
+      ]
+    },
+    {
+      "file": "../../testdata/check/corpus/warnings.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        },
+        {
+          "line": 2,
+          "rule": "R002",
+          "severity": "warning",
+          "message": "\"loans\" is not \u003cteam\u003e/\u003cdomain\u003e@v\u003cN\u003e; write for example parcels/delivery@v7"
+        },
+        {
+          "line": 20,
+          "rule": "T110",
+          "severity": "warning",
+          "message": "trace 1 (The hold path), node C2: the step realizes nothing above it; add a why saying why it exists",
+          "node": "C2"
+        }
+      ],
+      "traces": [
+        {
+          "index": 0,
+          "line": 8,
+          "section": "the-hold-path",
+          "title": "The hold path",
+          "valid": true,
+          "lanes": [
+            "desk",
+            "code"
+          ],
+          "nodes": 3,
+          "divergences": [
+            {
+              "class": "implementation-only",
+              "node": "C2"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "errors": 2,
+    "warnings": 2,
+    "info": 10
+  }
+}

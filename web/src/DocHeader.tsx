@@ -3,6 +3,8 @@
 // rest under More. Changing the owner, deleting for the team and taking a
 // blueprint over open as a confirmation inside the card.
 import { useState } from 'react'
+import { ErrorConfirm } from './Diagnostics'
+import { confirmable } from './diag'
 import { act } from './actions'
 import { api, type Doc } from './api'
 import { docState } from './docstate'
@@ -47,7 +49,8 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const live = !!t?.held && t.version > 0 && !dm?.viewing
   const takeOver = live && !!t?.team_owner && !t?.can_act
   const handoff = !!t?.can_act
-  const errors = doc.problems.some((p) => p.severity === 'error')
+  const errors = doc.problems.some((p) => p.blocks)
+  const [askErr, setAskErr] = useState(false)
   const more: MenuItem[] = []
   if (live && (t!.can_act || t!.team_owner) && st.primary !== 'choose') {
     more.push({
@@ -68,6 +71,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const versions = dm ? [...dm.versions].sort((a, b) => b - a) : []
   return (
     <section className={'doc-head' + (st.tone ? ' ' + st.tone : '')} aria-label="Blueprint state">
+      {askErr && <ErrorConfirm doc={doc} verb="Release" />}
       <div className="doc-head-main">
         <div className="grow">
           <div className="doc-head-state">{st.head}</div>
@@ -86,13 +90,23 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
             className="row"
             onSubmit={(e) => {
               e.preventDefault()
+              if (confirmable(doc).length > 0 && !askErr) {
+                setAskErr(true)
+                return
+              }
               run(() => api.release(doc.rel, note, []))
             }}
           >
             <input className="release-note" placeholder="What changed (optional)" aria-label="Release note" value={note} disabled={busy} onChange={(e) => setNote(e.target.value)} />
             <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
               Release v{t!.version + 1}
+              {askErr ? ' anyway' : ''}
             </button>
+            {askErr && (
+              <button type="button" onClick={() => setAskErr(false)}>
+                Cancel
+              </button>
+            )}
           </form>
         )}
         {st.primary === 'domain-release' && (
@@ -276,10 +290,12 @@ function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void
         ) : (
           <p className="muted small">No open comments.</p>
         )}
+        <ErrorConfirm doc={doc} verb="Release" />
         {err && <p className="error-text">{err}</p>}
         <div className="row">
           <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
             Release v{next}
+            {confirmable(doc).length > 0 ? ' anyway' : ''}
           </button>
           <button type="button" onClick={onClose}>
             Cancel

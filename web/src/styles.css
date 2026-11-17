@@ -2283,3 +2283,38 @@ dl.facts .row {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The document's diagnostics (spec 6.17). */
+details.diagnostics {
+  margin: 0 0 12px;
+}
+.diag-list {
+  margin: 8px 0 0;
+}
+.diag-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+.diag-sev {
+  flex: none;
+  min-width: 56px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.diag-error .diag-sev {
+  color: var(--danger);
+}
+.diag-warning .diag-sev {
+  color: var(--div-ink);
+}
+.diag-why {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-2);
+}

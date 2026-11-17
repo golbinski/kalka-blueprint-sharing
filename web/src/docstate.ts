@@ -29,7 +29,7 @@ export function docState(doc: Doc): DocState {
         tone: '',
         head: doc.scope === 'personal' ? 'Yours · only on this computer' : 'Yours · not shared yet',
         sub: 'Publish it to a team for your teammates to comment on it.',
-        primary: doc.problems.some((p) => p.severity === 'error') ? '' : 'publish',
+        primary: doc.problems.some((p) => p.blocks) ? '' : 'publish',
       }
     }
     return { tone: '', head: 'Not shared yet', sub: 'Only in your copy; nobody else sees it.', primary: '' }

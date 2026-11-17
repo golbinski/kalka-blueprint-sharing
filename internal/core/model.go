@@ -9,6 +9,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/check"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/merge"
 )
@@ -36,11 +37,10 @@ type DocView struct {
 	Headings    []bp.Heading `json:"headings"`
 	Entries     []EntryView  `json:"entries"`
 	// LogLead is unparsed text between the log heading and the first entry.
-	LogLead  string       `json:"log_lead,omitempty"`
-	Problems []bp.Problem `json:"problems"`
-	// Hints are the soft suggestions of the blueprint reference (spec
-	// 6.13), kept apart from Problems: they never block a sync.
-	Hints     []bp.Problem `json:"hints"`
+	LogLead string `json:"log_lead,omitempty"`
+	// Problems are the document's diagnostics (spec 6.17), from the same
+	// checker as `kalka check`, hints (H…) included.
+	Problems  []bp.Problem `json:"problems"`
 	Duplicate bool         `json:"duplicate,omitempty"`
 	// Scope is "personal" or the name of the team whose folder holds the
 	// file; Mismatch says why a file's location and team: disagree, or why
@@ -108,6 +108,19 @@ type EntryView struct {
 	// IncorporatedIn is the domain version whose release incorporated this
 	// comment (spec 6.12), 0 if none.
 	IncorporatedIn int64 `json:"incorporated_in,omitempty"`
+	// Release is a release entry as the core reads it (spec 20.4): the
+	// page never parses the release line itself.
+	Release *ReleaseView `json:"release,omitempty"`
+}
+
+// ReleaseView is a parsed release entry.
+type ReleaseView struct {
+	Version      int64  `json:"version"`
+	Plan         string `json:"plan"`
+	Owner        string `json:"owner"`
+	Deleted      bool   `json:"deleted,omitempty"`
+	Incorporates int    `json:"incorporates,omitempty"`
+	Note         string `json:"note,omitempty"`
 }
 
 // resolve turns a path from the UI (relative to the folder, or absolute)
@@ -133,17 +146,14 @@ func (d *Node) Document(ctx context.Context, path string) (*DocView, error) {
 func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapshot int64) (*DocView, error) {
 	v := &DocView{
 		Path: path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
-		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: doc.Problems(),
-		Hints: bp.Hints(doc), Entries: []EntryView{},
+		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: check.Document(doc, check.Options{Domains: storeDomains{d}}).Problems,
+		Entries: []EntryView{},
 	}
 	if v.Headings == nil {
 		v.Headings = []bp.Heading{}
 	}
 	if v.Problems == nil {
 		v.Problems = []bp.Problem{}
-	}
-	if v.Hints == nil {
-		v.Hints = []bp.Problem{}
 	}
 	if v.Title == "" {
 		v.Title = filepath.Base(path)
@@ -208,6 +218,9 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		}
 		ev.Orphaned = e.Anchor != "" && !doc.HasAnchor(e.Anchor)
 		ev.IncorporatedIn = incorp[e.ID]
+		if r, ok := e.Release(); ok {
+			ev.Release = &ReleaseView{Version: r.Version, Plan: r.Plan, Owner: r.Owner, Deleted: r.Deleted, Incorporates: len(r.Incorporates), Note: r.Note}
+		}
 		ev.Sig = d.sigState(v.KalkaID, e, th)
 		if th != nil {
 			ev.TeamState = d.entryTeamState(th, v.KalkaID, e, att)

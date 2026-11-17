@@ -88,6 +88,17 @@ func (f *Frontmatter) Delete(key string) {
 	}
 }
 
+// KeyLine is the file line of a top-level key, 0 when absent.
+func (f *Frontmatter) KeyLine(key string) int {
+	if f == nil {
+		return 0
+	}
+	if i := f.find(key); i >= 0 {
+		return i + 1
+	}
+	return 0
+}
+
 var managedKeys = []string{name.FrontmatterID, name.FrontmatterOwner}
 
 func (f *Frontmatter) find(key string) int {

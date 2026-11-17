@@ -85,7 +85,7 @@ func TestNodeCommentRoundTrip(t *testing.T) {
 	}
 	found := false
 	for _, p := range v.Problems {
-		found = found || p.Code == "orphaned"
+		found = found || p.Rule == "B015"
 	}
 	if !found {
 		t.Fatalf("problems %+v", v.Problems)

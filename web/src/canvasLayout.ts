@@ -87,8 +87,6 @@ export interface CanvasLayout {
   edges: CanvasEdge[]
 }
 
-const releaseRe = /^v(\d+) · plan:[0-9a-f]{64} · owner:(\S+)( · deleted)?$/
-
 // noteText is what a note shows: the entry in words, without markup.
 export function noteText(e: Entry): string {
   switch (e.kind) {
@@ -96,8 +94,8 @@ export function noteText(e: Entry): string {
       if (e.budded_seed) return 'Split off a seed: ' + (e.budded_title || e.budded_seed)
       break
     case 'release': {
-      const m = releaseRe.exec(e.body.split('\n')[0])
-      if (m) return m[3] ? `Deleted for the team at version ${m[1]}` : `Released version ${m[1]}, owner ${m[2]}`
+      const r = e.release
+      if (r) return r.deleted ? `Deleted for the team at version ${r.version}` : `Released version ${r.version}, owner ${r.owner}`
       break
     }
   }

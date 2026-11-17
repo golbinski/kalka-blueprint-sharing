@@ -214,13 +214,13 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 }
 
 // buildTraces validates the fences, places them in sections and computes
-// divergences. Errors and warnings are reported as warnings of the
-// document: a trace never blocks a sync.
+// divergences. Its errors and warnings are diagnostics of the document; a
+// trace never blocks a sync (rules T…, which are not Blocks).
 func (d *Document) buildTraces(fences []fence) {
 	for _, f := range fences {
 		if f.yaml {
 			if looksLikeTrace(f.source) {
-				d.problem(Warning, "trace-warning", f.line, "T122: this yaml block has lanes and nodes, so it was probably meant as a trace; fence it as trace v1")
+				d.problem("T122", f.line, "this yaml block has lanes and nodes, so it was probably meant as a trace; fence it as trace v1")
 			}
 			continue
 		}
@@ -257,18 +257,14 @@ func (d *Document) buildTraces(fences []fence) {
 		if t.Title != "" {
 			where += " (" + t.Title + ")"
 		}
-		report := func(code string, e TraceError) {
-			msg := where + ": " + e.Code + ": " + e.Message
+		for _, e := range append(append([]TraceError(nil), t.Errors...), t.Warnings...) {
+			msg := where + ": " + e.Message
 			if e.Node != "" {
-				msg = where + ", node " + e.Node + ": " + e.Code + ": " + e.Message
+				msg = where + ", node " + e.Node + ": " + e.Message
 			}
-			d.problem(Warning, code, e.Line, msg)
-		}
-		for _, e := range t.Errors {
-			report("trace-invalid", e)
-		}
-		for _, e := range t.Warnings {
-			report("trace-warning", e)
+			p := NewProblem(e.Code, e.Line, msg)
+			p.Node = e.Node
+			d.problems = append(d.problems, p)
 		}
 	}
 }

@@ -31,7 +31,7 @@ func fixIDs(t *testing.T, s string) string {
 func codes(d *Document) map[string]int {
 	m := map[string]int{}
 	for _, p := range d.Problems() {
-		m[p.Code]++
+		m[p.Rule]++
 	}
 	return m
 }
@@ -209,7 +209,7 @@ func TestAddEntryCreatesLog(t *testing.T) {
 	if len(d2.Items()) != 1 || !d2.Items()[0].Entry.Valid() || d2.Rev() != d.Rev() {
 		t.Fatal("added entry does not parse back")
 	}
-	if codes(d2)["outdated"] != 0 {
+	if codes(d2)["B016"] != 0 {
 		t.Error("new entry is outdated")
 	}
 }
@@ -237,15 +237,15 @@ func TestSetFrontmatterKeepsOtherLines(t *testing.T) {
 func TestProblems(t *testing.T) {
 	src := fixIDs(t, sample) + "\n### comment · bob@corp.com · 2026-11-11T17:40:03Z · §gone · rev:3fa9c1d2 · id:00000000000000000000000000000000\nTampered.\n\n### not an entry\nloose text\n"
 	c := codes(mustParse(t, src))
-	for _, want := range []string{"entry-id", "log-unparsed", "outdated"} {
+	for _, want := range []string{"B010", "B003", "B016"} {
 		if c[want] == 0 {
 			t.Errorf("missing problem %s in %v", want, c)
 		}
 	}
-	if c := codes(mustParse(t, "---\nkalka_id: nope\n---\n")); c["id-invalid"] == 0 || c["owner-missing"] == 0 {
+	if c := codes(mustParse(t, "---\nkalka_id: nope\n---\n")); c["F002"] == 0 || c["F003"] == 0 {
 		t.Errorf("frontmatter problems not found: %v", c)
 	}
-	if c := codes(mustParse(t, "---\nkalka_owner: a@b\nno end\n")); c["frontmatter-unterminated"] == 0 {
+	if c := codes(mustParse(t, "---\nkalka_owner: a@b\nno end\n")); c["F001"] == 0 {
 		t.Errorf("unterminated frontmatter not reported: %v", c)
 	}
 	if _, err := Parse([]byte{0xff, 0xfe}); err != ErrNotUTF8 {
@@ -283,7 +283,7 @@ func FuzzParse(f *testing.F) {
 		}
 		// Adding an entry must never change the plan or lose an entry.
 		for _, p := range d.Problems() {
-			if p.Code == "entry-open-fence" || p.Code == "frontmatter-unterminated" || p.Code == "body-open-block" {
+			if p.Rule == "B013" || p.Rule == "F001" || p.Rule == "B001" {
 				return
 			}
 		}

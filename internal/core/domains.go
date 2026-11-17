@@ -195,3 +195,49 @@ func (d *Node) DocumentAt(ctx context.Context, path string, version int64) (*Doc
 	}
 	return d.docView(ctx, f.Path, snap, version)
 }
+
+// storeDomains reads domain versions for the checker from the documents
+// held here, as check.Folder reads them from files: a version's snapshot
+// first, then the live document when it is that version (spec 12.4).
+type storeDomains struct{ d *Node }
+
+func (s storeDomains) live(team, domain string) *bp.Document {
+	docs := s.d.Store.FindDomain(team, domain)
+	if len(docs) == 0 {
+		return nil
+	}
+	f, err := s.d.Store.Load(docs[0].Path)
+	if err != nil {
+		return nil
+	}
+	return f.Doc
+}
+
+func (s storeDomains) Version(team, domain string, v int64) *bp.Document {
+	docs := s.d.Store.FindDomain(team, domain)
+	if len(docs) == 0 {
+		return nil
+	}
+	if snap, err := s.d.Store.Snapshot(docs[0].Path, v); err == nil && snap != nil {
+		return snap
+	}
+	if doc := s.live(team, domain); doc != nil && doc.DomainVersion() == v {
+		return doc
+	}
+	return nil
+}
+
+func (s storeDomains) Latest(team, domain string) int64 {
+	docs := s.d.Store.FindDomain(team, domain)
+	if len(docs) == 0 {
+		return 0
+	}
+	var latest int64
+	if doc := s.live(team, domain); doc != nil {
+		latest = doc.DomainVersion()
+	}
+	for _, v := range s.d.Store.Snapshots(docs[0].Path) {
+		latest = max(latest, v)
+	}
+	return latest
+}

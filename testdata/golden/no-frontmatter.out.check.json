@@ -20,8 +20,8 @@
   "entries": null,
   "problems": [
     {
+      "rule": "F005",
       "severity": "info",
-      "code": "local",
       "message": "no kalka_id: a local blueprint, given an id on first send"
     }
   ]

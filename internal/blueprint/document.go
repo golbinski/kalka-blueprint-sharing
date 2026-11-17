@@ -22,6 +22,7 @@ import (
 	"github.com/yuin/goldmark/text"
 
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/rules"
 )
 
 // MaxFile is the largest blueprint accepted (spec 6.9).
@@ -52,12 +53,60 @@ func (s Severity) String() string {
 // MarshalText makes severities readable in JSON.
 func (s Severity) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
 
-// Problem is something `kalka check` reports. Line is 1-based, 0 if unknown.
+// Problem is a diagnostic (spec 6.17): a rule of the registry, where it
+// applies and what to write instead. Lines and columns are 1-based (columns
+// in characters), 0 when unknown.
 type Problem struct {
-	Severity Severity `json:"severity"`
-	Code     string   `json:"code"`
-	Line     int      `json:"line,omitempty"`
-	Message  string   `json:"message"`
+	Line      int      `json:"line,omitempty"`
+	Column    int      `json:"column,omitempty"`
+	EndLine   int      `json:"end_line,omitempty"`
+	EndColumn int      `json:"end_column,omitempty"`
+	Rule      string   `json:"rule"`
+	Severity  Severity `json:"severity"`
+	Message   string   `json:"message"`
+	// Node is the trace node or invariant the diagnostic concerns.
+	Node string `json:"node,omitempty"`
+	// Blocks marks a structural error: the file cannot be published.
+	Blocks bool `json:"blocks,omitempty"`
+	Fix    *Fix `json:"fix,omitempty"`
+}
+
+// Fix is a suggested replacement; kalka never applies it.
+type Fix struct {
+	Text      string `json:"text"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line"`
+	EndColumn int    `json:"end_column"`
+}
+
+// NewProblem is a diagnostic of a registered rule, with its severity.
+func NewProblem(rule string, line int, msg string) Problem {
+	r := rules.Must(rule)
+	return Problem{Rule: rule, Severity: severityOf(r.Severity), Line: line, Message: msg, Blocks: r.Blocks}
+}
+
+func severityOf(s rules.Severity) Severity {
+	switch s {
+	case rules.Error:
+		return Error
+	case rules.Warning:
+		return Warning
+	}
+	return Info
+}
+
+// UnmarshalText reads a severity back from JSON.
+func (s *Severity) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case "error":
+		*s = Error
+	case "warning":
+		*s = Warning
+	default:
+		*s = Info
+	}
+	return nil
 }
 
 // Heading is a heading of the body.
@@ -122,7 +171,7 @@ func Parse(data []byte) (*Document, error) {
 
 	fmLines, rest, ok := splitFrontmatter(lines)
 	if !ok {
-		d.problem(Error, "frontmatter-unterminated", 1, "frontmatter opened with --- is never closed; it is read as body")
+		d.problem("F001", 1, "frontmatter opened with --- is never closed; it is read as body")
 	}
 	if fmLines != nil {
 		d.fm = &Frontmatter{Lines: fmLines}
@@ -151,7 +200,7 @@ func Parse(data []byte) (*Document, error) {
 		if logStart < 0 {
 			logStart = i
 		} else {
-			d.problem(Warning, "log-duplicate", base+i+1, "a second \"## Review log\" heading is ordinary body text; only the first is the review log")
+			d.problem("B002", base+i+1, "a second \"## Review log\" heading is ordinary body text; only the first is the review log")
 		}
 		fence = fenceState{}
 	}
@@ -220,7 +269,7 @@ func Parse(data []byte) (*Document, error) {
 	d.buildTraces(fences)
 
 	if !d.hasLog && !logAppendable(d.pre) {
-		d.problem(Error, "body-open-block", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")
+		d.problem("B001", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")
 	}
 	d.checkFrontmatter()
 	d.problems = append(d.problems, d.domainProblems()...)
@@ -303,7 +352,7 @@ func (d *Document) parseLog(lines []string, first int) {
 		chunk := lines[a:b]
 		e, err := ParseHeader(chunk[0])
 		if err != nil {
-			d.problem(Warning, "log-unparsed", first+a+1, "not an entry header, kept as unparsed content: "+err.Error())
+			d.problem("B003", first+a+1, "not an entry header, kept as unparsed content: "+err.Error())
 			if n := len(d.items); n > 0 {
 				d.items[n-1].Trailing = append(d.items[n-1].Trailing, chunk...)
 			} else {
@@ -336,7 +385,7 @@ func leavesFenceOpen(lines []string) (bool, fenceState) {
 func (d *Document) noteUnparsed(lines []string, first int) {
 	for i, l := range lines {
 		if !isBlank(l) {
-			d.problem(Warning, "log-unparsed", first+i, "content before the first entry is kept as unparsed content")
+			d.problem("B003", first+i, "content before the first entry is kept as unparsed content")
 			return
 		}
 	}
@@ -358,15 +407,15 @@ func (d *Document) checkFrontmatter() {
 	owner, hasOwner := d.fm.Get(name.FrontmatterOwner)
 	switch {
 	case !hasID:
-		d.problem(Info, "local", 0, "no "+name.FrontmatterID+": a local blueprint, given an id on first send")
+		d.problem("F005", 0, "no "+name.FrontmatterID+": a local blueprint, given an id on first send")
 	case !uuidV4Re.MatchString(strings.ToLower(id)):
-		d.problem(Error, "id-invalid", 0, fmt.Sprintf("%s %q is not a UUID v4", name.FrontmatterID, id))
+		d.problem("F002", d.fm.KeyLine(name.FrontmatterID), fmt.Sprintf("%s %q is not a UUID v4", name.FrontmatterID, id))
 	}
 	if hasID && !hasOwner {
-		d.problem(Error, "owner-missing", 0, "shared blueprint has no owner")
+		d.problem("F003", d.fm.KeyLine(name.FrontmatterID), "shared blueprint has no owner")
 	}
 	if hasOwner && !emailRe.MatchString(owner) {
-		d.problem(Error, "owner-invalid", 0, fmt.Sprintf("owner %q is not an email address", owner))
+		d.problem("F004", d.fm.KeyLine(name.FrontmatterOwner), fmt.Sprintf("owner %q is not an email address", owner))
 	}
 }
 
@@ -378,31 +427,31 @@ func (d *Document) checkEntries() {
 		if !e.Valid() {
 			// A warning, not an error: one edited entry must not take the
 			// whole document out of the replica (spec 6.6).
-			d.problem(Warning, "entry-id", it.Line, fmt.Sprintf("entry %s was edited: its id no longer matches its content (want %s); peers do not take it; if the team holds the original, the next sync restores it", e.ID, e.ComputeID()))
+			d.problem("B010", it.Line, fmt.Sprintf("entry %s was edited: its id no longer matches its content (want %s); peers do not take it; if the team holds the original, the next sync restores it", e.ID, e.ComputeID()))
 			continue
 		}
 		if seen[e.ID] {
-			d.problem(Warning, "entry-duplicate", it.Line, "entry "+e.ID+" appears more than once")
+			d.problem("B011", it.Line, "entry "+e.ID+" appears more than once")
 		}
 		seen[e.ID] = true
 		if len(e.Body) > MaxEntryBody {
-			d.problem(Error, "entry-too-large", it.Line, fmt.Sprintf("entry body is larger than %d bytes", MaxEntryBody))
+			d.problem("B012", it.Line, fmt.Sprintf("entry body is larger than %d bytes", MaxEntryBody))
 		}
 		if open, _ := leavesFenceOpen(strings.Split(e.Body, "\n")); open {
-			d.problem(Error, "entry-open-fence", it.Line, "entry body opens a code fence and never closes it")
+			d.problem("B013", it.Line, "entry body opens a code fence and never closes it")
 		}
 		if hasShallowHeading(e.Body) {
-			d.problem(Warning, "entry-heading", it.Line, "headings inside an entry must be level 4 or deeper")
+			d.problem("B014", it.Line, "headings inside an entry must be level 4 or deeper")
 		}
 		if e.Anchor != "" && !d.HasAnchor(e.Anchor) {
 			what := "no heading"
 			if e.Node() != "" && d.HasSection(e.Section()) {
 				what = "no trace node under that heading"
 			}
-			d.problem(Warning, "orphaned", it.Line, "anchor §"+e.Anchor+" matches "+what)
+			d.problem("B015", it.Line, "anchor §"+e.Anchor+" matches "+what)
 		}
 		if e.Rev != rev {
-			d.problem(Info, "outdated", it.Line, "entry was written against rev "+e.Rev+", the body is now "+rev)
+			d.problem("B016", it.Line, "entry was written against rev "+e.Rev+", the body is now "+rev)
 		}
 	}
 }
@@ -420,17 +469,20 @@ func hasShallowHeading(body string) bool {
 	return false
 }
 
-func (d *Document) problem(s Severity, code string, line int, msg string) {
-	d.problems = append(d.problems, Problem{Severity: s, Code: code, Line: line, Message: msg})
+func (d *Document) problem(rule string, line int, msg string) {
+	d.problems = append(d.problems, NewProblem(rule, line, msg))
 }
 
 // Problems returns what Parse found, in file order of discovery.
 func (d *Document) Problems() []Problem { return d.problems }
 
 // HasErrors reports whether any problem has Error severity.
+//
+// Only structural errors count (rules marked Blocks, spec 6.17): the file
+// cannot be signed or merged safely. Other errors never block.
 func (d *Document) HasErrors() bool {
 	for _, p := range d.problems {
-		if p.Severity == Error {
+		if p.Blocks {
 			return true
 		}
 	}

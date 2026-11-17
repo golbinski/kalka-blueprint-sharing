@@ -98,10 +98,10 @@ func (d *Document) domainProblems() []Problem {
 	}
 	var out []Problem
 	if v := d.get(KeyDomain); !domainNameRe.MatchString(v) {
-		out = append(out, Problem{Severity: Warning, Code: "domain-name", Message: fmt.Sprintf("a domain document needs `kalka_domain:` with a name of lower-case letters, digits and dashes (have %q)", v)})
+		out = append(out, NewProblem("F010", d.fm.KeyLine(KeyDomain), fmt.Sprintf("a domain document needs `kalka_domain:` with a name of lower-case letters, digits and dashes (have %q)", v)))
 	}
 	if v := d.get(KeyVersion); v != "" && d.DomainVersion() == 0 {
-		out = append(out, Problem{Severity: Warning, Code: "domain-version", Message: fmt.Sprintf("`kalka_version:` must be a positive number (have %q)", v)})
+		out = append(out, NewProblem("F011", d.fm.KeyLine(KeyVersion), fmt.Sprintf("`kalka_version:` must be a positive number (have %q)", v)))
 	}
 	return out
 }

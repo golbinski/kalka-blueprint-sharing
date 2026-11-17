@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { api, type Doc, type Entry, type PublishResult, type Team } from './api'
 import { act } from './actions'
 import { Modal } from './Modal'
+import { ErrorConfirm } from './Diagnostics'
+import { confirmable } from './diag'
 import { docHref } from './util'
 
 // SeedDialog splits a seed off a blueprint (spec 6.11), optionally from an
@@ -106,7 +108,13 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
 
 // PublishDialog publishes a document to a team (spec 20.1): the team, when
 // the user is in several, and a note for the release.
-export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' | 'title'>; onClose: () => void; onDone: () => void }) {
+export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' | 'title'> & Partial<Pick<Doc, 'problems'>>; onClose: () => void; onDone: () => void }) {
+  // The diagnostics, read from the document when the list opened the dialog.
+  const [problems, setProblems] = useState(doc.problems ?? null)
+  useEffect(() => {
+    if (!doc.problems) api.doc(doc.rel).then((d) => setProblems(d.problems), () => setProblems([]))
+  }, [doc.rel, doc.problems])
+  const anyway = problems ? confirmable({ problems }).length > 0 : false
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [team, setTeam] = useState('')
   const [note, setNote] = useState('')
@@ -186,10 +194,11 @@ export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' |
             Note <span className="muted">(optional)</span>
             <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
           </label>
+          {problems && <ErrorConfirm doc={{ problems }} verb="Publish" />}
           {err && <p className="error-text">{err}</p>}
           <div className="row">
             <button type="submit" className="primary" {...act('doc.publish')} disabled={busy || !teams || !team}>
-              Publish
+              {anyway ? 'Publish anyway' : 'Publish'}
             </button>
             <button type="button" onClick={onClose}>
               Cancel

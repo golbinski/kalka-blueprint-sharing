@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	bp "github.com/golbinski/kalka/internal/blueprint"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,11 +20,11 @@ func TestSamples(t *testing.T) {
 	want := map[string][]string{
 		"kalka-core-sync-domain.md":      nil,
 		"push-during-round.md":           nil,
-		"retry-first-release.md":         {"hint-no-critical-sections", "hint-no-operations", "hint-no-verification-plan"},
+		"retry-first-release.md":         {"H003", "H004", "H005"},
 		"relay-indicator.md":             nil,
 		"join-flow-trace.md":             nil,
-		"packaging/windows-installer.md": {"hint-no-critical-sections", "hint-no-domain-reference"},
-		"packaging/windows-app-icon.md":  {"hint-no-domain-reference"},
+		"packaging/windows-installer.md": {"H001", "H004"},
+		"packaging/windows-app-icon.md":  {"H001"},
 	}
 	var seen []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -43,31 +44,23 @@ func TestSamples(t *testing.T) {
 			t.Errorf("%s: check exit %d: %s", rel, code, errb.String())
 			return nil
 		}
-		var rs []struct {
-			OK       bool `json:"ok"`
-			Problems []struct {
-				Severity, Code, Message string
-			} `json:"problems"`
-			Traces []struct {
-				Valid bool `json:"valid"`
-			} `json:"traces"`
-		}
-		if err := json.Unmarshal(out.Bytes(), &rs); err != nil || len(rs) != 1 {
+		var res checkOutput
+		if err := json.Unmarshal(out.Bytes(), &res); err != nil || len(res.Files) != 1 {
 			t.Fatalf("%s: %v\n%s", rel, err, out.String())
 		}
-		r := rs[0]
+		r := res.Files[0]
 		var got []string
-		for _, p := range r.Problems {
+		for _, p := range r.Diagnostics {
 			switch {
-			case p.Severity != "info":
-				t.Errorf("%s: %s %s: %s", rel, p.Severity, p.Code, p.Message)
-			case strings.HasPrefix(p.Code, "hint-"):
-				got = append(got, p.Code)
+			case p.Severity != bp.Info:
+				t.Errorf("%s: %s %s: %s", rel, p.Severity, p.Rule, p.Message)
+			case strings.HasPrefix(p.Rule, "H"):
+				got = append(got, p.Rule)
 			}
 		}
 		slices.Sort(got)
-		if !r.OK || !slices.Equal(got, hints) {
-			t.Errorf("%s: ok %v, hints %v, want %v", rel, r.OK, got, hints)
+		if !slices.Equal(got, hints) {
+			t.Errorf("%s: hints %v, want %v", rel, got, hints)
 		}
 		for i, tr := range r.Traces {
 			if !tr.Valid {

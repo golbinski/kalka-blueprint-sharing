@@ -15,11 +15,14 @@ export function allowedLink(url: string): boolean {
 // pluginRef returns the scheme of a reference for a plugin (spec 10.1),
 // or null. Such links never become links: they render as a span the UI
 // decorates with what the reader's plugin resolved.
-const pluginRe = /^([a-z][a-z0-9+.-]*):\S*$/
+const pluginRe = /^([a-z][a-z0-9+.-]*):/
+// White space as Go's unicode.IsSpace has it, so the page and the daemon
+// agree on what is a reference (testdata/refs/corpus.json).
+const space = /[\t\n\v\f\r \u0085\u00a0\p{Zs}\u2028\u2029]/u
 const notDispatched = new Set(['http', 'https', 'mailto', 'file', 'javascript', 'vbscript', 'data', 'blob', 'about'])
 export function pluginRef(url: string): string | null {
   const m = pluginRe.exec(url)
-  return m && !notDispatched.has(m[1]) ? m[1] : null
+  return m && !notDispatched.has(m[1]) && !space.test(url) ? m[1] : null
 }
 
 md.validateLink = (url) => allowedLink(url) || pluginRef(url) !== null

@@ -14,7 +14,6 @@ const doc = (team?: Partial<TeamDocState>, more: Partial<Doc> = {}): Doc =>
     headings: [],
     entries: [],
     problems: [],
-    hints: [],
     scope: 'lending',
     traces: [],
     refs: {},
@@ -36,7 +35,9 @@ describe('docState', () => {
   })
   it('offers Publish for a blueprint not shared yet', () => {
     expect(docState(doc(undefined, { scope: 'personal' }))).toMatchObject({ head: 'Yours · only on this computer', primary: 'publish' })
-    expect(docState(doc(undefined, { problems: [{ severity: 'error', message: 'x' }] as Doc['problems'] })).primary).toBe('')
+    // A structural error blocks; any other error only asks first.
+    expect(docState(doc(undefined, { problems: [{ rule: 'F002', severity: 'error', message: 'x', blocks: true }] })).primary).toBe('')
+    expect(docState(doc(undefined, { problems: [{ rule: 'T040', severity: 'error', message: 'x' }] })).primary).toBe('publish')
   })
   it('puts problems in place of the state', () => {
     expect(docState(doc({ disputed: true, team_owner: true }))).toMatchObject({ tone: 'warn', primary: 'choose' })

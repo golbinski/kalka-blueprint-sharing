@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	bp "github.com/golbinski/kalka/internal/blueprint"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,28 +75,22 @@ func TestCheckHints(t *testing.T) {
 	os.WriteFile(f, []byte("---\nkalka_reference: kalka-blueprint@v1\n---\n# Redelivery\n\n## Scope\nThe redelivery module.\n"), 0o644)
 
 	code, out, _ := runCLI("check", f)
-	if code != exitOK || strings.Contains(out, "hint-") {
+	if code != exitOK || strings.Contains(out, "H00") {
 		t.Fatalf("plain check: %d %q", code, out)
 	}
 	code, out, _ = runCLI("check", f, "--verbose")
-	if code != exitOK || !strings.Contains(out, "[hint-no-verification-plan]") || strings.Contains(out, "hint-no-scope") {
+	if code != exitOK || !strings.Contains(out, "[H003]") || strings.Contains(out, "H002") {
 		t.Fatalf("verbose: %d %q", code, out)
 	}
 	code, out, _ = runCLI("check", f, "--json")
-	var res []struct {
-		OK       bool `json:"ok"`
-		Problems []struct {
-			Code     string `json:"code"`
-			Severity string `json:"severity"`
-		} `json:"problems"`
-	}
-	if err := json.Unmarshal([]byte(out), &res); err != nil || code != exitOK || !res[0].OK {
+	var res checkOutput
+	if err := json.Unmarshal([]byte(out), &res); err != nil || code != exitOK || res.Summary.Errors != 0 {
 		t.Fatalf("json: %d %v %s", code, err, out)
 	}
 	n := 0
-	for _, p := range res[0].Problems {
-		if strings.HasPrefix(p.Code, "hint-") {
-			if p.Severity != "info" {
+	for _, p := range res.Files[0].Diagnostics {
+		if strings.HasPrefix(p.Rule, "H") {
+			if p.Severity != bp.Info {
 				t.Fatalf("hint severity %q", p.Severity)
 			}
 			n++

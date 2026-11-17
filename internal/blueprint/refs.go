@@ -3,6 +3,7 @@ package blueprint
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -26,7 +27,7 @@ var notDispatched = map[string]bool{
 // reference for a plugin.
 func PluginRef(target string) (scheme, payload string, ok bool) {
 	m := refRe.FindStringSubmatch(target)
-	if m == nil || notDispatched[m[1]] || strings.ContainsAny(target, " \t\r\n") {
+	if m == nil || notDispatched[m[1]] || strings.IndexFunc(target, unicode.IsSpace) >= 0 {
 		return "", "", false
 	}
 	return m[1], m[2], true

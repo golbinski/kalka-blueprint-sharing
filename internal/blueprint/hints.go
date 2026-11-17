@@ -21,11 +21,11 @@ const ReferenceKey = name.Product + "_reference"
 var hintSections = []struct {
 	code, slug, message string
 }{
-	{"hint-no-domain-reference", "domain-reference", "no domain reference: name the domain version the plan relies on (`kalka_domain:` in the frontmatter, or a “Domain reference” section)"},
-	{"hint-no-scope", "scope", "no scope: list the modules the change will touch, so work beyond them becomes a seed"},
-	{"hint-no-verification-plan", "verification-plan", "no verification plan: invariants, edge cases and what a reviewer must check"},
-	{"hint-no-critical-sections", "critical-sections", "no critical sections: places that deliberately depart from the clean design, so agents leave them alone"},
-	{"hint-no-operations", "operations", "no operations: failure modes, what to watch, how to roll back"},
+	{"H001", "domain-reference", "no domain reference: name the domain version the plan relies on (`kalka_domain:` in the frontmatter, or a “Domain reference” section)"},
+	{"H002", "scope", "no scope: list the modules the change will touch, so work beyond them becomes a seed"},
+	{"H003", "verification-plan", "no verification plan: an invariants block saying what must hold and how each is verified, or a “Verification plan” section"},
+	{"H004", "critical-sections", "no critical sections: places that deliberately depart from the clean design, so agents leave them alone"},
+	{"H005", "operations", "no operations: failure modes, what to watch, how to roll back"},
 }
 
 
@@ -34,8 +34,8 @@ var hintSections = []struct {
 var trailingDup = regexp.MustCompile(`-[0-9]+$`)
 
 // Hints returns the soft hints for a document that opted into the
-// blueprint reference (spec 6.13), as information-level problems with codes
-// starting "hint-". A document without `kalka_reference:` gets none. Hints are
+// blueprint reference (spec 6.13), as information diagnostics of rules
+// H001 to H010. A document without `kalka_reference:` gets none. Hints are
 // never part of Problems(): they do not affect validity, `kalka check`'s
 // exit code, or a sync.
 func Hints(d *Document) []Problem {
@@ -50,8 +50,7 @@ func Hints(d *Document) []Problem {
 		if !strings.HasPrefix(ref, "kalka-blueprint@v") {
 			return nil
 		}
-		return []Problem{{Severity: Info, Code: "hint-unknown-reference",
-			Message: "this document follows " + ref + "; this kalka knows " + HintsVersion + " and gives no hints for it"}}
+		return []Problem{NewProblem("H010", 0, "this document follows "+ref+"; this kalka knows "+HintsVersion+" and gives no hints for it")}
 	}
 	have := map[string]bool{}
 	for _, h := range d.Headings() {
@@ -64,7 +63,7 @@ func Hints(d *Document) []Problem {
 	var out []Problem
 	for _, s := range hintSections {
 		if !have[s.slug] {
-			out = append(out, Problem{Severity: Info, Code: s.code, Message: s.message})
+			out = append(out, NewProblem(s.code, 0, s.message))
 		}
 	}
 	return out
