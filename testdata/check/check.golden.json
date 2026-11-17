@@ -100,6 +100,74 @@
       ]
     },
     {
+      "file": "../../testdata/check/corpus/typed.md",
+      "diagnostics": [
+        {
+          "rule": "F005",
+          "severity": "info",
+          "message": "no kalka_id: a local blueprint, given an id on first send"
+        },
+        {
+          "line": 2,
+          "rule": "R003",
+          "severity": "info",
+          "message": "v2 of lending/loans is available; the plan is written against v1"
+        },
+        {
+          "line": 8,
+          "column": 33,
+          "end_line": 8,
+          "end_column": 42,
+          "rule": "G020",
+          "severity": "warning",
+          "message": "\"borrowing\" is an alias in the lending/loans@v1 glossary; write \"loan\"",
+          "fix": {
+            "text": "loan",
+            "line": 8,
+            "column": 33,
+            "end_line": 8,
+            "end_column": 42
+          }
+        },
+        {
+          "line": 13,
+          "rule": "I040",
+          "severity": "info",
+          "message": "loans#I2: v2 of lending/loans no longer has I2; the plan relies on something the domain no longer promises",
+          "node": "loans#I2"
+        },
+        {
+          "line": 28,
+          "rule": "I030",
+          "severity": "warning",
+          "message": "invariant N1: no trace step guards it; add guards: [N1] to the steps that keep it true, or say in the text why none does",
+          "node": "N1"
+        },
+        {
+          "line": 28,
+          "rule": "I031",
+          "severity": "warning",
+          "message": "invariant N1: nothing says how it is verified; add verified_by with a test reference or a check a reviewer makes",
+          "node": "N1"
+        }
+      ],
+      "traces": [
+        {
+          "index": 0,
+          "line": 10,
+          "section": "plan",
+          "title": "Plan",
+          "valid": true,
+          "lanes": [
+            "business",
+            "code"
+          ],
+          "nodes": 2,
+          "divergences": []
+        }
+      ]
+    },
+    {
       "file": "../../testdata/check/corpus/warnings.md",
       "diagnostics": [
         {
@@ -145,7 +213,7 @@
   ],
   "summary": {
     "errors": 2,
-    "warnings": 2,
-    "info": 10
+    "warnings": 5,
+    "info": 13
   }
 }

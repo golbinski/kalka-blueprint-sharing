@@ -108,7 +108,33 @@ func TestCheckFolders(t *testing.T) {
 	for _, f := range res.Files {
 		names = append(names, filepath.Base(f.File))
 	}
-	if got := strings.Join(names, " "); got != "clean.md errors.md hints.md lending-loans-domain.md missing-domain.md warnings.md" {
+	if got := strings.Join(names, " "); got != "clean.md errors.md hints.md lending-loans-domain.md missing-domain.md typed.md warnings.md" {
 		t.Fatalf("files %s", got)
+	}
+}
+
+// kalka invariants prints the matrix and exits on the invariant
+// diagnostics as check does (spec 12.4).
+func TestInvariantsCommand(t *testing.T) {
+	lending := filepath.Join("..", "..", "samples", "blueprints", "lending")
+	code, out, _ := runCLI("invariants", "--json", "--domain", filepath.Join(lending, "loans-domain.md"), filepath.Join(lending, "online-renewals.md"))
+	var res invariantsOutput
+	if err := json.Unmarshal([]byte(out), &res); err != nil || code != checkWarnings {
+		t.Fatalf("%d %v %s", code, err, out)
+	}
+	var rows []string
+	for _, r := range res.Invariants {
+		rows = append(rows, r.Ref+"/"+strings.Join(r.Gaps, ","))
+	}
+	if got := strings.Join(rows, " "); got != "N1/ N2/unguarded N3/unverified loans#I2/ loans#I3/" || res.Domain != "lending/loans@v1" {
+		t.Errorf("rows %s, domain %q", got, res.Domain)
+	}
+	// Without the domain version the references cannot resolve: R001.
+	code, out, _ = runCLI("invariants", filepath.Join(lending, "online-renewals.md"))
+	if code != checkWarnings || !strings.Contains(out, "[R001]") || !strings.Contains(out, "not found") {
+		t.Errorf("without domain: %d\n%s", code, out)
+	}
+	if code, _, _ := runCLI("invariants"); code != checkUsage {
+		t.Errorf("no file: %d", code)
 	}
 }

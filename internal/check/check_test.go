@@ -80,3 +80,117 @@ func TestDomainRules(t *testing.T) {
 		}
 	}
 }
+
+// writeDomain writes version v of lending/loans with a glossary and
+// invariants, as the live file or as a snapshot.
+func writeDomain(t *testing.T, dir string, v int, snapshot bool, glossary, invariants string) {
+	t.Helper()
+	name := "lending-loans-domain.md"
+	if snapshot {
+		name = "lending-loans-domain@v" + string(rune('0'+v)) + ".md"
+	}
+	domainFile(t, filepath.Join(dir, name), "lending", v, "```glossary v1\n"+glossary+"```\n\n## Rules\n\n```invariants v1\ninvariants:\n"+invariants+"```")
+}
+
+const (
+	glossV1 = "- term: \"loan\"\n  definition: \"One item lent to one member\"\n  aliases: [\"borrowing\"]\n- term: \"member\"\n  definition: \"Someone with a card\"\n"
+	glossV2 = glossV1 + "  aliases: [\"patron\"]\n"
+	invV1   = "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n  - id: I3\n    statement: \"A member has at most ten loans\"\n"
+	invV2   = "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n"
+)
+
+func lendingFolder(t *testing.T) *Folder {
+	dir := t.TempDir()
+	writeDomain(t, dir, 1, true, glossV1, invV1)
+	writeDomain(t, dir, 2, true, glossV2, invV2)
+	writeDomain(t, dir, 2, false, glossV2, invV2)
+	return NewFolder(dir)
+}
+
+func plan(t *testing.T, version, body string) *bp.Document {
+	d, err := bp.Parse([]byte("---\nkalka_domain: lending/loans@" + version + "\n---\n# Renewals\n\n" + body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func ruleList(ps []bp.Problem, prefixes string) string {
+	var ids []string
+	for _, p := range ps {
+		if strings.ContainsRune(prefixes, rune(p.Rule[0])) {
+			ids = append(ids, p.Rule)
+		}
+	}
+	return strings.Join(ids, " ")
+}
+
+const guardsTrace = "```trace v1\nlanes: [business, code]\nnodes:\n  - id: B1\n    lane: business\n    text: \"A borrowing is renewed\"\n    guards: [\"loans#I1\", \"loans#I3\"]\n```\n"
+
+func TestDomainInvariantsAndTerms(t *testing.T) {
+	f := lendingFolder(t)
+	body := "A member renews a Borrowing.\n\n" + guardsTrace
+	r := Document(plan(t, "v1", body), Options{Domains: f})
+	if got := ruleList(r.Problems, "GIR"); got != "R003 G020 G020 I040" {
+		t.Errorf("v1: %q", got)
+	}
+	var fix *bp.Fix
+	for _, p := range r.Problems {
+		if p.Rule == "G020" && p.Fix != nil {
+			fix = p.Fix
+		}
+	}
+	if fix == nil || fix.Text != "Loan" || fix.Line != 6 || fix.Column != 19 || fix.EndColumn != 28 {
+		t.Errorf("fix %+v", fix)
+	}
+	if r.Glossary.State != GlossaryHeld || r.Glossary.Ref != "lending/loans@v1" || len(r.Glossary.Terms) != 2 {
+		t.Errorf("glossary %+v", r.Glossary)
+	}
+
+	// v2 has no I3: an error against v2 itself.
+	r = Document(plan(t, "v2", body), Options{Domains: f})
+	if got := ruleList(r.Problems, "GIR"); got != "G020 G020 I020" {
+		t.Errorf("v2: %q", got)
+	}
+	// Not kept here: one R001, nothing else checked.
+	r = Document(plan(t, "v7", body), Options{Domains: f})
+	if got := ruleList(r.Problems, "GIR"); got != "R001" || r.Glossary.State != GlossaryNotKept {
+		t.Errorf("v7: %q %s", got, r.Glossary.State)
+	}
+	// No domain reference at all: the guards cannot resolve.
+	d, _ := bp.Parse([]byte("# Renewals\n\n" + guardsTrace))
+	if got := ruleList(Document(d, Options{Domains: f}).Problems, "GIR"); got != "I020 I020" {
+		t.Errorf("no reference: %q", got)
+	}
+}
+
+func TestMatrixAndImpact(t *testing.T) {
+	f := lendingFolder(t)
+	p := plan(t, "v1", "## Plan\n\n```invariants v1\naffects: [\"loans#I3\"]\ninvariants:\n  - id: N1\n    statement: \"A renewal is logged\"\n```\n\nThe member returns the borrowing.\n\n"+guardsTrace)
+	r := Document(p, Options{Domains: f})
+	rows := Matrix(p, r.Domain)
+	var got []string
+	for _, row := range rows {
+		got = append(got, row.Ref+"/"+strings.Join(row.Gaps, ",")+"/"+itoa(len(row.GuardedBy))+"/"+row.Statement)
+	}
+	want := "N1/unguarded,unverified/0/A renewal is logged loans#I3//1/A member has at most ten loans loans#I1//1/A loan is renewed at most twice"
+	if strings.Join(got, " ") != want {
+		t.Errorf("matrix %v", got)
+	}
+
+	// The owner of loans, releasing v3 from a text without I1 and with
+	// "returning" as a new alias of loan.
+	dom := f.Version("lending", "loans", 2)
+	next, _ := bp.Parse([]byte(strings.Replace(strings.Replace(string(dom.Bytes()), "aliases: [\"borrowing\"]", "aliases: [\"borrowing\", \"returns\"]", 1), "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n", "  - id: I2\n    statement: \"x\"\n", 1)))
+	imp := Impact(next, map[string]*bp.Document{"renewals.md": p}, f)
+	if len(imp) != 1 || ruleList(imp[0].Problems, "GI") != "I040 I040 G030" {
+		t.Fatalf("impact %+v", imp)
+	}
+	rows = Matrix(dom, nil)
+	ReferencedBy(rows, dom, map[string]*bp.Document{"renewals.md": p})
+	if len(rows) != 1 || len(rows[0].ReferencedBy) != 1 {
+		t.Errorf("referenced by %+v", rows)
+	}
+}
+
+func itoa(n int) string { return string(rune(0x30 + n)) }

@@ -144,6 +144,12 @@ type Document struct {
 	preLine  int // 1-based file line of pre[0]
 	tailLine int // 1-based file line of tail[0]
 	traces   []Trace
+	// Typed blocks other than trace (spec 6.15, 6.16).
+	glossary   []Term
+	invariants []Invariant
+	affects    []Affect
+	// runs is the body's prose, where glossary terms are matched.
+	runs []textRun
 }
 
 var (
@@ -251,6 +257,8 @@ func Parse(data []byte) (*Document, error) {
 		return func(off int) int { return sort.Search(len(starts), func(i int) bool { return starts[i] > off }) - 1 }
 	}
 	fences := findFences(root, []byte(lf), lineAt(starts), base, func(l int) bool { return logStart < 0 || l < logStart })
+	src := &textSource{lf: lf, starts: starts, base: base}
+	d.runs = collectRuns(root, src, func(off int) bool { return logStart < 0 || lineAt(starts)(off) < logStart })
 	if len(d.tail) > 0 {
 		tlf, tstarts := lfText(d.tail)
 		troot := goldmark.DefaultParser().Parse(text.NewReader([]byte(tlf)))
@@ -265,8 +273,11 @@ func Parse(data []byte) (*Document, error) {
 			return ast.WalkSkipChildren, nil
 		})
 		fences = append(fences, findFences(troot, []byte(tlf), lineAt(tstarts), base+logEnd, func(int) bool { return true })...)
+		d.runs = append(d.runs, collectRuns(troot, &textSource{lf: tlf, starts: tstarts, base: base + logEnd}, func(int) bool { return true })...)
 	}
 	d.buildTraces(fences)
+	d.buildGlossary(fences)
+	d.buildInvariants(fences)
 
 	if !d.hasLog && !logAppendable(d.pre) {
 		d.problem("B001", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")

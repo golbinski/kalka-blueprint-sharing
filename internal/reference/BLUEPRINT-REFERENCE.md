@@ -41,6 +41,8 @@ Which domain document, and which version of it, the plan was written against. Pu
 kalka_domain: parcels/delivery@v7
 ```
 
+Write the plan in the glossary's terms. Where the domain lists a word as an alias ("package" for "parcel"), use the term: `kalka check` warns about each alias it finds, with the term to write instead (`G020`). Name the domain's invariants the plan touches in `affects` (see "Verification plan").
+
 *Why agents benefit:* the domain document defines the team's words (what a "consignment" is, when a parcel counts as "delivered"). An agent that reads the right version uses the same names and respects the same invariants as the rest of the code. kalka shows when a newer version exists, so the plan's author can decide whether it matters.
 
 ### Scope
@@ -53,11 +55,30 @@ The bounded contexts, modules and interfaces the change is expected to touch, an
 
 ### Verification plan
 
-Invariants that must hold, edge cases, how each will be tested, and what a human reviewer must specifically check. Write it while planning, not while reviewing.
+Invariants that must hold, how each is verified, and what a human reviewer must specifically check, as an `invariants v1` block. Write it while planning, not while reviewing.
 
-> - A parcel is never scheduled for more than three redelivery attempts.
-> - A recipient who reschedules during an attempt in progress gets the new slot, not a duplicate.
-> - Reviewer: check the migration on a copy of last week's attempts table; it rewrites 2 million rows.
+````markdown
+```invariants v1
+affects: ["delivery#I3"]
+invariants:
+  - id: N1
+    statement: "A parcel is never scheduled for more than three redelivery attempts"
+    verified_by: ["gh:test/redelivery_test.py#L40-L90"]
+    status: new
+  - id: N2
+    statement: "A recipient who reschedules during an attempt in progress gets the new slot, not a duplicate"
+    verified_by: ["Reviewer: check the migration on a copy of last week's attempts table; it rewrites 2 million rows"]
+    status: new
+```
+````
+
+- Keys: `id` and `statement` always; `why`, `context`, `verified_by` and `status` when they apply. One key per line; text in double quotes.
+- `statement` is one sentence saying what holds, not what the code does.
+- `verified_by` lists how each is checked: a reference to the test (`gh:…`), or a check a person makes, starting `Reviewer:`. An invariant without one is a gap `kalka check` reports (`I031`).
+- `status` says what the plan does to it: `new`, `changed` or `removed`. Leave it out for an invariant the plan keeps as it is.
+- `affects` names the domain's invariants the plan touches, as `<domain>#<id>`, from the version in `kalka_domain:`.
+- Ids are permanent, as for trace steps: comments attach to them (`§verification-plan#N1`).
+- In a trace, the steps that keep an invariant true list it under `guards` (see "Trace blocks"). An invariant no step guards is a gap (`I030`).
 
 *Why agents benefit:* an agent cannot know which properties matter most to the team. A verification plan written up front turns them into tests the agent writes first, and tells the reviewer where to spend their attention instead of rereading everything.
 
@@ -128,7 +149,7 @@ nodes:
 - Fence the block as `trace v1`, never as `yaml`.
 - One key per line for every node. Never write a node as `{id: …, text: …}`.
 - Put `text`, `why`, `ref` and labels in double quotes. Inside them write `\"` for a quote and `\\` for a backslash.
-- Keys: `id`, `lane`, `text` always; `next`, `back`, `realizes`, `ref`, `why`, `change` when they apply. Do not invent other keys; a key of your own must start with `x-`.
+- Keys: `id`, `lane`, `text` always; `next`, `back`, `realizes`, `ref`, `why`, `change`, `guards` when they apply. Do not invent other keys; a key of your own must start with `x-`.
 - List the nodes lane by lane, each lane in the order things happen.
 
 **Content**
@@ -148,6 +169,7 @@ nodes:
 
 - A loop or retry goes under `back`, on the node where the flow returns, with a label saying when: `back: {C1: "while pages remain"}` or the block form. `next` must never lead back to an earlier node.
 - `realizes` names nodes in lanes above. In three lanes, link each node to the lane directly above where you can; do not also link it to the top lane.
+- A step that keeps an invariant true lists it under `guards`: the document's own by id, a domain's as `<domain>#<id>`, such as `guards: [N1, "delivery#I3"]`. Put it on the step where the property is enforced, in the lowest lane that shows it.
 - When the trace describes a plan, mark what the plan does: `change: new`, `change: modified` or `change: removed`. Leave unchanged steps unmarked. Keep removed steps in the flow where they are today.
 - Aim for 20 nodes or fewer in a block; 40 is the limit. For a larger process, put an overview block under one heading and one block per phase under its own heading, and repeat the last step of a phase as the first step of the next.
 
@@ -165,6 +187,31 @@ Reviewers' comments are attached to node ids. When you change an existing trace:
 Run `kalka check <file> --json` after writing. Fix every error (the block is shown as plain code until you do) and read every warning. Then read the divergence list: each item should be something true about the code. If one is an artefact of how you wrote the trace, fix the trace; if it is real, leave it, and make sure the node's `why` explains it.
 
 Renaming the heading above a block detaches the comments on its steps, as it does for comments on a section.
+
+## Domain documents
+
+A domain document (`kalka_kind: domain`) holds a team's shared language and what must always hold. Blueprints reference one released version of it with `kalka_domain: <team>/<domain>@v<N>`, and kalka links their text against that version.
+
+**Glossary.** Define the terms in one or more `glossary v1` blocks:
+
+````markdown
+```glossary v1
+- term: "parcel"
+  definition: "One item the depot accepts, labelled and tracked on its own"
+  forms: ["parcels"]
+  aliases: ["package", "packages"]
+  see: ["delivery attempt"]
+- term: "delivery attempt"
+  definition: "One visit by a courier to hand a parcel over"
+  forms: ["delivery attempts"]
+```
+````
+
+- `term` is the word the team uses, `definition` one sentence a reader sees on hover. `forms` are other forms of the same word (plurals); `aliases` are words people also use that the plan should not (each use is a warning). `context` names the bounded context; `see` names related terms of the same glossary.
+- A word names one entry: the same term, form or alias in two entries is an error.
+- Matching ignores case and works on whole words; a term interrupted by markup does not match. Code, link targets and the frontmatter are never matched.
+
+**Invariants.** List them in an `invariants v1` block, as in a plan but without `status` or `affects`. Ids are referenced from blueprints as `<domain>#<id>`; never reuse the id of a removed invariant for a different one. When the owner releases a version that removes an invariant or adds an alias, kalka lists the held blueprints that rely on it.
 
 ## When to split off a seed
 
@@ -264,6 +311,52 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 | `T121` | warning | **Trace without a heading.** The block has no heading above it, so its steps cannot be commented on. |
 | `T122` | warning | **YAML block that looks like a trace.** A block fenced as `yaml` has a root mapping with both `lanes` and `nodes`. |
 
+#### Glossary (G)
+
+| Rule | Severity | What it means |
+|---|---|---|
+| `G001` | error | **Glossary YAML does not parse.** The content of a glossary block is not valid YAML. |
+| `G002` | error | **Glossary uses a YAML feature that is not allowed.** The block uses anchors, aliases, tags, merge keys or several YAML documents. |
+| `G003` | error | **Glossary key written twice.** One entry has the same key twice. |
+| `G004` | error | **Glossary entry has the wrong shape.** The block is not a list of entries, an entry is not a block mapping, or a value is not a text or a list of texts. |
+| `G005` | error | **Glossary version not known.** The fence names a version of the glossary language this kalka does not read. |
+| `G006` | warning | **Glossary fence has no version.** The fence says `glossary` without a version; it is read as v1. |
+| `G007` | warning | **Unknown glossary key.** An entry has a key that is not term, definition, aliases, forms, context or see, and does not start with `x-`. |
+| `G008` | warning | **Glossary outside a domain document.** A glossary block is in a document that is not a domain document; it is shown as code and links nothing. |
+| `G010` | error | **Glossary entry has no term.** An entry has no `term:`. |
+| `G011` | error | **Term has no definition.** An entry has a term but no `definition:`. |
+| `G012` | error | **A word names two glossary entries.** A term, form or alias is the same (ignoring case) as a term, form or alias of another entry. |
+| `G013` | error | **Term too long.** A term is longer than 60 characters. |
+| `G014` | warning | **Too many terms.** The glossary has more than 500 terms; the rest are not read. |
+| `G015` | warning | **Definition too long.** A definition is longer than 400 characters. |
+| `G016` | warning | **see names an unknown term.** `see:` names a word that is not a term of the same glossary. |
+| `G020` | warning | **Alias used instead of the term.** The text uses an alias of a glossary term; the diagnostic offers the term as a replacement. |
+| `G030` | info | **Release would make held blueprints use an alias.** Shown to a domain owner releasing a new version: a held blueprint uses, as a word, an alias the new version introduces. |
+
+#### Invariants (I)
+
+| Rule | Severity | What it means |
+|---|---|---|
+| `I001` | error | **Invariants YAML does not parse.** The content of an invariants block is not valid YAML. |
+| `I002` | error | **Invariants use a YAML feature that is not allowed.** The block uses anchors, aliases, tags, merge keys or several YAML documents. |
+| `I003` | error | **Invariants key written twice.** One mapping has the same key twice. |
+| `I004` | error | **Invariants block has the wrong shape.** The block is not a mapping with an `invariants:` list, an invariant is not a block mapping, a value has the wrong type, or `affects` names something that is not `<domain>#<id>`. |
+| `I005` | error | **Invariants version not known.** The fence names a version of the invariants language this kalka does not read. |
+| `I006` | warning | **Invariants fence has no version.** The fence says `invariants` without a version; it is read as v1. |
+| `I007` | warning | **Unknown invariants key.** A key is not one of the language's and does not start with `x-`. |
+| `I008` | warning | **Blueprint-only key in a domain document.** A domain document uses `affects` or `status`, which only a blueprint has; they are ignored. |
+| `I010` | error | **Invariant id is not valid.** An id is missing, does not start with a letter, uses characters other than letters, digits, `-` and `_`, or is longer than 32 characters. |
+| `I011` | error | **Invariant id used twice.** Two invariants in one document have the same id. |
+| `I012` | error | **Invariant has no statement.** An invariant has an id but no `statement:`. |
+| `I013` | error | **Invariant status not known.** `status:` is not `new`, `changed` or `removed`. |
+| `I014` | warning | **Too many invariants.** The document has more than 100 invariants; the rest are not read. |
+| `I015` | warning | **Statement too long.** A statement is longer than 300 characters. |
+| `I016` | warning | **Invariant id is also a trace step id.** An invariant and a trace step under the same heading share an id, so the anchor `§slug#id` names both. |
+| `I020` | error | **Invariant reference does not resolve.** A `guards` or `affects` entry names an invariant that does not exist: an unknown id, a domain other than the one `kalka_domain:` names, or a domain reference with no `kalka_domain:` at all. |
+| `I030` | warning | **No trace step guards the invariant.** The document has a trace, and no step lists the invariant (one it introduces or affects) under `guards`. |
+| `I031` | warning | **Invariant not verified.** An invariant has no `verified_by`. |
+| `I040` | info | **Referenced invariant removed in a newer domain version.** A blueprint references a domain invariant that a newer version of the domain no longer has. Also shown to the domain owner releasing that version, listing the held blueprints concerned. |
+
 #### References to other documents (R)
 
 | Rule | Severity | What it means |
@@ -289,7 +382,7 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 
 ## A skeleton
 
-```markdown
+````markdown
 ---
 kalka_owner: dana@example.org
 kalka_reference: kalka-blueprint@v1
@@ -302,8 +395,16 @@ kalka_domain: parcels/delivery@v7
 ## Scope
 ## Plan
 ## Verification plan
+
+```invariants v1
+invariants:
+  - id: N1
+    statement: "…"
+    verified_by: ["…"]
+```
+
 ## Critical sections
 ## Operations
-```
+````
 
 The review log is added by kalka when the first comment arrives.

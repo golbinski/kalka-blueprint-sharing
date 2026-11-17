@@ -60,6 +60,9 @@ func Hints(d *Document) []Problem {
 	if v, ok := d.Frontmatter().Get(KeyDomain); ok && domainRefRe.MatchString(v) {
 		have["domain-reference"] = true
 	}
+	if len(d.invariants) > 0 {
+		have["verification-plan"] = true
+	}
 	var out []Problem
 	for _, s := range hintSections {
 		if !have[s.slug] {

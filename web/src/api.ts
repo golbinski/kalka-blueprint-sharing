@@ -211,7 +211,56 @@ export interface TraceNode {
   ref?: string
   why?: string
   change?: 'new' | 'modified' | 'removed'
+  /** Invariants the step keeps true: an id, or <domain>#<id> (spec 6.15). */
+  guards?: string[]
   line: number
+}
+
+/** One entry of a domain glossary (spec 6.16). */
+export interface Term {
+  term: string
+  definition: string
+  aliases?: string[]
+  forms?: string[]
+  context?: string
+  see?: string[]
+  line: number
+}
+
+/** The glossary a document is linked against. */
+export interface Glossary {
+  /** The domain version, such as parcels/delivery@v3. */
+  ref?: string
+  state: 'held' | 'not-kept' | 'none'
+  terms: Term[]
+}
+
+/** One row of the invariants matrix (spec 6.15, 12.4). */
+export interface InvariantRow {
+  /** The id, or <domain>#<id> for a domain invariant. */
+  ref: string
+  id: string
+  domain?: string
+  statement?: string
+  context?: string
+  why?: string
+  verified_by: string[]
+  status?: 'new' | 'changed' | 'removed'
+  /** The heading it is under; its comment anchor is section#id. */
+  section?: string
+  line: number
+  resolved: boolean
+  guarded_by: { trace: number; node: string; section?: string }[]
+  gaps: ('unguarded' | 'unverified')[]
+  /** For a domain document: the held blueprints naming it. */
+  referenced_by?: string[]
+}
+
+/** A held blueprint a domain release would concern. */
+export interface Affected {
+  path: string
+  title: string
+  problems: Problem[]
 }
 
 export type DivClass =
@@ -291,6 +340,8 @@ export interface Doc {
   log_lead?: string
   /** Diagnostics (spec 6.17), hints (H…) included. */
   problems: Problem[]
+  invariants: InvariantRow[]
+  glossary: Glossary
   duplicate?: boolean
   /** "personal" or the name of the team whose folder holds the file. */
   scope: string
@@ -642,6 +693,7 @@ export const api = {
     call<TransferView | { id: string }>('POST', `/api/transfers/${enc(id)}/${action}`, { owner }),
   about: () => call<About>('GET', '/api/about'),
   rules: () => call<Rule[]>('GET', '/api/rules'),
+  domainImpact: (path: string) => call<Affected[]>('GET', '/api/domain-impact?path=' + enc(path)),
   /** The blueprint reference as text (spec 6.13). */
   reference: async () => {
     const r = await fetch(referenceURL, { credentials: 'same-origin' })
@@ -652,7 +704,13 @@ export const api = {
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: (team = '') => call<BlueprintInfo[] | null>('GET', '/api/blueprints' + scope(team)).then((l) => l ?? []),
   doc: (path: string, version?: number) =>
-    call<Doc>('GET', '/api/doc?path=' + enc(path) + (version ? '&v=' + version : '')).then((d) => ({ ...d, traces: d.traces ?? [], refs: d.refs ?? {} })),
+    call<Doc>('GET', '/api/doc?path=' + enc(path) + (version ? '&v=' + version : '')).then((d) => ({
+      ...d,
+      traces: d.traces ?? [],
+      refs: d.refs ?? {},
+      invariants: d.invariants ?? [],
+      glossary: d.glossary ?? { state: 'none', terms: [] },
+    })),
   addEntry: (e: { path: string; kind: string; anchor: string; re?: string; quote?: string; body: string }) =>
     call<{ id: string }>('POST', '/api/entries', e),
 }

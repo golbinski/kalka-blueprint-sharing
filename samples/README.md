@@ -17,17 +17,32 @@ Both repositories are public, so any GitHub login can read them.
 Without `gh`, the references show as unresolved and everything else works.
 
 `TestSamples` (`internal/cli/samples_test.go`) keeps each one passing
-`kalka check` with the hints listed below.
+`kalka check` with the hints and warnings listed below.
 
 | File | What it exercises |
 |---|---|
-| `kalka-core-sync-domain.md` | A domain document (`kalka_kind: domain`, `kalka_domain: sync`): glossary table, invariants, the team log's operations. Publishing it to `kalka-core` makes version 1, which the two blueprints below refer to (`kalka-core/sync@v1`). |
+| `kalka-core-sync-domain.md` | A domain document (`kalka_kind: domain`, `kalka_domain: sync`): a glossary block, an invariants block whose `verified_by` link to the tests, the team log's operations. Publishing it to `kalka-core` makes version 1, which the two blueprints below refer to (`kalka-core/sync@v1`). |
 | `push-during-round.md` | A full blueprint opted into the reference: every section, so no hints; a Mermaid diagram; `gh:` links in the text; a trace block whose code nodes link to their lines, with one divergence to review (C4, implementation-only); a critical section. |
 | `retry-first-release.md` | A short opted-in plan with `gh:` links: hints for no verification plan, no critical sections and no operations. |
 | `relay-indicator.md` | No frontmatter at all: listed in Personal as a local blueprint until published. |
 | `join-flow-trace.md` | Trace blocks over kalka's join flow, every code node linked to its lines: two and three lanes, a labelled branch, and the divergence classes implementation-only, merged and expanded. |
 | `packaging/windows-installer.md` | For a second team, `packaging`, to copy or move between teams; `gh:` links to the CI workflow and the release tool; hints for no domain reference and no critical sections. |
 | `packaging/windows-app-icon.md` | A blueprint spanning two repositories: kalka by default, and Wails under `repos:` as `wails`, in the text and in a trace; the divergences implementation-only and merged; a hint for no domain reference. |
+
+The `lending` folder is a small set about a lending library, for the review aids. Check it against its domain document:
+
+```sh
+kalka check --domain samples/blueprints/lending/loans-domain.md samples/blueprints/lending
+kalka invariants --domain samples/blueprints/lending/loans-domain.md samples/blueprints/lending/online-renewals.md
+```
+
+| File | What it exercises |
+|---|---|
+| `lending/loans-domain.md` | A domain document with a glossary (terms, forms, aliases, a context, `see`) and four invariants. It says `kalka_version: 1`, as a released copy kept in a repository does. |
+| `lending/online-renewals.md` | An opted-in plan on `lending/loans@v1`: a trace whose steps declare `guards`, an invariants block that `affects` two domain invariants, and two gaps on purpose: N2 is guarded by no step (`I030`), N3 has no `verified_by` (`I031`). |
+| `lending/hold-notices.md` | A short plan that uses two aliases, "reservation" and "patron": a `G020` warning for each, with the term to write instead. |
+
+In the app, publish `loans-domain.md` to a team named `lending` to make version 1; the two plans then link their terms against it and show its invariants.
 
 ## Using them
 

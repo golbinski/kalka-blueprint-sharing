@@ -2318,3 +2318,112 @@ details.diagnostics {
   font-size: 13px;
   color: var(--text-2);
 }
+
+/* Review aids (spec 6.15, 6.16): linked terms and invariant ids, with
+   their definition or statement on hover and keyboard focus. */
+.term,
+.inv-ref {
+  position: relative;
+  text-decoration: underline dotted var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.term.alias {
+  text-decoration: underline wavy var(--div-line);
+}
+.inv-ref {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--link);
+  cursor: pointer;
+}
+.term:focus-visible,
+.inv-ref:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.term:hover::after,
+.term:focus::after,
+.inv-ref:hover::after,
+.inv-ref:focus::after {
+  content: attr(data-def);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 2px 8px var(--shadow);
+  font: 400 13px/1.4 var(--sans);
+  white-space: normal;
+  text-decoration: none;
+  pointer-events: none;
+}
+details.invariants,
+details.terms {
+  margin-bottom: 10px;
+}
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 14px;
+}
+.inv-table th,
+.inv-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line-soft);
+}
+.inv-table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inv-table tr.removed td,
+.inv-card.removed .inv-statement {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.inv-block {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.inv-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+.inv-statement {
+  font-weight: 500;
+}
+.gloss-block {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.gloss-entry {
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 6px;
+}
+.gloss-entry dd {
+  margin: 2px 0 0;
+}
+.term-list li {
+  padding: 3px 0;
+}
+.terms-note {
+  margin: 0 0 10px;
+}

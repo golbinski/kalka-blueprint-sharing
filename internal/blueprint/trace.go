@@ -90,6 +90,9 @@ type TraceNode struct {
 	Ref      string      `json:"ref,omitempty"`
 	Why      string      `json:"why,omitempty"`
 	Change   string      `json:"change,omitempty"`
+	// Guards are the invariants the step keeps true (spec 6.15): ids of the
+	// document's own, or <domain>#<id>. The invariant rules resolve them.
+	Guards []string `json:"guards,omitempty"`
 	// Line is the file line where the node starts.
 	Line int `json:"line"`
 }
@@ -153,26 +156,30 @@ func (d *Document) HasNode(slug, id string) bool {
 }
 
 // HasAnchor reports whether an entry anchor (without §) names something
-// in the body: a heading, and for slug#node a node of a trace under it.
+// in the body: a heading, and for slug#id a trace node or an invariant
+// under it.
 func (d *Document) HasAnchor(anchor string) bool {
-	slug, node, hasNode := strings.Cut(anchor, "#")
+	slug, id, hasID := strings.Cut(anchor, "#")
 	if !d.HasSection(slug) {
 		return false
 	}
-	return !hasNode || d.HasNode(slug, node)
+	return !hasID || d.HasNode(slug, id) || d.HasInvariant(slug, id)
 }
 
-// fence is a trace fence, or a yaml one that may have been meant as a
-// trace, found while parsing, before validation.
+// fence is a typed block's fence (trace, glossary, invariants), or a yaml
+// one that may have been meant as a trace, found while parsing, before
+// validation.
 type fence struct {
 	line   int    // file line of the opening fence
 	info   string // the whole info string
+	word   string // its first word: trace, glossary, invariants, yaml or yml
 	yaml   bool   // fenced as yaml or yml
 	nested bool
 	source string
 }
 
-// findFences collects ```trace blocks, and ```yaml ones, from a parsed
+// findFences collects the typed blocks (trace, glossary, invariants), and
+// ```yaml ones, from a parsed
 // part of the body. lineAt maps a byte offset of src to a 0-based line of
 // the part, and keep filters by that line (to leave out the review log).
 func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep func(int) bool) []fence {
@@ -188,7 +195,7 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 		}
 		word, _, _ := strings.Cut(strings.ReplaceAll(info, "\t", " "), " ")
 		isYAML := word == "yaml" || word == "yml"
-		if word != TraceInfo && !isYAML {
+		if word != TraceInfo && word != GlossaryInfo && word != InvariantsInfo && !isYAML {
 			return ast.WalkSkipChildren, nil
 		}
 		var b strings.Builder
@@ -207,7 +214,7 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 		if !keep(open) {
 			return ast.WalkSkipChildren, nil
 		}
-		out = append(out, fence{line: base + open + 1, info: info, yaml: isYAML, nested: fc.Parent() != root, source: b.String()})
+		out = append(out, fence{line: base + open + 1, info: info, word: word, yaml: isYAML, nested: fc.Parent() != root, source: b.String()})
 		return ast.WalkSkipChildren, nil
 	})
 	return out
@@ -218,6 +225,9 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 // trace never blocks a sync (rules T…, which are not Blocks).
 func (d *Document) buildTraces(fences []fence) {
 	for _, f := range fences {
+		if f.word != TraceInfo && !f.yaml {
+			continue
+		}
 		if f.yaml {
 			if looksLikeTrace(f.source) {
 				d.problem("T122", f.line, "this yaml block has lanes and nodes, so it was probably meant as a trace; fence it as trace v1")
@@ -305,7 +315,7 @@ var (
 
 var (
 	traceBlockKeys = []string{"lanes", "nodes"}
-	traceNodeKeys  = []string{"id", "lane", "text", "next", "back", "realizes", "ref", "why", "change"}
+	traceNodeKeys  = []string{"id", "lane", "text", "next", "back", "realizes", "ref", "why", "change", "guards"}
 )
 
 // traceParser holds what one block's validation has found.
@@ -713,6 +723,9 @@ func (p *traceParser) nodes(root *yaml.Node) []rawNode {
 		} else {
 			n.realsLine = nn.Line
 		}
+		if x := mapValue(nn, "guards"); !absent(x) {
+			n.Guards = p.guards(x, id)
+		}
 		p.unknownKeys(nn, traceNodeKeys, id)
 		for _, e := range n.Next {
 			if slices.ContainsFunc(n.Back, func(b TraceEdge) bool { return b.To == e.To }) {
@@ -737,6 +750,33 @@ func (p *traceParser) nodes(root *yaml.Node) []rawNode {
 			p.warn("T113", id, n.nextLine, "only some of the next edges have a label; say when each one is taken")
 		}
 		out = append(out, n)
+	}
+	return out
+}
+
+// guards reads invariant references: a text or a list of texts, each an
+// id or <domain>#<id> (T034 otherwise).
+func (p *traceParser) guards(v *yaml.Node, node string) []string {
+	var items []*yaml.Node
+	switch v.Kind {
+	case yaml.ScalarNode:
+		items = []*yaml.Node{v}
+	case yaml.SequenceNode:
+		items = v.Content
+	default:
+		p.fail("T034", node, v.Line, "guards is a list of invariants, such as guards: [I1, \"loans#I3\"]")
+		return nil
+	}
+	var out []string
+	for _, it := range items {
+		s, ok := textOf(it)
+		if !ok || !invRefRe.MatchString(s) {
+			p.fail("T034", node, it.Line, "guards names invariants by id (I1) or as <domain>#<id> (\"loans#I3\"), not %q", s)
+			return nil
+		}
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
 	}
 	return out
 }

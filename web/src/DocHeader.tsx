@@ -3,6 +3,7 @@
 // rest under More. Changing the owner, deleting for the team and taking a
 // blueprint over open as a confirmation inside the card.
 import { useState } from 'react'
+import { ReleaseImpact } from './Aids'
 import { ErrorConfirm } from './Diagnostics'
 import { confirmable } from './diag'
 import { act } from './actions'
@@ -290,6 +291,7 @@ function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void
         ) : (
           <p className="muted small">No open comments.</p>
         )}
+        <ReleaseImpact doc={doc} />
         <ErrorConfirm doc={doc} verb="Release" />
         {err && <p className="error-text">{err}</p>}
         <div className="row">

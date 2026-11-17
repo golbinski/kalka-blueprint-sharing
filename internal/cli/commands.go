@@ -56,6 +56,7 @@ var commands = []command{
 	{"autostart", ClassWorkflow, plain(cmdAutostart)},
 	{"setup", ClassWorkflow, plain(cmdSetup)},
 	{"check", ClassView, plain(cmdCheck)},
+	{"invariants", ClassView, plain(cmdInvariants)},
 	{"comment", ClassWorkflow, func(_ string, a []string, in io.Reader, o, e io.Writer, now func() time.Time) int {
 		return cmdComment(a, in, o, e, now)
 	}},

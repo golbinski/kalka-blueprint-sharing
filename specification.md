@@ -880,7 +880,7 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka seeds [--team <t>\|personal]` | view | The pre-backlog of a team or Personal. | Seeds |
 | `kalka domains [--team <t>]` | view | Domain documents and versions. | Domains |
 | `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--rules v<N>] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
-| `kalka invariants <file> [--json]` | file | The invariants matrix (12.4). | Review *Invariants* |
+| `kalka invariants <file> [--json] [--domain <path>]` | file | The invariants matrix (12.4). | Review *Invariants* |
 | `kalka doctor [--json]` | view | Check this installation (12.5). | Settings *Check setup* |
 | `kalka waiting [--team <t>] [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Needs you, tray |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). | Settings, tray |
@@ -960,7 +960,7 @@ A domain version is found as its snapshot `*@v<N>.md` first, then as a domain do
 
 `kalka check` never writes: there is no formatter and no `--fix`. Agents run `kalka check --json` before handing a document over (6.13).
 
-`kalka invariants <file> [--json]` prints the invariants matrix of 11.1, one row per invariant: id, statement, status, the trace nodes guarding it and its `verified_by`. Its diagnostics are those of `kalka check`.
+`kalka invariants <file> [--json] [--domain <path>]` prints the invariants matrix of 11.1, one row per invariant: the document's own, then the domain invariants it affects or guards, each with its statement (from the referenced version), status, the trace nodes guarding it, its `verified_by` and its gaps (`unguarded`, `unverified`). It prints the invariant diagnostics of `kalka check` (`I…`, and `R001` when the domain version is not here) and exits on them as `check` does. It reads domain versions as `check` does.
 
 ### 12.5 `kalka doctor`
 
@@ -1142,6 +1142,12 @@ Decisions taken where the design left a choice, with the reason.
 9. **Glossary matching in the browser.** The app links terms in the rendered page with its own matcher; `kalka check` uses the Go matcher. Both are run over the same corpus (`testdata/glossary/corpus.json`) in the Go and the web tests, which must give the same matches.
 10. **Doctor exit codes** follow `check`: 0 ok, 2 warnings only, 1 a failure.
 11. **The page computes no diagnostic.** It shows the daemon's `problems`. Two other pieces of logic the page had of its own are settled: a release entry is read by the core and sent parsed (`release` on an entry, 13), and what counts as a plugin reference in a link (10.1) is checked by both sides against one corpus (`testdata/refs/corpus.json`). Turning a typed team name into a name (19.2) stays in the page as a preview; the daemon validates the result.
+
+12. **An invariants block may hold only `affects`.** A plan that changes nothing of its own but touches domain invariants says so without inventing one.
+13. **`affects` and `guards` resolve the same way.** Both name domain invariants as `<domain>#<id>` against the version in `kalka_domain:`; a domain document may name its own invariants with or without its domain name.
+14. **A reference wins over a term.** Where an invariant reference such as `delivery#I3` contains a glossary term, the page links the reference.
+15. **Typed blocks with errors are not read.** A glossary or invariants block with an error other than a duplicate is ignored as a whole and shown as code, as a trace block is; duplicates drop only the later entry, so one mistake does not hide a glossary.
+16. **`G030` and `I040` at release list each blueprint once per word or invariant.** They are information for the owner and never stop the release.
 
 Future work:
 

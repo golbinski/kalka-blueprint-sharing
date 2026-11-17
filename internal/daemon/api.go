@@ -143,6 +143,16 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("GET /api/rules", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, rules.All())
 	})
+	// What releasing a domain document's current text would mean for the
+	// held blueprints referencing it (spec 11.1).
+	mux.HandleFunc("GET /api/domain-impact", func(w http.ResponseWriter, r *http.Request) {
+		out, err := d.DomainImpact(r.URL.Query().Get("path"))
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /api/about", func(w http.ResponseWriter, _ *http.Request) {
 		a := d.opts.About
 		a.Reference = reference.Version

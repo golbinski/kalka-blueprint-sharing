@@ -76,6 +76,52 @@ Every diagnostic of `kalka check` and of the app has one of these ids (specifica
 | `T121` | warning | **Trace without a heading.** The block has no heading above it, so its steps cannot be commented on. |
 | `T122` | warning | **YAML block that looks like a trace.** A block fenced as `yaml` has a root mapping with both `lanes` and `nodes`. |
 
+## Glossary (G)
+
+| Rule | Severity | What it means |
+|---|---|---|
+| `G001` | error | **Glossary YAML does not parse.** The content of a glossary block is not valid YAML. |
+| `G002` | error | **Glossary uses a YAML feature that is not allowed.** The block uses anchors, aliases, tags, merge keys or several YAML documents. |
+| `G003` | error | **Glossary key written twice.** One entry has the same key twice. |
+| `G004` | error | **Glossary entry has the wrong shape.** The block is not a list of entries, an entry is not a block mapping, or a value is not a text or a list of texts. |
+| `G005` | error | **Glossary version not known.** The fence names a version of the glossary language this kalka does not read. |
+| `G006` | warning | **Glossary fence has no version.** The fence says `glossary` without a version; it is read as v1. |
+| `G007` | warning | **Unknown glossary key.** An entry has a key that is not term, definition, aliases, forms, context or see, and does not start with `x-`. |
+| `G008` | warning | **Glossary outside a domain document.** A glossary block is in a document that is not a domain document; it is shown as code and links nothing. |
+| `G010` | error | **Glossary entry has no term.** An entry has no `term:`. |
+| `G011` | error | **Term has no definition.** An entry has a term but no `definition:`. |
+| `G012` | error | **A word names two glossary entries.** A term, form or alias is the same (ignoring case) as a term, form or alias of another entry. |
+| `G013` | error | **Term too long.** A term is longer than 60 characters. |
+| `G014` | warning | **Too many terms.** The glossary has more than 500 terms; the rest are not read. |
+| `G015` | warning | **Definition too long.** A definition is longer than 400 characters. |
+| `G016` | warning | **see names an unknown term.** `see:` names a word that is not a term of the same glossary. |
+| `G020` | warning | **Alias used instead of the term.** The text uses an alias of a glossary term; the diagnostic offers the term as a replacement. |
+| `G030` | info | **Release would make held blueprints use an alias.** Shown to a domain owner releasing a new version: a held blueprint uses, as a word, an alias the new version introduces. |
+
+## Invariants (I)
+
+| Rule | Severity | What it means |
+|---|---|---|
+| `I001` | error | **Invariants YAML does not parse.** The content of an invariants block is not valid YAML. |
+| `I002` | error | **Invariants use a YAML feature that is not allowed.** The block uses anchors, aliases, tags, merge keys or several YAML documents. |
+| `I003` | error | **Invariants key written twice.** One mapping has the same key twice. |
+| `I004` | error | **Invariants block has the wrong shape.** The block is not a mapping with an `invariants:` list, an invariant is not a block mapping, a value has the wrong type, or `affects` names something that is not `<domain>#<id>`. |
+| `I005` | error | **Invariants version not known.** The fence names a version of the invariants language this kalka does not read. |
+| `I006` | warning | **Invariants fence has no version.** The fence says `invariants` without a version; it is read as v1. |
+| `I007` | warning | **Unknown invariants key.** A key is not one of the language's and does not start with `x-`. |
+| `I008` | warning | **Blueprint-only key in a domain document.** A domain document uses `affects` or `status`, which only a blueprint has; they are ignored. |
+| `I010` | error | **Invariant id is not valid.** An id is missing, does not start with a letter, uses characters other than letters, digits, `-` and `_`, or is longer than 32 characters. |
+| `I011` | error | **Invariant id used twice.** Two invariants in one document have the same id. |
+| `I012` | error | **Invariant has no statement.** An invariant has an id but no `statement:`. |
+| `I013` | error | **Invariant status not known.** `status:` is not `new`, `changed` or `removed`. |
+| `I014` | warning | **Too many invariants.** The document has more than 100 invariants; the rest are not read. |
+| `I015` | warning | **Statement too long.** A statement is longer than 300 characters. |
+| `I016` | warning | **Invariant id is also a trace step id.** An invariant and a trace step under the same heading share an id, so the anchor `§slug#id` names both. |
+| `I020` | error | **Invariant reference does not resolve.** A `guards` or `affects` entry names an invariant that does not exist: an unknown id, a domain other than the one `kalka_domain:` names, or a domain reference with no `kalka_domain:` at all. |
+| `I030` | warning | **No trace step guards the invariant.** The document has a trace, and no step lists the invariant (one it introduces or affects) under `guards`. |
+| `I031` | warning | **Invariant not verified.** An invariant has no `verified_by`. |
+| `I040` | info | **Referenced invariant removed in a newer domain version.** A blueprint references a domain invariant that a newer version of the domain no longer has. Also shown to the domain owner releasing that version, listing the held blueprints concerned. |
+
 ## References to other documents (R)
 
 | Rule | Severity | What it means |

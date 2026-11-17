@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/check"
 	"github.com/golbinski/kalka/internal/merge"
 )
 
@@ -240,4 +241,42 @@ func (s storeDomains) Latest(team, domain string) int64 {
 		latest = max(latest, v)
 	}
 	return latest
+}
+
+// blueprintsOf are the held blueprints whose `kalka_domain:` names dom's
+// team and domain, by path relative to the folder.
+func (d *Node) blueprintsOf(dom *bp.Document) map[string]*bp.Document {
+	out := map[string]*bp.Document{}
+	name, team := dom.DomainName(), dom.Team()
+	if name == "" {
+		return out
+	}
+	for _, in := range d.Store.List() {
+		if in.Domain != "" || in.ParseError != "" {
+			continue
+		}
+		f, err := d.Store.Load(in.Path)
+		if err != nil {
+			continue
+		}
+		if ref, ok := f.Doc.DomainRef(); ok && ref.Domain == name && (team == "" || ref.Team == team) {
+			out[d.rel(in.Path)] = f.Doc
+		}
+	}
+	return out
+}
+
+// DomainImpact is what releasing the current text of the domain document
+// at path would mean for the held blueprints referencing it (spec 11.1):
+// invariants they rely on that it removes (I040), aliases it introduces
+// that they use (G030).
+func (d *Node) DomainImpact(path string) ([]check.Affected, error) {
+	f, err := d.Store.Load(d.resolve(path))
+	if err != nil {
+		return nil, err
+	}
+	if !f.Doc.IsDomain() {
+		return nil, fmt.Errorf("%s is not a domain document", f.Path)
+	}
+	return check.Impact(f.Doc, d.blueprintsOf(f.Doc), storeDomains{d}), nil
 }

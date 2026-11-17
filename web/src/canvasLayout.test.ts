@@ -82,6 +82,8 @@ function doc(): Doc {
       entry("e8", "problem", { reply_to: "missing" }),
     ],
     problems: [],
+    invariants: [],
+    glossary: { state: 'none', terms: [] },
     traces: [
       { index: 0, line: 22, source: "", version: 1, divergences: [], graph: 0 },
     ],

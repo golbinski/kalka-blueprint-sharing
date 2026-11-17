@@ -33,6 +33,7 @@
     { "command": "seeds", "class": "view", "place": "Seeds" },
     { "command": "domains", "class": "view", "place": "Domains" },
     { "command": "check", "class": "view", "place": "Checks in the document view, with --explain as each rule's meaning; the confirmation before Publish and Release" },
+    { "command": "invariants", "class": "view", "place": "The Invariants panel of the document view" },
     { "command": "waiting", "class": "view", "place": "Switcher badges, Needs you, tray; opening a blueprint clears what --seen clears" },
     { "command": "pause", "class": "workflow", "action": "sync.pause" },
     { "command": "resume", "class": "workflow", "action": "sync.pause" },

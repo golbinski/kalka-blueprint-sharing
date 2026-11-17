@@ -42,6 +42,11 @@ type DocView struct {
 	// checker as `kalka check`, hints (H…) included.
 	Problems  []bp.Problem `json:"problems"`
 	Duplicate bool         `json:"duplicate,omitempty"`
+	// Invariants is the invariants matrix (spec 6.15, 12.4); for a domain
+	// document each row names the held blueprints referencing it.
+	Invariants []check.Row `json:"invariants"`
+	// Glossary is what the document's terms are linked against (6.16).
+	Glossary check.Glossary `json:"glossary"`
 	// Scope is "personal" or the name of the team whose folder holds the
 	// file; Mismatch says why a file's location and team: disagree, or why
 	// a file in a team's folder is not shared (spec 14).
@@ -146,8 +151,14 @@ func (d *Node) Document(ctx context.Context, path string) (*DocView, error) {
 func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapshot int64) (*DocView, error) {
 	v := &DocView{
 		Path: path, KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(), Self: d.self.Email,
-		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(), Problems: check.Document(doc, check.Options{Domains: storeDomains{d}}).Problems,
+		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(),
 		Entries: []EntryView{},
+	}
+	res := check.Document(doc, check.Options{Domains: storeDomains{d}})
+	v.Problems, v.Glossary = res.Problems, res.Glossary
+	v.Invariants = check.Matrix(doc, res.Domain)
+	if doc.IsDomain() && len(v.Invariants) > 0 {
+		check.ReferencedBy(v.Invariants, doc, d.blueprintsOf(doc))
 	}
 	if v.Headings == nil {
 		v.Headings = []bp.Heading{}
@@ -159,7 +170,6 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		v.Title = filepath.Base(path)
 	}
 	v.Rel, _ = filepath.Rel(d.Store.Dir(), path)
-	v.Rel = filepath.ToSlash(v.Rel)
 	v.Rel = filepath.ToSlash(v.Rel)
 	if fm := doc.Frontmatter(); fm != nil {
 		v.Frontmatter = strings.ReplaceAll(fm.Inner(), "\r\n", "\n")

@@ -14,6 +14,8 @@ const doc = (team?: Partial<TeamDocState>, more: Partial<Doc> = {}): Doc =>
     headings: [],
     entries: [],
     problems: [],
+    invariants: [],
+    glossary: { state: 'none', terms: [] },
     scope: 'lending',
     traces: [],
     refs: {},

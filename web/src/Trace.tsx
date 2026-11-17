@@ -2,6 +2,7 @@
 // divergences the daemon computed, and a side panel with node details.
 // Layout is computed in traceLayout.ts; nothing is saved.
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { GuardsList, Linked } from './Aids'
 import type { Divergence, Doc, Entry, RefView, Trace, TraceNode, TraceProblem } from './api'
 import { Composer, EntryCard } from './Review'
 import { RefBox, RefLayer } from './refs'
@@ -473,7 +474,9 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
         </button>
       </div>
       <div>
-        <div className="panel-title big">{n.text}</div>
+        <div className="panel-title big">
+          <Linked text={n.text} />
+        </div>
         {n.change && (
           <div className="mt6">
             <b>Change:</b> {CHANGE[n.change]}
@@ -501,6 +504,7 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
           </div>
         )}
       </div>
+      <GuardsList doc={doc} guards={n.guards} />
       {n.ref && <RefBox info={doc.refs[n.ref]} raw={n.ref} />}
       <div className="hr" />
       <div className="small b">{notes.length ? plural(notes.length, 'comment') + ' on this step' : 'No comments on this step yet'}</div>

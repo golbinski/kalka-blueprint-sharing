@@ -88,7 +88,9 @@ func usage(w io.Writer) {
                                    if installed; --headless: no window)
   %[1]s open [--print] [<link>]  open the running daemon's UI; with a kalka:// link, its join screen
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir>
-  %[1]s check <file>... [--json] [--verbose]
+  %[1]s check <files or folders>... [--json] [--verbose] [--strict] [--rules v1]
+          [--with-plugins] [--domain <path>] | check --explain <rule>
+  %[1]s invariants <file> [--json] [--domain <path>]   the invariants matrix
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
   %[1]s seed backlink <seed> [--json]   add a missing backlink to the seed's parent
@@ -119,7 +121,7 @@ option, pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 teams, team members|log|invites, waiting, seeds, transfers, domains, settings) never
 start it: with none running they read the local files and their JSON says
-"daemon": false. check, comment, seed, seed backlink and reference never need it.
+"daemon": false. check, invariants, comment, seed, seed backlink and reference never need it.
 `, name.Binary, NoStartEnv)
 }
 

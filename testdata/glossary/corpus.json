@@ -1,0 +1,32 @@
+{
+  "about": "Glossary matching (spec 6.16), run by the Go and the web tests. Each case lists its matches in order: the text matched, the index of the term, and whether an alias matched.",
+  "terms": [
+    { "term": "parcel", "definition": "One item the depot accepts", "forms": ["parcels"], "aliases": ["package", "packages"] },
+    { "term": "delivery attempt", "definition": "One visit by a courier to hand a parcel over", "forms": ["delivery attempts"] },
+    { "term": "delivery", "definition": "Getting a parcel to its recipient" },
+    { "term": "depot", "definition": "Where parcels wait for a courier" },
+    { "term": "Straße", "definition": "A street, in an address" },
+    { "term": "loan", "definition": "One item lent to one member", "aliases": ["borrowing"] }
+  ],
+  "cases": [
+    { "text": "The parcel waits at the depot.", "matches": [["parcel", 0, false], ["depot", 3, false]] },
+    { "text": "Parcels and PACKAGES", "matches": [["Parcels", 0, false], ["PACKAGES", 0, true]] },
+    { "text": "a package", "matches": [["package", 0, true]] },
+    { "text": "parcelled, subparcel, parcel2, _parcel_", "matches": [["parcel", 0, false]] },
+    { "text": "the delivery attempt failed", "matches": [["delivery attempt", 1, false]] },
+    { "text": "two delivery\n  attempts", "matches": [["delivery\n  attempts", 1, false]] },
+    { "text": "delivery attempt", "matches": [["delivery attempt", 1, false]] },
+    { "text": "deliveryattempt and delivery", "matches": [["delivery", 2, false]] },
+    { "text": "delivery-attempt", "matches": [["delivery", 2, false]] },
+    { "text": "parcel's depot", "matches": [["parcel", 0, false], ["depot", 3, false]] },
+    { "text": "(depot)", "matches": [["depot", 3, false]] },
+    { "text": "die STRASSE, die straße", "matches": [["straße", 4, false]] },
+    { "text": "dépot", "matches": [] },
+    { "text": "depoté", "matches": [] },
+    { "text": "depot́", "matches": [] },
+    { "text": "the borrowing ends", "matches": [["borrowing", 5, true]] },
+    { "text": "loan loans", "matches": [["loan", 5, false]] },
+    { "text": "", "matches": [] },
+    { "text": "Ünits of parcels", "matches": [["parcels", 0, false]] }
+  ]
+}

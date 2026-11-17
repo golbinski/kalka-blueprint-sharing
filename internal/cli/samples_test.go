@@ -12,12 +12,13 @@ import (
 )
 
 // TestSamples keeps the sample folder (samples/blueprints, used for manual
-// testing) valid: each file passes `kalka check` with no error or
-// warning, every trace block is valid, and each shows the hints
-// samples/README.md says it does.
+// testing) as samples/README.md describes it: each file passes `kalka
+// check` with no error and only the warnings it is there to show, every
+// trace block is valid, and each shows the hints it says. The lending
+// samples are checked against their domain document (--domain).
 func TestSamples(t *testing.T) {
 	root := filepath.Join("..", "..", "samples", "blueprints")
-	want := map[string][]string{
+	want := map[string][]string{ // hints, then the warnings shown on purpose
 		"kalka-core-sync-domain.md":      nil,
 		"push-during-round.md":           nil,
 		"retry-first-release.md":         {"H003", "H004", "H005"},
@@ -25,6 +26,9 @@ func TestSamples(t *testing.T) {
 		"join-flow-trace.md":             nil,
 		"packaging/windows-installer.md": {"H001", "H004"},
 		"packaging/windows-app-icon.md":  {"H001"},
+		"lending/loans-domain.md":        nil,
+		"lending/online-renewals.md":     {"I030", "I031"},
+		"lending/hold-notices.md":        {"G020", "G020"},
 	}
 	var seen []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -40,7 +44,12 @@ func TestSamples(t *testing.T) {
 			return nil
 		}
 		var out, errb bytes.Buffer
-		if code := Run([]string{"check", "--json", p}, nil, &out, &errb); code != 0 {
+		args := []string{"check", "--json", p}
+		if strings.HasPrefix(rel, "lending/") {
+			args = append(args, "--domain", filepath.Join(root, "lending", "loans-domain.md"))
+		}
+		code := Run(args, nil, &out, &errb)
+		if code != checkClean && code != checkWarnings {
 			t.Errorf("%s: check exit %d: %s", rel, code, errb.String())
 			return nil
 		}
@@ -52,15 +61,15 @@ func TestSamples(t *testing.T) {
 		var got []string
 		for _, p := range r.Diagnostics {
 			switch {
-			case p.Severity != bp.Info:
+			case p.Severity == bp.Error:
 				t.Errorf("%s: %s %s: %s", rel, p.Severity, p.Rule, p.Message)
-			case strings.HasPrefix(p.Rule, "H"):
+			case p.Severity == bp.Warning, strings.HasPrefix(p.Rule, "H"):
 				got = append(got, p.Rule)
 			}
 		}
 		slices.Sort(got)
 		if !slices.Equal(got, hints) {
-			t.Errorf("%s: hints %v, want %v", rel, got, hints)
+			t.Errorf("%s: hints and warnings %v, want %v", rel, got, hints)
 		}
 		for i, tr := range r.Traces {
 			if !tr.Valid {

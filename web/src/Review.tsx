@@ -10,12 +10,15 @@ import { attestedBadge, shortName } from './scope'
 import { DiagnosticsPanel } from './Diagnostics'
 import { hintsOf } from './diag'
 import { DocHeader } from './DocHeader'
+import { GlossaryBlock, InvariantBlock, InvariantsPanel, LinkContext, linkerOf, showInvariant, TermsPanel, useLink } from './Aids'
 import { canvasHref, docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
   // is safe to insert.
-  const html = useMemo(() => render(src), [src])
+  // Comments link invariant ids, not terms (spec 6.16).
+  const link = useLink()
+  const html = useMemo(() => render(src, link && { invariants: link.invariants }), [src, link])
   return <div className={'md ' + (className ?? '')} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
@@ -420,7 +423,11 @@ export function Composer({
         ) : (
           <select value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="Section">
             <option value="">The whole blueprint</option>
-            {anchor.includes('#') && <option value={anchor}>step {anchor.split('#')[1]}</option>}
+            {anchor.includes('#') && (
+              <option value={anchor}>
+                {doc.invariants.some((r) => !r.domain && `${r.section}#${r.id}` === anchor) ? 'invariant' : 'step'} {anchor.split('#')[1]}
+              </option>
+            )}
             {doc.headings.map((h) => (
               <option key={h.slug} value={h.slug}>
                 {'\u00a0\u00a0'.repeat(Math.max(0, h.level - 1))}
@@ -471,13 +478,16 @@ export function Composer({
 
 // SectionBody renders a section with its trace and mermaid blocks drawn,
 // not shown as code.
-function SectionBody({ s, doc }: { s: Section; doc: Doc }) {
-  const parts = useMemo(() => renderParts(s.markdown, s.line), [s.markdown, s.line])
+function SectionBody({ s, doc, onComment }: { s: Section; doc: Doc; onComment?: (anchor: string) => void }) {
+  const link = useLink()
+  const parts = useMemo(() => renderParts(s.markdown, s.line, link), [s.markdown, s.line, link])
   return (
     <>
       {parts.map((p, i) => {
         if (p.kind === 'html') return <div key={i} className="md" dangerouslySetInnerHTML={{ __html: p.html }} />
         if (p.kind === 'mermaid') return <Mermaid key={i} source={p.source} />
+        if (p.kind === 'invariants') return <InvariantBlock key={i} doc={doc} line={p.line} end={p.end} source={p.source} onComment={onComment} />
+        if (p.kind === 'glossary') return <GlossaryBlock key={i} doc={doc} line={p.line} end={p.end} source={p.source} />
         const t = doc.traces.find((x) => x.line === p.line)
         if (!t)
           return (
@@ -508,6 +518,13 @@ export function Review({
   const [unfold, setUnfold] = useState<Set<string>>(new Set())
 
   const { bySlug, general, orphaned, replies, byId } = useMemo(() => groupEntries(doc), [doc])
+  const link = useMemo(() => linkerOf(doc), [doc])
+  // A linked invariant id goes to its card, by click or keyboard.
+  const followInvariant = (e: React.MouseEvent | React.KeyboardEvent) => {
+    if ('key' in e && e.key !== 'Enter') return
+    const el = (e.target as HTMLElement).closest('[data-inv]')
+    if (el) showInvariant(el.getAttribute('data-inv') ?? '')
+  }
 
   // Scroll to a section or entry named in the location, once.
   useEffect(() => {
@@ -554,8 +571,9 @@ export function Review({
     reload()
   }
 
+  // A section's composer also takes comments on its trace steps and invariants.
   const composerFor = (anchor: string) =>
-    draft && draft.anchor === anchor ? <Composer doc={doc} draft={draft} onCancel={() => setDraft(null)} onSaved={saved} /> : null
+    draft && (draft.anchor === anchor || (anchor !== '' && draft.anchor.startsWith(anchor + '#'))) ? <Composer doc={doc} draft={draft} onCancel={() => setDraft(null)} onSaved={saved} /> : null
 
   const sectionView = (s: Section, i: number) => {
     const slug = s.heading?.slug ?? ''
@@ -565,7 +583,7 @@ export function Review({
     return (
       <section className="sec" key={i} id={s.heading ? 's-' + slug : undefined}>
         <div className="sec-body" onMouseUp={() => s.heading && captureSelection(slug)}>
-          <SectionBody s={s} doc={doc} />
+          <SectionBody s={s} doc={doc} onComment={readOnly ? undefined : (a) => open(a)} />
         </div>
         <aside className="sec-notes">
           {s.heading && (
@@ -592,7 +610,8 @@ export function Review({
   }
 
   return (
-    <div className="review-wrap">
+    <LinkContext.Provider value={link}>
+    <div className="review-wrap" onClick={followInvariant} onKeyDown={followInvariant}>
       <Outline doc={doc} bySlug={bySlug} replies={replies} general={general.length} orphaned={orphaned.length} />
     <RefLayer doc={doc} className="review">
       <DocHeader doc={doc} reload={reload} onSeed={onSeed && (() => onSeed())} onPublish={onPublish} />
@@ -600,6 +619,8 @@ export function Review({
       <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
       <DiagnosticsPanel doc={doc} />
+      <InvariantsPanel doc={doc} />
+      <TermsPanel doc={doc} />
       {doc.sections.length === 0 && <p className="muted">This blueprint has no text yet.</p>}
       {selection && !readOnly && !draft && (
         <button
@@ -651,6 +672,7 @@ export function Review({
       )}
     </RefLayer>
     </div>
+    </LinkContext.Provider>
   )
 }
 

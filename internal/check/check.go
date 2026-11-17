@@ -44,6 +44,8 @@ type Result struct {
 	Problems []bp.Problem
 	// Domain is the referenced domain version, when available.
 	Domain *bp.Document
+	// Glossary is what the document's terms are linked against.
+	Glossary Glossary
 }
 
 // Document runs every rule of the set on doc.
@@ -58,6 +60,9 @@ func Document(doc *bp.Document, o Options) Result {
 	var dps []bp.Problem
 	r.Domain, dps = domainRef(doc, o.Domains)
 	ps = append(ps, dps...)
+	r.Glossary = GlossaryOf(doc, r.Domain)
+	ps = append(ps, termProblems(doc, r.Glossary)...)
+	ps = append(ps, invariantProblems(doc, r.Domain, o.Domains)...)
 	if o.Plugins != nil {
 		ps = append(ps, refProblems(doc, o)...)
 	}
@@ -134,7 +139,7 @@ func refProblems(doc *bp.Document, o Options) []bp.Problem {
 			}
 		}
 	}
-	uses = append(uses, invariantRefs(doc)...)
+	uses = append(uses, verifiedRefs(doc)...)
 	if len(uses) == 0 {
 		return nil
 	}
@@ -195,7 +200,3 @@ type refUse struct {
 	line      int
 	node      string
 }
-
-// invariantRefs are the plugin references of verified_by; none until the
-// invariants block exists.
-func invariantRefs(*bp.Document) []refUse { return nil }
