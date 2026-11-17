@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -74,6 +75,11 @@ func ParseToken(s string) (Invite, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&iv); err != nil {
+		if strings.HasPrefix(err.Error(), "json: unknown field") {
+			// A checksum that matches and a field this kalka does not know:
+			// a newer kalka made the invite.
+			return iv, fmt.Errorf("%w: was made by a newer kalka; update kalka to use it", ErrInviteToken)
+		}
 		return iv, ErrInviteToken
 	}
 	if len(iv.Secret) != 32 || !ValidTeamName(iv.TeamName) || !hashRe.MatchString(iv.Team) || !emailRe.MatchString(iv.Email) || !emailRe.MatchString(iv.Inviter) {

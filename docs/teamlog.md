@@ -10,7 +10,8 @@ One operation per line of `<team>-team.log`, as JSON:
 {"args":{"email":"bob@example.org","pubkey":"…"},"at":"2026-11-20T09:00:00Z","op":"add-member","prev":["…"],"sig":"…","signer":"…","team":"…","v":2}
 ```
 
-- **Canonical form.** Keys in lexicographic byte order at every level, no whitespace, strings escaped as Go's `encoding/json` does with HTML escaping switched off, integers only (`v`, `after`). `prev` sorted and without duplicates.
+- **Canonical form.** Keys in lexicographic byte order at every level, no whitespace, integers only (`v`, `after`), `prev` sorted and without duplicates. Strings are UTF-8 written as is, except: `"` and `\` as `\"` and `\\`; `\n`, `\r`, `\t`, `\b` and `\f` as such; other control characters below U+0020 as `\u00XX` with lower-case hex; U+2028 and U+2029 as `\u2028` and `\u2029`. U+007F and `<`, `>`, `&` are written raw. Invalid UTF-8 is refused. (This is Go's `encoding/json` with HTML escaping off; it differs from RFC 8785 in the U+2028/U+2029 escapes.)
+- **Test vectors.** `testdata/teamlog/vectors.json` holds one operation of each kind: the key seed, the line, the bytes hashed, the hash and the signature. Another implementation reproduces them byte for byte; a test keeps them fixed.
 - **One line per operation.** A line must be exactly its canonical form, byte for byte; any other spelling of the same JSON (whitespace, key order, escapes, a key twice) is refused. So a line is an operation, and the hash can be taken from the line.
 - **Hash.** Lowercase hex SHA-256 of the line with its `sig` member removed (the canonical form without `sig`). It is the operation's identity, and computing it needs no knowledge of the operation's kind. The team's identity is the hash of its `create-team`.
 - **Signature.** Ed25519 over `"kalka-teamlog-sig\n" + hash`. The context is the same for every rule version, so a peer can check an operation it cannot replay. `signer` and `sig` are base64url without padding, as are the keys in `add-member`.
@@ -25,11 +26,11 @@ One operation per line of `<team>-team.log`, as JSON:
 | `remove-member` | `email` |
 | `add-owner` | `email` |
 | `remove-owner` | `email` |
-| `reassign-document` | `doc`, `from`, `owner`, `after`, `plan` (64 hex, empty when `after` is 0) |
+| `reassign-document` | `doc`, `from`, `owner`, `after` |
 | `accept-transfer` | `doc`, `owner`, `transfer` (64 hex) |
 | `decline-transfer` | `doc`, `transfer` |
 
-`reassign-document` names `from`, the owner the signer saw. It is kept for the history and for notices; replay does not judge it (rule 9). `after` and `plan` name the document state the signer held: that is how a reassignment establishes which releases came before it (spec §20.4). `transfer` is the digest of the offer's `transfer` entry (spec §20.7).
+`reassign-document` names `from`, the owner the signer saw. It is kept for the history and for notices; replay does not judge it (rule 9). `after` names the highest release the signer held: that is how a reassignment establishes which releases came before it (spec §20.4). It names no plan hash: replay could not check one without the document, so peers holding different entries would judge it differently. `transfer` is the digest of the offer's `transfer` entry (spec §20.7).
 
 - **Unsupported versions.** An operation with `v` other than 2 decodes, is kept and passed on, and is *pending* (with everything that builds on it). It never makes a peer diverge from a newer peer by being discarded.
 

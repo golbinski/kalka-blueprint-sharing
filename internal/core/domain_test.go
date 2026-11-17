@@ -185,6 +185,7 @@ func TestDomainRelayAndReassignment(t *testing.T) {
 
 	// The depot, offline, releases v3. Meanwhile the courier, a team owner,
 	// reassigns the document to the hub from version 3.
+	staleView(t)
 	depot.start()
 	editFile(t, depot, path, "numbered.", "numbered by bay.")
 	depot.release(path, "by bay")

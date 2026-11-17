@@ -411,7 +411,6 @@ type Reassigned struct {
 	Path    string `json:"path"`
 	After   int64  `json:"after"`
 	Domain  string `json:"domain,omitempty"` // a domain document moves with its owner like any other (6.12)
-	Plan    string `json:"-"`
 }
 
 // RemovalPreview lists the published documents of the team, held here,
@@ -425,7 +424,7 @@ func (d *Node) RemovalPreview(ref, email string) ([]Reassigned, error) {
 }
 
 // ownedBy lists the team documents held here that email owns: the next
-// release is theirs. After and Plan are the highest valid release held.
+// release is theirs. After is the highest valid release held.
 func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 	out := []Reassigned{}
 	h, err := d.heldTeam(t.Team)
@@ -446,7 +445,7 @@ func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 			r.Domain = td.doc.DomainName()
 		}
 		if head, ok := ch.Head(); ok {
-			r.After, r.Plan = head.Release.Version, head.Release.Plan
+			r.After = head.Release.Version
 		}
 		out = append(out, r)
 	}
@@ -458,6 +457,10 @@ func (d *Node) ownedBy(t teamDir, email string) []Reassigned {
 // local user (spec 19.5).
 func (d *Node) Remove(ref, email string) (TeamView, error) {
 	email = addr.Canonical(strings.TrimSpace(email))
+	warn := ""
+	if team, err := d.TeamHash(ref); err == nil {
+		warn = d.catchUp(team)
+	}
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
 	t, err := d.findTeam(ref)
@@ -479,19 +482,25 @@ func (d *Node) Remove(ref, email string) (TeamView, error) {
 	}
 	var docs []teamlog.Owned
 	for _, r := range d.ownedBy(t, email) {
-		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After, Plan: r.Plan})
+		docs = append(docs, teamlog.Owned{Doc: r.KalkaID, After: r.After})
 	}
 	ops := d.teamSigner(t).Remove(st.Heads, email, docs, addr.Canonical(d.self.Email), d.now())
 	if _, err := d.commit(t, ops); err != nil {
 		return TeamView{}, err
 	}
 	d.logf("removed %s from %s, %d document(s) reassigned", email, t.Name, len(docs))
-	return d.teamView(t), nil
+	v := d.teamView(t)
+	v.Warning = warn
+	return v, nil
 }
 
 // SetOwner adds or removes a team owner.
 func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 	email = addr.Canonical(strings.TrimSpace(email))
+	warn := ""
+	if team, err := d.TeamHash(ref); err == nil && !owner {
+		warn = d.catchUp(team)
+	}
 	d.teams.mu.Lock()
 	defer d.teams.mu.Unlock()
 	t, err := d.findTeam(ref)
@@ -527,7 +536,9 @@ func (d *Node) SetOwner(ref, email string, owner bool) (TeamView, error) {
 	if _, err := d.commit(t, []teamlog.Op{op}); err != nil {
 		return TeamView{}, err
 	}
-	return d.teamView(t), nil
+	v := d.teamView(t)
+	v.Warning = warn
+	return v, nil
 }
 
 // TeamView is a team as the Team view and `kalka team` show it.
@@ -538,6 +549,9 @@ type TeamView struct {
 	Log   string `json:"log"`
 	Me    string `json:"me"` // owner, member or none
 	Error string `json:"error,omitempty"`
+	// Warning, after a removal or an owner's demotion, says that no other
+	// member could be reached first (spec 19.5).
+	Warning string `json:"warning,omitempty"`
 	// Waiting counts the team's waiting items (spec 11.3); set in Teams.
 	Waiting int `json:"waiting"`
 

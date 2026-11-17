@@ -177,41 +177,40 @@ See [the router](gh:src/routing/plan.py#L120-L180) and [PROJ-123](jira:PROJ-123)
 
 ## Review log
 
-### release · ewa@example.org · 2026-11-11T09:00:00Z · § · rev:3fa9c1d2 · id:5b0e7c1d9a20 · sig:<base64url>
+### release · ewa@example.org · 2026-11-11T09:00:00Z · § · rev:3fa9c1d2 · id:5b0e7c1d9a2000000000000000000000 · sig:<base64url>
 v1 · plan:<64 hex> · owner:ewa@example.org
 
-### comment · marek@example.org · 2026-11-11T17:40:03Z · §plan · rev:3fa9c1d2 · id:7c2e91ab04f3 · sig:<base64url>
+### comment · marek@example.org · 2026-11-11T17:40:03Z · §plan · rev:3fa9c1d2 · id:7c2e91ab04f300000000000000000000 · sig:<base64url>
 Doesn't handle the retry path when a delivery attempt is rescheduled halfway.
 
-### deviation · marek@example.org · 2026-11-12T09:12:40Z · §plan · rev:3fa9c1d2 · id:a41b77c09e12 · sig:<base64url>
+### deviation · marek@example.org · 2026-11-12T09:12:40Z · §plan · rev:3fa9c1d2 · id:a41b77c09e1200000000000000000000 · sig:<base64url>
 Moved the weight check into the intake handler because …
 ```
 
 ### 6.2 Frontmatter
 
 - YAML between `---` lines at the top of the file.
-- `kalka` attaches meaning to the keys in the table below, and only when the value has the shape given there. A key with another shape is pass-through, as if `kalka` did not know it, and at most produces a warning.
+- `kalka` attaches meaning to the keys in the table below. Each carries the `kalka_` prefix, so a team's own pipeline never collides with one. A `kalka_owner` that is not an email address is an error (the document cannot be released or shared until it is fixed); any other key of the table with another shape is ignored with a warning.
 - All other keys are **pass-through**: never interpreted, validated or required by the core, whatever their names, types or nesting. They are preserved byte for byte on disk, travel with the file to members, and are handed to plugins as an opaque map. A blueprint with any frontmatter, or none, is valid.
 
 | Key | Shape | Meaning | Written by `kalka` |
 |---|---|---|---|
 | `kalka_id` | UUID v4 | Identity of the document | On publish, seed creation, or transfer (20.7) |
-| `owner` | email, case-insensitive | The one owner (7.1) | On publish if absent; on handoff; when a new owner releases after a reassignment or an accepted transfer |
-| `team` | team name (19.2) | The team the document belongs to (20.1) | On publish; on a transfer |
-| `status` | `[a-z][a-z0-9-]*` | `seed` marks a seed (6.11); other values are labels | On seed creation; on promotion |
-| `parent` | UUID | The blueprint a seed was split from | On seed creation |
-| `origin` | 32 hex | The entry id that triggered a seed | On seed creation |
-| `created` | RFC 3339 UTC | When a seed was created | On seed creation |
-| `copied-from` | `<team name>/<kalka_id>` | The source of a copy (20.7) | On a copy |
-| `moved-from` | `<team name>/<kalka_id>` | The source of a move (20.7) | On a move |
-| `moved-to` | `<team name>/<kalka_id>` | Where a moved document went; only on its tombstone stub (20.6) | On the move's tombstone |
-| `kind` | `domain` | A domain document (6.12) | Never; the author writes it |
-| `domain` | on a domain document: a name `[a-z0-9][a-z0-9-]*`; on any other document: `<team>/<domain>@v<N>` | The domain's name, or a reference to a domain version | Never |
-| `version` | positive integer | A domain document's released version | On release (6.12) |
-| `deleted` | `true` | Marks a tombstone stub (20.6) | On deletion or move |
-| `reference` | `kalka-blueprint@v<N>` | Opts the document into hints (6.13) | Never |
+| `kalka_owner` | email, compared in its canonical form (ASCII lower case) | The one owner (7.1) | On publish if absent; on handoff; when a new owner releases after a reassignment or an accepted transfer |
+| `kalka_team` | team name (19.2) | The team the document belongs to (20.1) | On publish; on a transfer |
+| `kalka_status` | `[a-z][a-z0-9-]*` | `seed` marks a seed (6.11); other values are labels | On seed creation; on promotion |
+| `kalka_parent` | UUID | The blueprint a seed was split from | On seed creation |
+| `kalka_origin` | 32 hex | The entry id that triggered a seed | On seed creation |
+| `kalka_created` | RFC 3339 UTC | When a seed was created | On seed creation |
+| `kalka_copied_from` | `<team name>/<kalka_id>` | The source of a copy (20.7) | On a copy |
+| `kalka_moved_from` | `<team name>/<kalka_id>` | The source of a move (20.7) | On a move |
+| `kalka_moved_to` | `<team name>/<kalka_id>` | Where a moved document went; only on its tombstone stub (20.6) | On the move's tombstone |
+| `kalka_kind` | `domain` | A domain document (6.12) | Never; the author writes it |
+| `kalka_domain` | on a domain document: a name `[a-z0-9][a-z0-9-]*`; on any other document: `<team>/<domain>@v<N>` | The domain's name, or a reference to a domain version | Never |
+| `kalka_version` | positive integer | A domain document's released version | On release (6.12) |
+| `kalka_reference` | `kalka-blueprint@v<N>` | Opts the document into hints (6.13) | Never |
 
-- Key names are bare, as above. A team whose own pipeline already uses one of these names with another meaning must rename its key, or accept that `kalka` reads it when the shape matches.
+- Every other key, `owner`, `team` or `version` included, is the team's own. Whether a document is deleted is never a key: its deleted release decides (20.6).
 - The `repo` and `base_sha` keys in the example above are an instance of this: they mean something to the `gh` plugin only. So does `repos`, its map of further repositories (10.4).
 - A file without `kalka_id` is a *local* blueprint: listed in Personal, not yet in any team.
 - **Publish** adds `kalka_id`, `kalka_owner: <config email>` if absent, and `kalka_team:`, creating the frontmatter block if the file has none. Whenever `kalka` edits frontmatter it must change only the lines it writes and must not re-serialize the rest (key order and comments stay intact).
@@ -237,7 +236,7 @@ Header line, strict:
 - Separator is ` · ` (space, U+00B7, space).
 - `kind`: `comment` (a remark), `deviation` (a proposed or actual departure from the plan as written, recorded instead of editing the body), `release` (20.4), `budded` (6.11), `transfer` and `transfer-withdrawn` (20.7). `release` and the transfer kinds have behaviour in the core; `budded` is rendered as a link to the seed; `comment` and `deviation` differ in label and styling alone. The set of `deviation` entries is the document's *deviation log* (6.13). Unknown kinds matching `[a-z][a-z0-9-]*` must be preserved, merged and rendered generically, so a team's own workflow can introduce kinds without changes to `kalka`.
 - `timestamp`: UTC, RFC 3339, second precision, `Z` suffix.
-- `anchor`: slug of the body heading the entry refers to, or empty (`§`) for a general entry. A header is valid when the slug holds only ASCII lower-case letters, digits, `-` and `_`, and non-ASCII letters and digits; no Unicode tables are consulted, so a toolchain update cannot invalidate a header. Slug rule: lower-case; drop everything except letters, digits, spaces and hyphens; spaces to hyphens; duplicates get `-1`, `-2`… in document order (GitHub's algorithm). A node inside a trace block (6.10) is addressed as `§<slug>#<node-id>`, where the slug is that of the nearest heading above the block.
+- `anchor`: slug of the body heading the entry refers to, or empty (`§`) for a general entry. A header is valid when the slug holds only ASCII lower-case letters, digits, `-` and `_`, and non-ASCII letters and digits; no Unicode tables are consulted, so a toolchain update cannot invalidate a header. Slug rule: lower-case; drop everything except letters, combining marks, digits, `_`, spaces and hyphens; spaces to hyphens; duplicates get `-1`, `-2`… in document order (GitHub's algorithm). A node inside a trace block (6.10) is addressed as `§<slug>#<node-id>`, where the slug is that of the nearest heading above the block.
 - `rev`: first 8 hex characters of SHA-256 over the normalized body (6.6) at the time of writing.
 - `id`: first 32 hex characters (128 bits) of SHA-256 over `kind \n author \n timestamp \n anchor \n rev \n extension fields \n normalized entry body`, where the extension fields are written as in the header, joined by ` · `, and are an empty line when there are none. 128 bits keep anyone from searching out a second entry with someone else's id. An entry whose `id` does not match its content is *edited*: a warning, not an error, so one edited entry never takes the document out of the replica. Peers do not take it; if the team holds the original, the next merge puts it back, and otherwise the text stays in the file as unparsed content.
 - Extension fields: up to 8 fields `<name>:<value>` between `id` and `sig`, with `name` matching `[a-z][a-z0-9-]{0,31}` (not `rev`, `id` or `sig`) and a value without spaces. They are for fields a later `kalka` adds: kept as written, shown, part of the `id` input and so covered by the signature, and otherwise ignored.
@@ -274,6 +273,8 @@ Used for comparison and hashing only; never changes what is on disk.
 2. Convert CRLF and lone CR to LF.
 3. Strip trailing spaces and tabs from every line. Two trailing spaces are a Markdown hard line break: the hash does not cover them, so adding or removing one does not change an `id`.
 4. Strip leading and trailing blank lines of the unit being hashed (body, frontmatter, or entry body).
+
+**What a hash covers.** The body is the text before the review log and the text after it, each normalized, joined by one blank line; moving a section from one side of the log to the other does not change it. The plan a release names is the normalized frontmatter, the separator `"\n\x00\n"`, and the body; its hash is SHA-256 of that in UTF-8. Frontmatter is normalized as text only: a tool that re-serializes the YAML (reorders keys, changes quoting) changes the plan, so the owner sees unreleased edits and anyone else's such change is displaced at the next release. The id input joins its fields with newlines; no header field can hold one, so the encoding is unambiguous.
 
 On write, `kalka` preserves the file's existing line-ending style (CRLF if the file predominantly uses it) and writes UTF-8 without BOM.
 
@@ -548,12 +549,23 @@ One reliable, ordered data channel labelled `kalka/1` per session. Messages are 
 | `team_inv` | `team`, `items` | Inventory lines (20.3), pending transfers included. |
 | `team_want` | `team`, `ids` | The documents the sender wants; each follows as a `team_doc`. |
 | `team_doc` | `team`, `kalka_id`, `filename`, `content` | One wanted document; empty `content` means unavailable. |
-| `bye` | optional `reason`, `detail` | Either side. Reasons include `not-member`, `invite-*` (19.7) and `proto`. |
-| `keepalive` | — | Keeps a slow session open. |
+| `bye` | optional `reason`, `detail` | Either side. The reasons are listed below. |
+| `keepalive` | — | Sent at least every 10 s by a side busy applying what it received, so the other does not take it for silence. |
 
 **Versions.** The channel label `kalka/1` never changes; versions live in `hello`. Each side announces the highest protocol version it speaks (`proto`) and the lowest (`proto_min`, equal to `proto` when absent). The session runs at the lower of the two `proto` values; if that is below either side's `proto_min`, the side that sees it sends `bye` with reason `proto` and `detail` `<min>-<max>` (its own range) and both show which side needs to update. `features` lists optional capabilities by name; names a side does not know are ignored. This version of `kalka` speaks protocol 1 only and announces no features.
 
-Unknown message types are ignored, also as the first message after `auth`. A session closes when both sides are done or after 30 s of silence. Nothing on the wire asks a person anything.
+Unknown message types are ignored, also as the first message after `auth`.
+
+| `bye` reason | Meaning |
+|---|---|
+| `done` | The session finished. |
+| `not-member` | The responder does not count the caller as a member of that team (also its answer for a team it does not hold). |
+| `invalid` | The peer broke the protocol (an answer for another team, too many wanted documents, a join message that does not decode); `detail` says how. |
+| `proto` | No protocol version both sides speak; `detail` is the sender's range, `<min>-<max>`. |
+| `joined` | A join completed (19.7). |
+| `invite-unknown`, `invite-used`, `invite-expired`, `invite-proof`, `invite-team`, `invite-email`, `invite-not-owner`, `invite-key-clash` | A join was refused (19.7 step 6). |
+
+**Limits.** A message is at most 16 MiB; a document at most 2 MiB and an entry body at most 64 KiB (6.9); a team log line at most 8 KiB. One `team_want` names at most 200 documents; a side that wants more asks for the rest in another session, which starts at once. A side refuses a `team_want` of more than 1,000 as `invalid`, and a caller it does not count as a member may send at most 64 log operations. The 30 s of silence that ends a session count from the last byte received, not from the start of a message, so a large document arrives over a slow link as long as it keeps moving. A session closes when both sides are done or after 30 s of silence; the initiator waits for the responder's close as long as keepalives arrive. Nothing on the wire asks a person anything.
 
 The responder dispatches on the first message after `auth`: `team_sync` starts a session; a `hello` with an invite proof is a join (19.7); anything else gets `bye` `not-member`.
 
@@ -929,11 +941,13 @@ Each question has the answer kalka currently implements.
 
 1. **Access control at the rendezvous.** Which mechanism will sit in front of a hosted `kalka-rendezvous` (SSO proxy, network policy)? *Default: network policy.*
 2. **Manual accept for joins.** Should a team owner be able to require a manual "accept" for each join? *Default: not in this version; the invite is the approval (19.7).*
-3. **Key rotation.** Every signature check would need to know which key was valid when. *Default: future work; a lost key means removal and a new invite.*
+3. **Key rotation.** Every signature check would need to know which key was valid when. The format has the two hooks it needs: a newer rule version's operation (such as a key rotation) travels through older peers (19.1), and an entry's signature names the member term it was made under (6.5), so a rule such as "a release must be signed under the author's current term" can be added without changing the entry format. *Default: future work; a lost key means removal and a new invite. Until then a removed or replaced key still signs entries that verify under its old term.*
 4. **Teams across rendezvous servers.** An installation uses one rendezvous, so a person cannot be in two teams on two servers. With several teams per person this limit is met sooner. *Default: accepted limit; the join screen names the mismatch.*
 5. **Several devices per person.** With key IDs a second device is a second identity. *Default: still a non-goal (1).*
 6. **Team-wide invite links.** An invite names one email, so a link posted in a channel works for one person. *Default: named and single use (19.7).*
 7. **From a team back to Personal.** *Default: not supported; "delete for the team" keeps the last copy in the team's trash.*
+8. **One signature algorithm.** Keys and signatures carry no algorithm tag; everything is ed25519. *Default: accepted. Another algorithm would need a new rule version, and peers that cannot verify it could not pass its operations on.*
+9. **Finality.** A senior owner's removal signed from an old view voids what the removed owner did after that view (19.4 rule 2), even when nobody meant harm. *Default: `kalka` runs a replication round before signing a removal, a demotion or a reassignment, and warns when no other member was reached; a checkpoint operation is future work for a later rule version.*
 
 ---
 
@@ -961,7 +975,7 @@ A team is a **signed, append-only set of operations**, not an editable document.
 | `remove-member` | `email` | A team owner |
 | `add-owner` | `email` (must be a member) | A team owner |
 | `remove-owner` | `email` | A team owner |
-| `reassign-document` | `doc` (`kalka_id`), `from` (email), `owner` (email), `after` (version), `plan` (64 hex, or empty when `after` is 0) | A team owner (19.5) |
+| `reassign-document` | `doc` (`kalka_id`), `from` (email), `owner` (email), `after` (version) | A team owner (19.5) |
 | `accept-transfer` | `doc` (the new `kalka_id`), `owner` (email), `transfer` (64 hex digest of the `transfer` entry) | A team owner (19.6) |
 | `decline-transfer` | `doc`, `transfer` | A team owner (19.6) |
 
@@ -1003,7 +1017,7 @@ Replay reports the discarded operations with their reasons, and the Team view sh
 
 ### 19.5 Reassignment and removal
 
-- `reassign-document {doc, from, owner, after, plan}` is how a team owner names a document's next owner (7.3). `after` is the highest valid release of the document the signer holds; `plan` is that release's plan hash. `from` is the owner the signer saw: it is for the history and the notices, and replay does not judge it.
+- `reassign-document {doc, from, owner, after}` is how a team owner names a document's next owner (7.3). `after` is the highest valid release of the document the signer holds. Releases above `after` that the signer had not seen become void; `kalka` therefore runs a replication round before signing a reassignment or a removal, and warns when none succeeded. `from` is the owner the signer saw: it is for the history and the notices, and replay does not judge it.
 - **Removing a member.** Together with `remove-member`, the remover's `kalka` emits one `reassign-document` per team document it holds whose owner is the removed member, giving each to the remover. They do not depend on the removal: if the remover loses a mutual removal, their term ends and rule 2 discards the reassignments with it; if the removal is discarded for another reason (rule 6), the reassignments stand, since a team owner could have made them anyway.
 - A document whose owner is no longer a member and that no reassignment covers (one the remover did not hold) is a waiting item for the team's owners (11.3).
 - The `kalka_owner:` line follows: when the new owner's `kalka` holds the operation and the release at `after`, it rewrites `kalka_owner:` and releases version `after`+1.
@@ -1023,7 +1037,7 @@ A transfer into the team arrives as a pending document (20.7). Its decision is a
 3. The joiner's daemon probes the owner's key ID once a minute until it meets the owner or the invite expires; this survives restarts. Only the joiner can dial: the owner does not know the joiner's key. The owner's part is to be online. Nothing is queued on the rendezvous server.
 4. On meeting, the joiner's `hello` carries `invite: {id, team, proof}`, where `team` is the team hash from the token and `proof` is an HMAC-SHA-256 under the secret over both public keys and the team hash. The owner checks it after `auth`. A valid proof is the verification.
 5. The owner's `kalka` approves automatically (the invite is the approval), appends `add-member {email, pubkey, invite}` with the email *from the invite*, marks the invite used, and sends the log on the same connection. The joiner checks that the log starts at the team hash in its token and contains its own `add-member`. A folder `<folder>/<team>/` is created for the team.
-6. A bad proof, an expired invite, a used invite, or an email other than the one invited ends the connection with a `bye` naming the reason (`invite-token`, `invite-expired`, `invite-used`, `invite-email`), and the joiner's UI shows it.
+6. A bad proof, an expired invite, a used invite, or an email other than the one invited ends the connection with a `bye` naming the reason (`invite-unknown`, `invite-used`, `invite-expired`, `invite-proof`, `invite-team`, `invite-email`, `invite-not-owner` or `invite-key-clash`, 9.5), and the joiner's UI shows it. A token that does not parse never reaches the wire: the joiner's own `kalka` refuses it as `invite-token`.
 
 Single use holds in two places: the issuing owner's `invites.yaml`, and the replay rule that discards a second `add-member` for the same invite id (19.4 rule 8). Only the issuing installation can redeem an invite, because the joiner dials its key ID.
 
@@ -1137,7 +1151,7 @@ A transfer has three parts in three places:
 ### transfer · ewa@example.org · 2026-12-01T10:00:00Z · § · rev:<8 hex> · id:<32 hex> · sig:<term>.<base64url>
 move · from:parcel-ops/<source kalka_id> · source:<64 hex team hash> · to:library-desk/<64 hex team hash>
 plan:<64 hex>
-history:<64 hex> · entries: 7c2e91ab04f3, a41b77c09e12
+history:<64 hex> · entries: 7c2e91ab04f300000000000000000000, a41b77c09e1200000000000000000000
 ```
 
 - The first body line is `copy` or `move`, the source document, and both teams by hash; `to` also names the destination, so source members who are not in it can read the banner. `plan` is the plan hash of the offered plan.

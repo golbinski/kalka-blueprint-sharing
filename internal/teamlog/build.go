@@ -44,10 +44,10 @@ func (s Signer) RemoveOwner(prev []string, email string, at time.Time) Op {
 }
 
 // Reassign gives a document to owner from release after+1 on (spec 19.5);
-// after and plan name the highest release the signer holds and its plan
-// hash (0 and "" before the first release), from the owner it saw.
-func (s Signer) Reassign(prev []string, doc, from, owner string, after int64, plan string, at time.Time) Op {
-	return s.op(ReassignDocument, Args{Doc: doc, From: addr.Canonical(from), Owner: addr.Canonical(owner), After: after, Plan: plan}, prev, at)
+// after names the highest release the signer holds (0 before the first
+// release), from the owner it saw.
+func (s Signer) Reassign(prev []string, doc, from, owner string, after int64, at time.Time) Op {
+	return s.op(ReassignDocument, Args{Doc: doc, From: addr.Canonical(from), Owner: addr.Canonical(owner), After: after}, prev, at)
 }
 
 // Accept accepts the transfer offer whose transfer entry has digest
@@ -67,7 +67,6 @@ func (s Signer) Decline(prev []string, doc, transfer string, at time.Time) Op {
 type Owned struct {
 	Doc   string
 	After int64
-	Plan  string
 }
 
 // Remove returns a remove-member followed by one reassign-document per
@@ -79,7 +78,7 @@ func (s Signer) Remove(prev []string, email string, docs []Owned, newOwner strin
 	out := []Op{rm}
 	h := rm.Hash()
 	for _, d := range docs {
-		out = append(out, s.Reassign([]string{h}, d.Doc, email, newOwner, d.After, d.Plan, at))
+		out = append(out, s.Reassign([]string{h}, d.Doc, email, newOwner, d.After, at))
 	}
 	return out
 }

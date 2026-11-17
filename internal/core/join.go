@@ -96,6 +96,9 @@ func PreviewInvite(s string) (JoinPreview, error) {
 		return JoinPreview{}, &Error{Kind: KindInviteToken, Msg: "this is not a valid invite link or token: copy the whole line the team owner sent"}
 	}
 	iv, err := teamlog.ParseToken(tok)
+	if err != nil && err != teamlog.ErrInviteToken {
+		return JoinPreview{}, &Error{Kind: KindInviteToken, Msg: "this invite " + strings.TrimPrefix(err.Error(), teamlog.ErrInviteToken.Error()+": ")}
+	}
 	if err != nil {
 		return JoinPreview{}, &Error{Kind: KindInviteToken, Msg: "this is not a valid invite link or token: copy the whole line the team owner sent"}
 	}

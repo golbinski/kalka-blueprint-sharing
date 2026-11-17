@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -248,10 +249,21 @@ func trashDir(h *held) string { return filepath.Join(h.dir.Dir, ".kalka", "trash
 // the stubs of those declined or withdrawn (spec 14, 20.1, 20.6, 20.7).
 // Nothing else ever enters an inventory; no file outside the team's
 // folder is even read.
-func (d *Node) replicaSet(h *held) map[string]teamDoc {
+func (d *Node) replicaSet(h *held) map[string]teamDoc { return d.replicaSetOf(h, "") }
+
+// replicaDoc is replicaSet(h)[id], reading only what can hold id: applying
+// one received document must not rescan, and verify, the whole team.
+func (d *Node) replicaDoc(h *held, id string) (teamDoc, bool) {
+	td, ok := d.replicaSetOf(h, strings.ToLower(id))[strings.ToLower(id)]
+	return td, ok
+}
+
+// replicaSetOf is replicaSet, limited to the document only when set.
+// Tombstones and pending copies are named by their kalka_id.
+func (d *Node) replicaSetOf(h *held, only string) map[string]teamDoc {
 	set := map[string]teamDoc{}
 	for _, in := range d.Store.List() {
-		if in.KalkaID == "" || in.Duplicate || !inDir(h.dir.Dir, in.Path) {
+		if in.KalkaID == "" || in.Duplicate || !inDir(h.dir.Dir, in.Path) || only != "" && !strings.EqualFold(in.KalkaID, only) {
 			continue
 		}
 		f, err := d.Store.Load(in.Path)
@@ -262,13 +274,25 @@ func (d *Node) replicaSet(h *held) map[string]teamDoc {
 			set[item.ID] = teamDoc{item: item, path: f.Path, doc: f.Doc, raw: f.Raw, chain: ch}
 		}
 	}
-	for _, p := range d.pendingDocs(h) {
+	pending := d.pendingDocs
+	if only != "" {
+		pending = func(h *held) []pendingDoc {
+			if p, ok := readPending(h, filepath.Join(incomingDir(h), only+".md")); ok {
+				return []pendingDoc{p}
+			}
+			return nil
+		}
+	}
+	for _, p := range pending(h) {
 		if _, released := set[p.id]; released || p.err != nil {
 			continue
 		}
 		set[p.id] = teamDoc{item: pendingItem(p.doc, false), path: p.path, pending: true, doc: p.doc, raw: p.raw}
 	}
 	tombs, _ := filepath.Glob(filepath.Join(tombDir(h), "*.md"))
+	if only != "" {
+		tombs = []string{filepath.Join(tombDir(h), only+".md")}
+	}
 	for _, p := range tombs {
 		raw, err := os.ReadFile(p)
 		if err != nil {
@@ -412,18 +436,32 @@ func (d *Node) mergeOps(h *held, raws []json.RawMessage) (int, error) {
 // are all present and bind their signer: the create-team or an add-member
 // names its key, or an operation of a newer rule version, itself bound,
 // stands among them (that version may bind keys in ways this kalka cannot
-// read). Held operations count as bound. An operation whose ancestors are
-// missing comes again with them in a later session.
+// read). Held operations count as bound, and the walk stops at them: a
+// held ancestor stands for the log held, which binds the signer if any
+// held create-team, add-member or newer operation does, so a session costs
+// what it brings, not the whole history for each operation. An operation
+// whose ancestors are missing comes again with them in a later session.
 func boundOps(held, in []teamlog.Op) []teamlog.Op {
 	byHash := map[string]*teamlog.Op{}
 	ok := map[string]bool{}
+	heldBinds := map[string]bool{} // keys the held log binds
+	heldNewer := false
 	for i := range held {
 		h := held[i].Hash()
 		byHash[h], ok[h] = &held[i], true
+		switch o := &held[i]; {
+		case !o.Supported():
+			heldNewer = true
+		case o.Kind == teamlog.CreateTeam:
+			heldBinds[o.Signer] = true
+		case o.Kind == teamlog.AddMember:
+			heldBinds[o.Args.PubKey] = true
+		}
 	}
 	for i := range in {
 		byHash[in[i].Hash()] = &in[i]
 	}
+	heldSet := maps.Clone(ok)
 	var bound func(o *teamlog.Op, depth int) bool
 	bound = func(o *teamlog.Op, depth int) bool {
 		h := o.Hash()
@@ -445,9 +483,13 @@ func boundOps(held, in []teamlog.Op) []teamlog.Op {
 				continue
 			}
 			seen[x] = true
-			a, held := byHash[x]
-			if !held {
+			a, present := byHash[x]
+			if !present {
 				return false // an ancestor is missing
+			}
+			if heldSet[x] {
+				found = found || heldBinds[o.Signer] || heldNewer
+				continue // the held log, not walked again
 			}
 			switch {
 			case !a.Supported():
@@ -492,6 +534,9 @@ type SessionResult struct {
 	Sent        []string  `json:"sent"`
 	Refused     []Refusal `json:"refused,omitempty"`
 	Unavailable int       `json:"unavailable,omitempty"`
+	// More is set when this side wanted more documents than one session
+	// asks for; another session follows.
+	More bool `json:"more,omitempty"`
 }
 
 // exchange runs a session for one team on an authenticated channel.
@@ -664,6 +709,9 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 		}
 	}
 	myWants := wants(set, inv.Items)
+	if len(myWants) > syncproto.MaxWant {
+		myWants, res.More = myWants[:syncproto.MaxWant], true
+	}
 	steps = []func() error{
 		func() error { return ch.Send(syncproto.TeamWant{Type: "team_want", Team: team, IDs: myWants}) },
 		func() error { return recv("team_want", &tw) },
@@ -676,7 +724,7 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 			return res, err
 		}
 	}
-	if len(tw.IDs) > 1000 {
+	if len(tw.IDs) > syncproto.MaxWantAccepted {
 		end("invalid")
 		return res, errors.New("the peer asked for too many documents")
 	}
@@ -702,8 +750,17 @@ func (d *Node) exchange(ch syncproto.Channel, peer transport.Peer, team string, 
 		}
 		return nil
 	}
+	// Applying a document can take a while (a merge, signature checks, a
+	// write): the other side, waiting, hears a keepalive now and then.
+	lastSent := time.Now()
 	take := func() error {
 		for range myWants {
+			if time.Since(lastSent) > syncproto.KeepaliveEvery {
+				if err := ch.Send(syncproto.Keepalive{Type: "keepalive"}); err != nil {
+					return err
+				}
+				lastSent = time.Now()
+			}
 			var off syncproto.TeamDoc
 			if err := recv("team_doc", &off); err != nil {
 				return err
@@ -780,10 +837,10 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 	}
 	defer unlock()
 	for attempt := 0; attempt < 3; attempt++ {
-		set := d.replicaSet(h)
 		var local *bp.Document
 		var live *store.File
-		if td, ok := set[id]; ok && td.pending {
+		cur, have := d.replicaDoc(h, id)
+		if td, ok := cur, have; ok && td.pending {
 			// A pending copy: the released document replaces it.
 		} else if ok {
 			local = td.doc
@@ -818,7 +875,7 @@ func (d *Node) applyReplica(h *held, from string, off syncproto.TeamDoc) (bool, 
 			d.logf("%s was deleted for team %s (from %s)", in.Title(), h.dir.Name, from)
 			return true, nil
 		}
-		if td, ok := set[id]; ok && td.tomb && !td.pending {
+		if have && cur.tomb && !cur.pending {
 			return false, nil // a tombstone is final
 		}
 		var path string
@@ -1141,6 +1198,13 @@ func (d *Node) round(ctx context.Context, team string, force bool) (busy <-chan 
 			continue
 		}
 		d.noteSync()
+		if res.More {
+			// More documents wanted than one session asks for: the rest
+			// come in a round right after this one.
+			r.mu.Lock()
+			r.push[team] = true
+			r.mu.Unlock()
+		}
 		st.Reached = append(st.Reached, email)
 		st.Refused = append(st.Refused, res.Refused...)
 		st.Received += len(res.Received)

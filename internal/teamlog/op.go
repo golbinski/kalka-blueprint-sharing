@@ -45,9 +45,9 @@ const (
 const MaxLine = 8 << 10
 
 // Args are the arguments of an operation. Which fields an operation
-// carries is fixed by its kind (argKeys); After and Plan are meaningful
-// only for reassign-document: the highest release the signer held and its
-// plan hash, 0 and "" when it held none. Transfer is the digest of an
+// carries is fixed by its kind (argKeys); After is meaningful only for
+// reassign-document: the highest release the signer held, 0 when it held
+// none. Transfer is the digest of an
 // offer's transfer entry (spec 20.7).
 type Args struct {
 	Name     string
@@ -58,7 +58,6 @@ type Args struct {
 	Doc      string
 	From     string
 	After    int64
-	Plan     string
 	Transfer string
 }
 
@@ -70,7 +69,7 @@ var argKeys = map[string][]string{
 	RemoveMember:     {"email"},
 	AddOwner:         {"email"},
 	RemoveOwner:      {"email"},
-	ReassignDocument: {"after", "doc", "from", "owner", "plan"},
+	ReassignDocument: {"after", "doc", "from", "owner"},
 	AcceptTransfer:   {"doc", "owner", "transfer"},
 	DeclineTransfer:  {"doc", "transfer"},
 }
@@ -115,8 +114,6 @@ func value(a Args, key string) any {
 		return a.PubKey
 	case "invite":
 		return a.Invite
-	case "plan":
-		return a.Plan
 	case "owner":
 		return a.Owner
 	case "doc":
@@ -369,8 +366,6 @@ func Decode(line []byte) (Op, error) {
 			o.Args.PubKey = s
 		case "invite":
 			o.Args.Invite = s
-		case "plan":
-			o.Args.Plan = s
 		case "owner":
 			o.Args.Owner = s
 		case "doc":
@@ -621,10 +616,6 @@ func (o *Op) checkShape() error {
 	case ReassignDocument:
 		if !validDoc(a.Doc) {
 			return errors.New("operation: bad document id")
-		}
-		// The plan hash of release after; none before the first release.
-		if (a.After == 0) != (a.Plan == "") || (a.Plan != "" && !hashRe.MatchString(a.Plan)) {
-			return errors.New("operation: bad plan hash for the cut-off")
 		}
 		if err := email(a.From); err != nil {
 			return err

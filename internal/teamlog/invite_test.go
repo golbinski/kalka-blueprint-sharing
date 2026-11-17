@@ -2,10 +2,13 @@ package teamlog
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golbinski/kalka/internal/name"
 )
 
 func testInvite() (Invite, actor, actor) {
@@ -134,5 +137,17 @@ func TestInviteNeedsInviter(t *testing.T) {
 	iv.Inviter = ""
 	if _, err := ParseToken(iv.Token()); !errors.Is(err, ErrInviteToken) {
 		t.Fatalf("an invite without an inviter: %v", err)
+	}
+}
+
+// A token with a field this kalka does not know, and a matching checksum,
+// says it needs a newer kalka.
+func TestInviteFromNewerKalka(t *testing.T) {
+	msg := []byte(name.InviteContext + "\n" + `{"later":1}`)
+	sum := sha256.Sum256(msg)
+	tok := tokenEnc.EncodeToString(append(msg, sum[:4]...))
+	_, err := ParseToken(tok)
+	if !errors.Is(err, ErrInviteToken) || !strings.Contains(err.Error(), "newer kalka") {
+		t.Fatalf("%v", err)
 	}
 }

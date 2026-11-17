@@ -594,6 +594,14 @@ button.add.sel {
   color: var(--danger);
   margin: 8px 0;
 }
+.warn-box {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--div-soft);
+  color: var(--div-ink);
+  margin: 8px 0;
+}
 .error-text {
   color: var(--danger);
   font-size: 13px;

@@ -189,6 +189,9 @@ func cmdTeam(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	printMembers(stdout, v)
+	if v.Warning != "" {
+		fmt.Fprintln(stderr, "warning: "+v.Warning)
+	}
 	return exitOK
 }
 

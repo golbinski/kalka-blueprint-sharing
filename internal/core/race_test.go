@@ -172,10 +172,10 @@ func TestReassignmentRaceEveryOrder(t *testing.T) {
 		v = raceRelease(t, v, "ewa@parcels.example", fmt.Sprintf("Route by postcode, take %d.", i), "ewa@parcels.example", i)
 	}
 	ch := merge.Releases(entriesOf(v), raceID, logTeam{st: mustReplay(t, team, base)})
-	head, _ := ch.Head()
+	_ = ch
 	// Marek reassigns to Olga with after 5; Ewa, not knowing, releases 6.
 	marek := teamlog.Signer{Key: raceKey("marek@parcels.example"), Team: team}
-	op := marek.Reassign(teamlog.Heads(base), raceID, "ewa@parcels.example", "olga@parcels.example", 5, head.Release.Plan, raceT0)
+	op := marek.Reassign(teamlog.Heads(base), raceID, "ewa@parcels.example", "olga@parcels.example", 5, raceT0)
 	ewa6 := raceRelease(t, v, "ewa@parcels.example", "Route by van size.", "ewa@parcels.example", 6)
 	olga6 := raceRelease(t, v, "olga@parcels.example", "Route by depot load.", "olga@parcels.example", 6)
 
@@ -193,10 +193,9 @@ func TestReassignmentRaceEveryOrder(t *testing.T) {
 func TestConcurrentReassignmentsConverge(t *testing.T) {
 	team, base := raceTeam(t)
 	v1 := raceRelease(t, nil, "ewa@parcels.example", "Route by postcode.", "ewa@parcels.example", 1)
-	plan := merge.Releases(entriesOf(v1), raceID, logTeam{st: mustReplay(t, team, base)}).Releases[0].Release.Plan
 	heads := teamlog.Heads(base)
-	byMarek := teamlog.Signer{Key: raceKey("marek@parcels.example"), Team: team}.Reassign(heads, raceID, "ewa@parcels.example", "olga@parcels.example", 1, plan, raceT0)
-	byZofia := teamlog.Signer{Key: raceKey("zofia@parcels.example"), Team: team}.Reassign(heads, raceID, "ewa@parcels.example", "zofia@parcels.example", 1, plan, raceT0)
+	byMarek := teamlog.Signer{Key: raceKey("marek@parcels.example"), Team: team}.Reassign(heads, raceID, "ewa@parcels.example", "olga@parcels.example", 1, raceT0)
+	byZofia := teamlog.Signer{Key: raceKey("zofia@parcels.example"), Team: team}.Reassign(heads, raceID, "ewa@parcels.example", "zofia@parcels.example", 1, raceT0)
 	olga2 := raceRelease(t, v1, "olga@parcels.example", "Route by load.", "olga@parcels.example", 2)
 	zofia2 := raceRelease(t, v1, "zofia@parcels.example", "Route by van.", "zofia@parcels.example", 2)
 

@@ -20,12 +20,32 @@ var (
 	// LockWait is how long a write waits for a document busy in another
 	// session or command.
 	LockWait = 10 * time.Second
+	// KeepaliveEvery is how often a side busy applying what it received
+	// tells the other it is still there; well below Silence.
+	KeepaliveEvery = 10 * time.Second
+)
+
+// MaxWant is the most documents one team_want names (spec 9.5). A side
+// that wants more asks for the rest in the next session, which follows at
+// once. A variable so tests can lower it.
+var MaxWant = 200
+
+// Limits of one session (spec 9.5).
+const (
+	// MaxWantAccepted is the most a side serves: a team_want over it
+	// ends the session as invalid.
+	MaxWantAccepted = 1000
 )
 
 // Channel is the part of transport.Conn the protocol uses.
 type Channel interface {
 	Send(v any) error
 	Receive(timeout time.Duration) (transport.Envelope, error)
+}
+
+// Keepalive keeps a slow session open (spec 9.5).
+type Keepalive struct {
+	Type string `json:"type"`
 }
 
 // Bye ends a session; Reason and Detail say why when it ends early.

@@ -199,7 +199,7 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 	case 4:
 		e := pick(func(m Member, ok bool) bool { return ok && m.Email != a.email })
 		after := int64(r.Intn(4))
-		docs := []Owned{{"doc" + short(e)[:3], after, simPlan(after)}}
+		docs := []Owned{{"doc" + short(e)[:3], after}}
 		return best(func(t time.Time) []Op { return sg.Remove(prev, e, docs, a.email, t) })
 	case 5:
 		// A present member's document, to anyone, at a random cut-off:
@@ -208,7 +208,7 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 		e := pick(func(m Member, ok bool) bool { return ok })
 		after := int64(r.Intn(5))
 		return best(func(t time.Time) []Op {
-			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, simPlan(after), t)}
+			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, t)}
 		})
 	case 7, 8:
 		// A decision on one of a few offers: concurrent accepts, accepts
@@ -231,17 +231,9 @@ func (s *sim) randomOp(a *simActor, st *State, prev []string, n int, grind bool)
 		e := pick(func(m Member, ok bool) bool { return ok })
 		after := int64(r.Intn(5))
 		return best(func(t time.Time) []Op {
-			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, simPlan(after), t)}
+			return []Op{sg.Reassign(prev, "doc"+short(from)[:3], from, e, after, t)}
 		})
 	}
-}
-
-// simPlan stands for the plan hash of release after.
-func simPlan(after int64) string {
-	if after == 0 {
-		return ""
-	}
-	return strings.Repeat(strconv.FormatInt(after%10, 10), 64)
 }
 
 // check verifies the invariants on one set of operations.

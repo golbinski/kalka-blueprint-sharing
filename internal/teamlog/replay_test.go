@@ -233,28 +233,26 @@ func TestAddByConcurrentlyRemovedOwner(t *testing.T) {
 	}
 }
 
-var planA, planB = strings.Repeat("a", 64), strings.Repeat("b", 64)
-
 func TestReassignment(t *testing.T) {
 	tm := setup(t)
 	// A plain member cannot reassign.
-	if h := tm.add(tm.signer("dave@example.org").Reassign(tm.heads(), "c0ffee000000", "bob@example.org", "dave@example.org", 2, planB, t0)); tm.state().Effective[h] {
+	if h := tm.add(tm.signer("dave@example.org").Reassign(tm.heads(), "c0ffee000000", "bob@example.org", "dave@example.org", 2, t0)); tm.state().Effective[h] {
 		t.Fatal("a plain member reassigned")
 	}
 	ops := tm.signer("bob@example.org").Remove(tm.heads(), "dave@example.org",
-		[]Owned{{"a1b2c3d4e5f6", 3, planA}, {"0f9e8d7c6b5a", 0, ""}}, "bob@example.org", t0)
+		[]Owned{{"a1b2c3d4e5f6", 3}, {"0f9e8d7c6b5a", 0}}, "bob@example.org", t0)
 	tm.add(ops...)
 	s := tm.state()
-	if got := s.Reassigned["a1b2c3d4e5f6"]; len(got) != 1 || got[0].Owner != "bob@example.org" || got[0].From != "dave@example.org" || got[0].After != 3 || got[0].Plan != planA {
+	if got := s.Reassigned["a1b2c3d4e5f6"]; len(got) != 1 || got[0].Owner != "bob@example.org" || got[0].From != "dave@example.org" || got[0].After != 3 {
 		t.Fatalf("reassigned %+v", s.Reassigned)
 	}
 	// Rule 9: a present member's document can be reassigned, from is not
 	// judged; the new owner must be a member.
-	h := tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "bob@example.org", 1, planA, t0))
+	h := tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "bob@example.org", 1, t0))
 	if s := tm.state(); !s.Effective[h] {
 		t.Fatalf("present member's document: %q", tm.reason(s, h))
 	}
-	h = tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "zed@example.org", 2, planB, t0))
+	h = tm.add(tm.signer("bob@example.org").Reassign(tm.heads(), "c0ffee000000", "carol@example.org", "zed@example.org", 2, t0))
 	if s := tm.state(); s.Effective[h] {
 		t.Fatal("reassigned to a non-member")
 	}
@@ -266,9 +264,9 @@ func TestReassignmentAnchors(t *testing.T) {
 	tm := setup(t)
 	alice, bob := tm.signer("alice@example.org"), tm.signer("bob@example.org")
 	const doc = "a1b2c3d4e5f6"
-	h1 := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "dave@example.org", 2, planA, t0))
-	h2 := tm.add(bob.Reassign(tm.heads(), doc, "dave@example.org", "carol@example.org", 5, planB, t0))
-	stale := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "bob@example.org", 4, planA, t0))
+	h1 := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "dave@example.org", 2, t0))
+	h2 := tm.add(bob.Reassign(tm.heads(), doc, "dave@example.org", "carol@example.org", 5, t0))
+	stale := tm.add(alice.Reassign(tm.heads(), doc, "carol@example.org", "bob@example.org", 4, t0))
 	s := tm.state()
 	if s.Effective[stale] || !strings.Contains(tm.reason(s, stale), "stale cut-off") {
 		t.Fatalf("stale cut-off: %q", tm.reason(s, stale))
@@ -280,8 +278,8 @@ func TestReassignmentAnchors(t *testing.T) {
 	// Two concurrent with one cut-off: both count, one anchor, the later
 	// in visiting order.
 	base := tm.heads()
-	c1 := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 7, planA, t0))
-	c2 := tm.add(bob.Reassign(base, doc, "carol@example.org", "bob@example.org", 7, planB, t0))
+	c1 := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 7, t0))
+	c2 := tm.add(bob.Reassign(base, doc, "carol@example.org", "bob@example.org", 7, t0))
 	s = tm.state()
 	if !s.Effective[c1] || !s.Effective[c2] {
 		t.Fatal("concurrent same cut-off discarded")
@@ -291,7 +289,7 @@ func TestReassignmentAnchors(t *testing.T) {
 		t.Fatalf("anchors %+v", as)
 	}
 	// A concurrent lower cut-off, not seen: it counts, as an anchor.
-	low := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 6, planA, t0))
+	low := tm.add(alice.Reassign(base, doc, "carol@example.org", "dave@example.org", 6, t0))
 	if s := tm.state(); !s.Effective[low] || len(s.Reassigned[doc]) != 4 {
 		t.Fatalf("concurrent lower cut-off: %q %+v", tm.reason(s, low), s.Reassigned[doc])
 	}
@@ -304,7 +302,7 @@ func TestReassignmentFallsWithRemoval(t *testing.T) {
 	base := tm.heads()
 	// carol removes bob and takes his document; concurrently, bob (senior
 	// to carol) removes carol.
-	carolOps := tm.signer("carol@example.org").Remove(base, "bob@example.org", []Owned{{"a1b2c3d4e5f6", 2, planA}}, "carol@example.org", t0)
+	carolOps := tm.signer("carol@example.org").Remove(base, "bob@example.org", []Owned{{"a1b2c3d4e5f6", 2}}, "carol@example.org", t0)
 	tm.add(carolOps...)
 	tm.add(tm.signer("bob@example.org").Remove(base, "carol@example.org", nil, "", t0)...)
 	s := tm.state()
@@ -401,7 +399,7 @@ func TestReplayIgnoresInputOrder(t *testing.T) {
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	tm := setup(t)
-	tm.add(tm.signer("alice@example.org").Remove(tm.heads(), "dave@example.org", []Owned{{"a1b2c3d4e5f6", 2, planA}, {"0f9e8d7c6b5a", 0, ""}}, "alice@example.org", t0)...)
+	tm.add(tm.signer("alice@example.org").Remove(tm.heads(), "dave@example.org", []Owned{{"a1b2c3d4e5f6", 2}, {"0f9e8d7c6b5a", 0}}, "alice@example.org", t0)...)
 	for _, o := range tm.ops {
 		line := o.Encode()
 		d, err := Decode(line)
@@ -456,17 +454,13 @@ func TestDecodeRefuses(t *testing.T) {
 	if _, err := Decode([]byte(dom)); err == nil {
 		t.Error("assign-domain accepted")
 	}
-	// The cut-off and its plan hash go together.
+	// reassign-document carries no plan.
 	tm := setup(t)
-	sg := tm.signer("alice@example.org")
-	for name, o := range map[string]Op{
-		"plan without release": sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 0, planA, t0),
-		"release without plan": sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 3, "", t0),
-		"short plan":           sg.Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 3, "abc", t0),
-	} {
-		if _, err := Decode(o.Encode()); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+	rop := tm.signer("alice@example.org").Reassign(tm.heads(), "a1b2c3d4e5f6", "bob@example.org", "carol@example.org", 3, t0)
+	ra := string(rop.Encode())
+	withPlan := strings.Replace(ra, `"owner":`, `"plan":"`+strings.Repeat("a", 64)+`","owner":`, 1)
+	if _, err := Decode([]byte(withPlan)); err == nil {
+		t.Error("a plan argument accepted")
 	}
 	unsorted := Op{V: RuleVersion, Team: strings.Repeat("a", 64), Kind: AddOwner, Args: Args{Email: "a@b.c"},
 		Prev: []string{strings.Repeat("b", 64), strings.Repeat("a", 64)}, Signer: EncodeKey(newActor("x").pub)}

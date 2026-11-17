@@ -67,7 +67,6 @@ type Assignment struct {
 	Owner    string `json:"owner"`
 	From     string `json:"from,omitempty"`
 	After    int64  `json:"after"`
-	Plan     string `json:"plan,omitempty"`
 	At       string `json:"at,omitempty"`
 	Transfer string `json:"transfer,omitempty"`
 	By       string `json:"by,omitempty"` // who signed the operation
@@ -118,7 +117,7 @@ func Replay(team string, ops []Op) (*State, []Rejected) {
 
 // replay is Replay over operations whose signatures were checked. salt,
 // when set, changes only the order in which concurrent operations are
-// visited; the harness uses it to show that no outcome beyond rule 5
+// visited; the harness uses it to show that no outcome beyond rule 8
 // depends on that order.
 func replay(team string, ops []Op, salt string) *State {
 	r := newReplayer(team, ops, salt)
@@ -568,7 +567,7 @@ func (r *replayer) run() *State {
 		if restart {
 			continue
 		}
-		// Rule 8: never without an owner. The least senior effective
+		// Rule 6: never without an owner. The least senior effective
 		// removal that ended an owner term is lost.
 		if !e.hasOwner() {
 			worst := -1
@@ -989,7 +988,7 @@ func (r *replayer) state(e *eval) *State {
 		}
 		a := nd.op.Args
 		as := s.Reassigned[a.Doc]
-		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, Plan: a.Plan, At: nd.op.At, By: e.used[i].mt.email}
+		x := Assignment{Op: nd.hash, Owner: a.Owner, From: a.From, After: a.After, At: nd.op.At, By: e.used[i].mt.email}
 		if nd.op.Kind == AcceptTransfer {
 			x = Assignment{Op: nd.hash, Owner: a.Owner, At: nd.op.At, Transfer: a.Transfer, By: e.used[i].mt.email}
 		}

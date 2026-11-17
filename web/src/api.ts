@@ -352,6 +352,8 @@ export interface ReassignResult {
   owner: string
   after: number
   version?: number
+  /** Set when no other member was reached before signing. */
+  warning?: string
 }
 export interface PublishResult {
   path: string
@@ -478,6 +480,8 @@ export interface Team {
   log: string
   me: 'owner' | 'member' | 'none'
   error?: string
+  /** After a removal or demotion: no other member was reached first. */
+  warning?: string
   /** The team's waiting items (spec 11.3). */
   waiting: number
   members: TeamMember[]

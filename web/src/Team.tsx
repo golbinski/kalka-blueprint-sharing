@@ -7,7 +7,7 @@ import { act } from './actions'
 import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Reassigned, type Team, type TeamMember } from './api'
 import { findTeam } from './scope'
 import { Transfers } from './Transfer'
-import { docHref, localTime, plural } from './util'
+import { docHref, localTime, plural, warningOf } from './util'
 
 export function TeamPage({ self, team, reloadKey }: { self: string; team: string; reloadKey: number }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
@@ -38,10 +38,12 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
   const [err, setErr] = useState('')
   const [removing, setRemoving] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
   const [reassigning, setReassigning] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
+  const [warn, setWarn] = useState('')
   const run = async (f: () => Promise<unknown>) => {
     setErr('')
+    setWarn('')
     try {
-      await f()
+      setWarn(warningOf(await f()))
       reload()
     } catch (e) {
       setErr((e as Error).message)
@@ -68,6 +70,7 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
       )}
       {t.me !== 'none' && <Replication t={t} self={self} run={run} />}
       {err && <div className="error-box">{err}</div>}
+      {warn && <div className="warn-box">{warn}</div>}
 
       <h3>Members</h3>
       <div className="table-wrap">
@@ -314,8 +317,9 @@ function ReassignPanel({
                   disabled={!target}
                   onClick={() =>
                     run(async () => {
-                      await api.reassign(d.path, target)
+                      const r = await api.reassign(d.path, target)
                       onDone(d.kalka_id)
+                      return r
                     })
                   }
                 >

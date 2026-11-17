@@ -5,11 +5,13 @@ package core
 // kalka releases at once, and nothing is silently overwritten.
 
 import (
+	"context"
 	"fmt"
 	"github.com/golbinski/kalka/internal/addr"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/fsutil"
@@ -59,13 +61,45 @@ type ReassignResult struct {
 	// the local user (0 otherwise, or while the releases up to the cut-off
 	// have not arrived).
 	Version int64 `json:"version,omitempty"`
+	// Warning is set when no other member could be reached first: the
+	// reassignment was signed from a view that may be out of date.
+	Warning string `json:"warning,omitempty"`
 }
 
 // Reassign makes email the owner of a team document from the next version
 // on, without the current owner's consent (spec 7.3): a signed
 // reassign-document naming the highest valid release held here.
 func (d *Node) Reassign(path, email string) (ReassignResult, error) {
-	return d.reassign(path, email, "")
+	warn := ""
+	if h, err := d.heldAt(d.resolve(path)); err == nil {
+		warn = d.catchUp(h.dir.Team)
+	}
+	r, err := d.reassign(path, email, "")
+	r.Warning = warn
+	return r, err
+}
+
+// CatchUpTimeout bounds the round run before signing an operation that
+// voids what the signer has not seen; 0 skips the round.
+var CatchUpTimeout = 20 * time.Second
+
+// catchUp runs a replication round of team before the local user signs a
+// reassignment, a removal or an owner's demotion (spec 19.5): those void
+// releases and operations the signer has not seen, so the view should be
+// current. It returns a warning when other members exist and none was
+// reached.
+func (d *Node) catchUp(team string) string {
+	h, err := d.heldTeam(team)
+	if err != nil || len(h.st.Members) < 2 || CatchUpTimeout <= 0 {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(d.work, CatchUpTimeout)
+	defer cancel()
+	st, err := d.ReplicateNow(ctx, team)
+	if err == nil && len(st.Reached) > 0 {
+		return ""
+	}
+	return "no other member could be reached first: this was signed from what this computer holds, which may be out of date"
 }
 
 // reassign is Reassign; note is the note of the release the local user
@@ -111,11 +145,10 @@ func (d *Node) reassign(path, email, note string) (ReassignResult, error) {
 		return ReassignResult{}, fmt.Errorf("%s already owns %s", email, d.rel(f.Path))
 	}
 	var after int64
-	var plan string
 	if released {
-		after, plan = head.Release.Version, head.Release.Plan
+		after = head.Release.Version
 	}
-	op := d.teamSigner(t).Reassign(st.Heads, id, addr.Canonical(from), email, after, plan, d.now())
+	op := d.teamSigner(t).Reassign(st.Heads, id, addr.Canonical(from), email, after, d.now())
 	st, err = d.commit(t, []teamlog.Op{op})
 	d.teams.mu.Unlock()
 	if err != nil {

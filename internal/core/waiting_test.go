@@ -154,6 +154,7 @@ func TestWaitingDisputed(t *testing.T) {
 // The owner is no longer a member: a document the remover did not hold
 // at the removal stays with the removed member; the team owners see it.
 func TestWaitingOwnerGone(t *testing.T) {
+	staleView(t) // the depot removes the courier before it learns of the document
 	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example", "hub@parcels.example")
 	depot, courier, hub := ns[0], ns[1], ns[2]
 	depot.replicate(courier) // the courier learns of the hub
@@ -229,5 +230,36 @@ func TestWaitingSummaryOrder(t *testing.T) {
 	}
 	if e := summarize(nil, dirs); e.Total != 0 || e.Oldest != nil || e.Teams == nil {
 		t.Fatalf("empty: %+v", e)
+	}
+}
+
+// staleView makes the test's reassignments and removals sign from what the
+// node holds, without the round that brings it up to date first.
+func staleView(t *testing.T) {
+	old := CatchUpTimeout
+	CatchUpTimeout = 0
+	t.Cleanup(func() { CatchUpTimeout = old })
+}
+
+// A reassignment first runs a round: a release the signer has not seen
+// arrives before the cut-off is chosen. With no member reachable it is
+// signed all the same, with a warning.
+func TestReassignCatchesUp(t *testing.T) {
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	depot, courier := ns[0], ns[1]
+	courier.write("lockers.md", lockers)
+	waitIndexed(t, courier, 1)
+	id := courier.share("lockers.md", depot)
+	path := must(courier.teamFile(id))
+	editFile(t, courier, path, "lockers", "parcel lockers")
+	courier.release(path, "v2")
+	r, err := depot.d.Reassign(must(depot.teamFile(id)), depot.email)
+	if err != nil || r.After != 2 || r.Warning != "" {
+		t.Fatalf("reassign: %+v %v", r, err)
+	}
+	courier.stop()
+	r, err = depot.d.Reassign(must(depot.teamFile(id)), courier.email)
+	if err != nil || r.Warning == "" {
+		t.Fatalf("offline reassign: %+v %v", r, err)
 	}
 }

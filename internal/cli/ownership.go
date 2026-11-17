@@ -105,5 +105,8 @@ func cmdReassign(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "; you released version %d", r.Version)
 	}
 	fmt.Fprintln(stdout)
+	if r.Warning != "" {
+		fmt.Fprintln(stderr, "warning: "+r.Warning)
+	}
 	return exitOK
 }

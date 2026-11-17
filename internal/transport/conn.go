@@ -134,15 +134,21 @@ type Envelope struct {
 // Decode unmarshals the message into v.
 func (e Envelope) Decode(v any) error { return json.Unmarshal(e.Raw, v) }
 
-// Receive reads the next message. A zero timeout waits indefinitely.
+// Receive reads the next message. timeout bounds silence, not the
+// message: every read that brings bytes renews it, so a large message
+// over a slow link arrives as long as it keeps moving. A zero timeout
+// waits indefinitely.
 func (c *Conn) Receive(timeout time.Duration) (Envelope, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
-	if timeout > 0 {
-		_ = c.rw.SetReadDeadline(time.Now().Add(timeout))
-	} else {
-		_ = c.rw.SetReadDeadline(time.Time{})
+	renew := func() {
+		if timeout > 0 {
+			_ = c.rw.SetReadDeadline(time.Now().Add(timeout))
+		} else {
+			_ = c.rw.SetReadDeadline(time.Time{})
+		}
 	}
+	renew()
 	buf := make([]byte, 64<<10)
 	for {
 		if len(c.rbuf) >= 4 {
@@ -170,6 +176,9 @@ func (c *Conn) Receive(timeout time.Duration) (Envelope, error) {
 			return Envelope{}, err
 		}
 		c.rbuf = append(c.rbuf, buf[:k]...)
+		if k > 0 {
+			renew()
+		}
 	}
 }
 

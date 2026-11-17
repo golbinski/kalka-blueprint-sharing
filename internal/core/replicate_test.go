@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -670,5 +671,32 @@ func TestSyncNowDuringRound(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("Sync now did not run after the round ended")
+	}
+}
+
+// One session asks for at most MaxWant documents and says there are more;
+// the next session brings the rest.
+func TestWantsCapped(t *testing.T) {
+	old := syncproto.MaxWant
+	syncproto.MaxWant = 2
+	t.Cleanup(func() { syncproto.MaxWant = old })
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	depot, courier := ns[0], ns[1]
+	for i := range 5 {
+		name := fmt.Sprintf("lockers-%d.md", i)
+		depot.write(name, strings.Replace(lockers, "# Parcel lockers at the depot", fmt.Sprintf("# Parcel lockers at depot %d", i), 1))
+		waitIndexed(t, depot, i+1)
+		depot.publish(name)
+	}
+	got := 0
+	for round := 0; round < 3; round++ {
+		res := courier.replicate(depot)
+		got += len(res.Received)
+		if len(res.Received) > 2 || res.More != (got < 5) {
+			t.Fatalf("round %d: received %d, more %v, total %d", round, len(res.Received), res.More, got)
+		}
+	}
+	if got != 5 {
+		t.Fatalf("received %d of 5", got)
 	}
 }

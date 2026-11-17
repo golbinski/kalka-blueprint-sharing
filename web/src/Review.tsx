@@ -8,7 +8,7 @@ import { TraceInline } from './Trace'
 import { groupEntries } from './entries'
 import { attestedBadge } from './scope'
 import { TransferDialog, TransferStrip } from './Transfer'
-import { docHref, localTime, plural, scopeHref } from './util'
+import { docHref, localTime, plural, scopeHref, warningOf } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -340,13 +340,15 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [warn, setWarn] = useState('')
   if (!t?.held || t.version === 0) return null
   if (!t.can_act && !t.team_owner) return null
   const go = async (f: () => Promise<unknown>) => {
     setBusy(true)
     setErr('')
+    setWarn('')
     try {
-      await f()
+      setWarn(warningOf(await f()))
       setMode('')
       setEmail('')
       reload()
@@ -450,6 +452,7 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
         </>
       )}
       {err && <div className="error-text">{err}</div>}
+      {warn && <div className="warn-box">{warn}</div>}
     </div>
   )
 }

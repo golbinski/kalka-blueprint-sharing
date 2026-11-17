@@ -1,0 +1,25 @@
+# Once a day, check that the public PeerJS cloud still relays kalka's
+# signaling (docs/peerjs.md): a change upstream would otherwise show only
+# when someone tries the cloud mode. Nothing here builds or publishes.
+name: PeerJS cloud
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go test -count=1 -run TestCloudRelay ./internal/peerjs
+        env:
+          KALKA_CLOUD_TEST: '1'

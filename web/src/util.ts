@@ -115,3 +115,9 @@ export function setupFromInvite(p: { email: string; rendezvous: string }): { ema
   if (p.rendezvous === 'peerjs-cloud') return { email: p.email, mode: 'cloud', server: '' }
   return { email: p.email, mode: 'server', server: p.rendezvous }
 }
+
+// warningOf is the warning a result carries: a removal or reassignment
+// signed while no other member could be reached (spec 19.5).
+export function warningOf(r: unknown): string {
+  return r && typeof r === 'object' && 'warning' in r && typeof r.warning === 'string' ? r.warning : ''
+}
