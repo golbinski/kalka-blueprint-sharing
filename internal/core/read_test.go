@@ -3,7 +3,10 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/golbinski/kalka/internal/store"
 )
 
 // TestUnread: what was held at the first start is read; a new document
@@ -62,4 +65,30 @@ func TestUnread(t *testing.T) {
 	if u := depot.d.Unread(); len(u) != 0 {
 		t.Fatalf("read: %+v", u)
 	}
+}
+
+// TestBlueprintsInVersion: the list carries a published blueprint's
+// version, and whether this copy has edits not released.
+func TestBlueprintsInVersion(t *testing.T) {
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	depot := ns[0]
+	depot.write("lockers.md", lockers)
+	waitIndexed(t, depot, 1)
+	depot.publish("lockers.md")
+	id := mustID(t, depot, "lockers.md")
+	name := depot.rel(id)
+	find := func() store.Info {
+		for _, in := range depot.d.BlueprintsIn(Scope{All: true}) {
+			if in.Path == depot.d.resolve(name) {
+				return in
+			}
+		}
+		return store.Info{}
+	}
+	waitFor(t, "version 1 listed", func() bool { return find().Version == 1 })
+	if find().Unreleased {
+		t.Fatalf("just published: %+v", find())
+	}
+	depot.write(name, strings.Replace(depot.read(name), "## Problem", "## Problem\n\nLockers fill up on Mondays.", 1))
+	waitFor(t, "the edit seen as unreleased", func() bool { return find().Unreleased })
 }

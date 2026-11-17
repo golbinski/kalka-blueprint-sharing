@@ -41,7 +41,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
     setBusy(false)
   }
   return (
-    <Modal title="Create seed" busy={busy} onClose={onClose}>
+    <Modal title="Split off a seed" busy={busy} onClose={onClose}>
       {made ? (
         <>
           <p>
@@ -56,7 +56,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
               <p className="error-text">The link back from “{doc.title}” could not be added: {made.backlinkError}</p>
               <div className="row">
                 <button type="button" className="primary" {...act('seed.backlink')} disabled={busy} onClick={retry}>
-                  Add the backlink
+                  Link it from its parent
                 </button>
                 <button type="button" onClick={onClose}>
                   Later
@@ -74,15 +74,15 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
       ) : (
         <form onSubmit={submit} className="seed-form">
           <p className="muted">
-            A small blueprint you own, with status <code>seed</code>, linked from “{doc.title}”. The parent's plan is not changed; a{' '}
-            <code>budded</code> entry is added to its review log.
+            A small blueprint of your own for an idea you want to keep without changing “{doc.title}”. Its comments show where
+            the seed came from.
           </p>
           <label>
             Title
             <input ref={first} value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} />
           </label>
           <label>
-            Problem{from ? ' (empty: quote the ' + from.kind + ')' : ''}
+            Problem{from ? ` (leave empty to quote the ${from.kind})` : ''}
             <textarea rows={4} value={problem} onChange={(e) => setProblem(e.target.value)} required={!from} />
           </label>
           <label>
@@ -92,7 +92,7 @@ export function SeedDialog({ doc, from, onClose, onDone }: { doc: Doc; from?: En
           {err && <p className="error-text">{err}</p>}
           <div className="row">
             <button type="submit" className="primary" {...act('seed.create')} disabled={busy || !title.trim()}>
-              Create seed
+              Split off the seed
             </button>
             <button type="button" onClick={onClose}>
               Cancel
@@ -140,11 +140,11 @@ export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' |
       {done ? (
         <>
           <p>
-            “{doc.title}” is published to {done.team} as version {done.version}. It replicates to the team's members.
+            “{doc.title}” is published to {done.team} as version {done.version}. Your teammates get it the next time kalka syncs with them.
           </p>
           {done.local_only > 0 && (
             <p className="muted">
-              {done.local_only} {done.local_only === 1 ? 'entry stays' : 'entries stay'} in your file only: unsigned, or by
+              {done.local_only} {done.local_only === 1 ? 'comment stays' : 'comments stay'} only in your copy: not signed, or by
               someone outside the team.
             </p>
           )}
@@ -166,8 +166,8 @@ export function PublishDialog({ doc, onClose, onDone }: { doc: Pick<Doc, 'rel' |
       ) : (
         <form onSubmit={submit} className="seed-form">
           <p className="muted">
-            Every member of the team gets the document and the review entries signed by members. You stay its owner and
-            release each new version; a document belongs to one team.
+            Every member of the team gets the blueprint and its comments. You stay its owner and release each new version; a
+            blueprint belongs to one team.
           </p>
           {teams && teams.length > 1 && (
             <label>

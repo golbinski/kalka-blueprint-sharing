@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { act } from './actions'
-import { Modal } from './Modal'
 import { api, type Doc, type Entry, type Section } from './api'
 import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
 import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
-import { groupEntries } from './entries'
-import { attestedBadge } from './scope'
-import { MemberSelect, useMembers } from './Members'
-import { TransferDialog, TransferStrip } from './Transfer'
-import { docHref, localTime, plural, scopeHref, warningOf } from './util'
+import { groupEntries, oldThread, versionAt } from './entries'
+import { attestedBadge, shortName } from './scope'
+import { DocHeader } from './DocHeader'
+import { docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -110,424 +108,20 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
         </span>
         {doc.role === 'owner' && (
           <button type="button" className="link" {...act('seed.promote')} disabled={busy} onClick={() => run(() => api.promote(doc.rel))}>
-            Promote to draft
+            Turn into a blueprint
           </button>
         )}
       </div>
       {s.backlink_missing && (
         <div className="hint">
-          <span className="hint-text">The parent has no link to this seed yet (its file could not be written).</span>
+          <span className="hint-text">Its parent does not link to it yet (kalka could not write the parent's file).</span>
           <button type="button" className="link" {...act('seed.backlink')} disabled={busy} onClick={() => run(() => api.backlink(doc.rel))}>
-            Add the backlink
+            Link it from its parent
           </button>
         </div>
       )}
       {err && <div className="error-text">{err}</div>}
     </div>
-  )
-}
-
-// TeamStrip heads a published document (spec 11.1, 19.5, 20): its team
-// and version, the owner's Publish update and Delete for the team, and
-// what is off about the document's ownership.
-function TeamStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
-  if (doc.domain) return <DomainStrip doc={doc} reload={reload} />
-  return <PublishedStrip doc={doc} reload={reload} />
-}
-
-function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [note, setNote] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const t = doc.team
-  if (!t) return null
-  const run = async (f: () => Promise<unknown>) => {
-    setBusy(true)
-    setErr('')
-    try {
-      await f()
-      setNote('')
-      setConfirmDelete(false)
-      reload()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-    setBusy(false)
-  }
-  if (!t.held) {
-    return (
-      <div className="hints team-strip">
-        <div className="hint">
-          <span className="hint-label">team</span>
-          <span className="hint-text">
-            Published to {t.team}, a team you are not a member of on this installation. It does not replicate from here.
-          </span>
-        </div>
-      </div>
-    )
-  }
-  return (
-    <div className="hints team-strip">
-      <div className="hint">
-        <span className="hint-label">team</span>
-        <span className="hint-text">
-          Published to <a href={scopeHref(t.team, 'team')}>{t.team}</a>
-          {t.version > 0 ? `, version ${t.version}` : ''}.
-          {t.unreleased && t.can_act && ' Your edits since then are not released to the team yet.'}
-          {t.unreleased && !t.can_act && ` This copy has edits that are not released; only ${t.releaser} releases versions.`}
-        </span>
-        {t.can_act && t.unreleased && (
-          <>
-            <input
-              className="release-note"
-              placeholder="What changed (optional)"
-              aria-label="Release note"
-              value={note}
-              disabled={busy}
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <button type="button" className="link" {...act('doc.release')} disabled={busy} onClick={() => run(() => api.release(doc.rel, note, []))}>
-              Release v{t.version + 1}
-            </button>
-          </>
-        )}
-        {t.can_act &&
-          (confirmDelete ? (
-            <>
-              <span className="hint-text">Delete for every member? The last copy goes to the team folder's trash.</span>
-              <button type="button" className="link danger" {...act('doc.delete')} disabled={busy} onClick={() => run(() => api.deleteForTeam(doc.rel))}>
-                Delete for the team
-              </button>
-              <button type="button" className="link" disabled={busy} onClick={() => setConfirmDelete(false)}>
-                Keep it
-              </button>
-            </>
-          ) : (
-            <button type="button" className="link" disabled={busy} onClick={() => setConfirmDelete(true)}>
-              Delete for the team…
-            </button>
-          ))}
-      </div>
-      {t.disputed && (
-        <div className="hint warn">
-          <span className="hint-text">
-            Ownership is disputed: two releases claim the same version. No one can release until a team owner reassigns the
-            document.
-          </span>
-        </div>
-      )}
-      {t.reassigned_to && (
-        <div className="hint">
-          <span className="hint-text">
-            Reassigned to {t.reassigned_to === doc.self ? 'you' : t.reassigned_to}, pending: their kalka releases the next
-            version as soon as it holds the reassignment.
-          </span>
-        </div>
-      )}
-      {t.owner_not_member && (
-        <div className="hint warn">
-          <span className="hint-text">
-            {t.releaser} is no longer a member of {t.team}. A team owner reassigns the document, or it stays at version{' '}
-            {t.version}.
-          </span>
-        </div>
-      )}
-      <OwnershipActions doc={doc} reload={reload} />
-      {(t.local_only ?? 0) > 0 && (
-        <div className="hint">
-          <span className="hint-text">
-            {plural(t.local_only ?? 0, 'entry stays', 'entries stay')} in this file only: unsigned, or by someone outside the
-            team.
-          </span>
-        </div>
-      )}
-      {err && <div className="error-text">{err}</div>}
-    </div>
-  )
-}
-
-// DomainStrip heads a domain document (spec 6.12): its version and domain
-// owner, Release for the owner, and the switcher over the versions
-// kept here.
-function DomainStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
-  const [releasing, setReleasing] = useState(false)
-  const dm = doc.domain!
-  const t = doc.team
-  const viewing = dm.viewing ?? 0
-  const versions = [...dm.versions].sort((a, b) => b - a)
-  return (
-    <div className="hints team-strip">
-      <div className="hint">
-        <span className="hint-label">domain</span>
-        <span className="hint-text">
-          {viewing > 0 ? (
-            <>
-              Version {viewing} of the {dm.name} domain of {dm.team}, as kept here. Read only.{' '}
-              <a href={docHref(doc.rel)}>Back to the current document</a>
-            </>
-          ) : (
-            <>
-              The {dm.name} domain of <a href={scopeHref(dm.team, 'team')}>{dm.team}</a>
-              {dm.version > 0 ? `, version ${dm.version}.` : ': a draft, not released yet.'}
-              {dm.version > 0 && t?.unreleased && ' Edits since then are a draft until the owner releases them.'}{' '}
-              {dm.owner && <>Owner: {dm.owner === doc.self ? 'you' : dm.owner}.</>}
-            </>
-          )}
-        </span>
-        {versions.length > 0 && (
-          <select
-            className="version-switch"
-            aria-label="Version"
-            value={viewing}
-            onChange={(e) => {
-              location.hash = docHref(doc.rel, Number(e.target.value) || undefined)
-            }}
-          >
-            <option value={0}>current</option>
-            {versions.map((v) => (
-              <option key={v} value={v}>
-                v{v}
-              </option>
-            ))}
-          </select>
-        )}
-        {viewing === 0 && t?.can_act && t.unreleased && (
-          <button type="button" className="link" onClick={() => setReleasing(true)}>
-            Release v{dm.version + 1}…
-          </button>
-        )}
-      </div>
-      {viewing === 0 && t?.disputed && (
-        <div className="hint warn">
-          <span className="hint-text">Two releases claim the same version. A team owner settles it by reassigning the document.</span>
-        </div>
-      )}
-      {viewing === 0 && t?.reassigned_to && (
-        <div className="hint">
-          <span className="hint-text">
-            Reassigned to {t.reassigned_to === doc.self ? 'you' : t.reassigned_to}, pending: their kalka releases the next version.
-          </span>
-        </div>
-      )}
-      {viewing === 0 && t?.domain_clash && (
-        <div className="hint warn">
-          <span className="hint-text">
-            Two documents claim this domain; the other is {t.domain_clash}. References to it are ambiguous until a team owner
-            deletes one.
-          </span>
-        </div>
-      )}
-      {viewing === 0 && <OwnershipActions doc={doc} reload={reload} />}
-      {releasing && (
-        <ReleaseDialog
-          doc={doc}
-          onClose={() => setReleasing(false)}
-          onDone={() => {
-            setReleasing(false)
-            reload()
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-// OwnershipActions: the owner hands off (spec 7.2); a team owner
-// reassigns (7.3), or takes the document over to release or delete it
-// (7.4).
-function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
-  const t = doc.team
-  const [mode, setMode] = useState<'' | 'handoff' | 'reassign' | 'take-release' | 'take-delete'>('')
-  const [transfer, setTransfer] = useState<'' | 'copy' | 'move'>('')
-  const [email, setEmail] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [warn, setWarn] = useState('')
-  const members = useMembers(mode === 'handoff' || mode === 'reassign' ? t?.team : undefined)
-  if (!t?.held || t.version === 0) return null
-  if (!t.can_act && !t.team_owner) return null
-  const go = async (f: () => Promise<unknown>) => {
-    setBusy(true)
-    setErr('')
-    setWarn('')
-    try {
-      setWarn(warningOf(await f()))
-      setMode('')
-      setEmail('')
-      reload()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-    setBusy(false)
-  }
-  const takeOver = t.team_owner && !t.can_act
-  return (
-    <div className="hint">
-      {mode === '' && (
-        <>
-          {t.can_act && (
-            <button type="button" className="link" onClick={() => setMode('handoff')}>
-              Hand off…
-            </button>
-          )}
-          {t.team_owner && (
-            <button type="button" className="link" onClick={() => setMode('reassign')}>
-              Reassign…
-            </button>
-          )}
-          {takeOver && (
-            <>
-              <button type="button" className="link" onClick={() => setMode('take-release')}>
-                Release…
-              </button>
-              <button type="button" className="link" onClick={() => setMode('take-delete')}>
-                Delete for the team…
-              </button>
-            </>
-          )}
-          {!t.disputed && !doc.transfer?.moving_to && (
-            <>
-              <button type="button" className="link" onClick={() => setTransfer('copy')}>
-                Copy to team…
-              </button>
-              <button type="button" className="link" onClick={() => setTransfer('move')}>
-                Move to team…
-              </button>
-            </>
-          )}
-        </>
-      )}
-      {transfer && (
-        <TransferDialog
-          doc={doc}
-          mode={transfer}
-          onClose={() => setTransfer('')}
-          onDone={reload}
-        />
-      )}
-      {(mode === 'handoff' || mode === 'reassign') && t && (
-        <form
-          className="row"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const to = email.trim()
-            go(() => (mode === 'handoff' ? api.handoff(doc.rel, to) : api.reassign(doc.rel, to)))
-          }}
-        >
-          <span className="hint-text">
-            {mode === 'handoff'
-              ? 'They become the owner at once and release the next version. You can still comment.'
-              : 'As a team owner you choose the next owner; the current owner is not asked.'}
-          </span>
-          <MemberSelect members={members} value={email} onChange={setEmail} exclude={t.releaser ? [t.releaser] : []} label="New owner" />
-          {mode === 'handoff' ? (
-            <button type="submit" {...act('doc.handoff')} disabled={busy || !email.trim()}>
-              Hand off
-            </button>
-          ) : (
-            <button type="submit" {...act('doc.reassign')} disabled={busy || !email.trim()}>
-              Reassign
-            </button>
-          )}
-          <button type="button" className="link" onClick={() => setMode('')}>
-            Cancel
-          </button>
-        </form>
-      )}
-      {(mode === 'take-release' || mode === 'take-delete') && (
-        <>
-          <span className="hint-text">
-            You will become the owner first: a reassignment to you, then{' '}
-            {mode === 'take-release' ? 'a release of the plan as you hold it.' : 'the deletion for every member.'}
-          </span>
-          {mode === 'take-release' ? (
-            <button type="button" className="link" {...act('doc.release')} disabled={busy} onClick={() => go(() => api.release(doc.rel, '', [], true))}>
-              Take over and release
-            </button>
-          ) : (
-            <button type="button" className="link danger" {...act('doc.delete')} disabled={busy} onClick={() => go(() => api.deleteForTeam(doc.rel, true))}>
-              Take over and delete
-            </button>
-          )}
-          <button type="button" className="link" onClick={() => setMode('')}>
-            Cancel
-          </button>
-        </>
-      )}
-      {err && <div className="error-text">{err}</div>}
-      {warn && <div className="warn-box">{warn}</div>}
-    </div>
-  )
-}
-
-// ReleaseDialog releases the next domain version (spec 6.12): a summary
-// and the open comments it takes up, which then fold as incorporated.
-function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void; onDone: () => void }) {
-  const open = doc.entries.filter((e) => e.valid && e.kind !== 'release' && !e.reply_to && !e.incorporated_in)
-  const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const next = (doc.domain?.version ?? 0) + 1
-  const submit = async (ev: React.FormEvent) => {
-    ev.preventDefault()
-    setBusy(true)
-    setErr('')
-    try {
-      await api.release(doc.rel, note, [...picked])
-      onDone()
-    } catch (e) {
-      setErr((e as Error).message)
-      setBusy(false)
-    }
-  }
-  return (
-    <Modal title={`Release version ${next}`} busy={busy} onClose={onClose}>
-      <form onSubmit={submit} className="seed-form">
-        <p className="muted">
-          The current text becomes version {next} for every member of {doc.domain?.team}. Blueprints that name an older version
-          keep resolving to it.
-        </p>
-        <label>
-          Summary <span className="muted">(optional)</span>
-          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
-        </label>
-        {open.length > 0 ? (
-          <fieldset className="incorporate">
-            <legend>Comments this version takes up</legend>
-            {open.map((e) => (
-              <label key={e.id} className="check">
-                <input
-                  type="checkbox"
-                  checked={picked.has(e.id)}
-                  onChange={(ev) => {
-                    const n = new Set(picked)
-                    if (ev.target.checked) n.add(e.id)
-                    else n.delete(e.id)
-                    setPicked(n)
-                  }}
-                />
-                <span>
-                  <b>{e.author}</b> on §{e.anchor || 'plan'}: {e.body.length > 120 ? e.body.slice(0, 120) + '…' : e.body}
-                </span>
-              </label>
-            ))}
-          </fieldset>
-        ) : (
-          <p className="muted small">No open comments.</p>
-        )}
-        {err && <p className="error-text">{err}</p>}
-        <div className="row">
-          <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
-            Release v{next}
-          </button>
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </Modal>
   )
 }
 
@@ -542,21 +136,21 @@ function DomainRefStrip({ doc }: { doc: Doc }) {
   const newer = (r.latest ?? 0) > r.version
   const code = `domain-newer-v${r.latest}`
   const lines: { key: string; text: React.ReactNode; dismiss?: boolean }[] = []
-  if (r.ambiguous) lines.push({ key: 'amb', text: <>Two teams held here are named {r.team}; the reference {r.ref} is ambiguous.</> })
-  if (!r.held) lines.push({ key: 'none', text: <>Written against {r.ref}; no document of that domain is here.</> })
+  if (r.ambiguous) lines.push({ key: 'amb', text: <>Two of your teams are named {r.team}, so kalka cannot tell which {r.ref} is meant.</> })
+  if (!r.held) lines.push({ key: 'none', text: <>Written against {r.ref}; that domain is not on this computer.</> })
   if (r.held && r.missing)
-    lines.push({ key: 'miss', text: <>Written against version {r.version} of {r.team}/{r.domain}, which is not kept here.</> })
+    lines.push({ key: 'miss', text: <>Written against version {r.version} of {r.team}/{r.domain}, which is not on this computer.</> })
   if (r.held && newer && !hintDismissed(id, code))
     lines.push({
       key: 'newer',
       dismiss: true,
       text: (
         <>
-          Newer domain version available: <a href={docHref(r.rel!)}>{r.team}/{r.domain} v{r.latest}</a>
+          The {r.domain} domain has a newer version: <a href={docHref(r.rel!)}>v{r.latest}</a>
           {!r.missing && (
             <>
               {' '}
-              (this plan names <a href={docHref(r.rel!, r.version)}>v{r.version}</a>)
+              (this blueprint was written against <a href={docHref(r.rel!, r.version)}>v{r.version}</a>)
             </>
           )}
           .
@@ -598,80 +192,74 @@ const releaseRe = /^v(\d+) · plan:([0-9a-f]{64}) · owner:(\S+)( · deleted)?$/
 
 // ReleaseBody renders a release entry (spec 20.4) in words; a body that is
 // not a release is shown as written.
-function ReleaseBody({ body }: { body: string }) {
-  const [first, ...rest] = body.split('\n')
+interface Badge {
+  label: string
+  why: string
+  warn?: boolean
+}
+
+// badges are what is unusual about an entry, each with its explanation,
+// shown when the badge is clicked.
+function badges(e: Entry, version: number): Badge[] {
+  const out: Badge[] = []
+  if (e.orphaned)
+    out.push({
+      label: 'section removed',
+      warn: true,
+      why: e.node ? `The plan has no trace step ${e.node} under that heading any more.` : 'The section it was written on is no longer in the plan.',
+    })
+  if (e.outdated && !e.orphaned)
+    out.push({
+      label: version > 0 ? `on v${version}` : 'on an earlier version',
+      why: 'Written on an earlier text of the plan; the plan has changed since.',
+    })
+  if (!e.valid) out.push({ label: 'damaged', warn: true, why: 'Its text was changed after it was written, so kalka ignores it.' })
+  if (e.valid && e.sig === 'unsigned')
+    out.push({ label: 'not signed', why: 'Written by hand, not by kalka. It stays in your copy and is not shared with the team.' })
+  if (e.valid && e.sig === 'invalid')
+    out.push({ label: 'signature invalid: ignored', warn: true, why: `The signature does not match ${e.author}'s key, so it has no effect.` })
+  if (e.valid && e.team_state === 'local-only' && e.sig !== 'unsigned' && e.sig !== 'invalid')
+    out.push({ label: 'only in your copy', why: 'Signed by someone who is not in the team, so it is not shared with the team.' })
+  if (e.valid && e.sig === 'attested') out.push({ label: 'carried over', why: cap(attestedBadge(e.author)) + '.' })
+  if (e.incorporated_in) out.push({ label: `taken up in v${e.incorporated_in}`, why: `The release of version ${e.incorporated_in} took this up.` })
+  if (e.valid && e.team_state === 'removed-member')
+    out.push({ label: 'former member', why: `${e.author} is no longer in the team. They wrote this while they were, so it stays.` })
+  return out
+}
+
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
+
+// VersionLine is a release in the review log: history, not conversation.
+function VersionLine({ e }: { e: Entry }) {
+  const [first, ...rest] = e.body.split('\n')
   const m = releaseRe.exec(first)
-  if (!m) return <Markdown src={body} className="entry-body" />
-  const note = rest.filter((l) => !l.startsWith('incorporates: ')).join('\n').trim()
+  if (!m) return <Markdown src={e.body} className="entry-body" />
+  const note = rest.filter((l) => !l.startsWith('incorporates: ')).join(' ').trim()
   const inc = rest.find((l) => l.startsWith('incorporates: '))
   return (
-    <div className="entry-body">
-      {m[4] ? (
-        <b>Deleted for the team at version {m[1]}</b>
-      ) : (
-        <>
-          Released <b>version {m[1]}</b>, owner {m[3]}
-        </>
-      )}
-      <span className="mono small muted" title={`plan hash ${m[2]}`}>
-        {' '}
-        · plan {m[2].slice(0, 8)}
-      </span>
-      {inc && <div className="muted small">{inc}</div>}
-      {note && <Markdown src={note} />}
+    <div className="version-line" id={'e-' + e.id} title={`plan ${m[2]}`}>
+      <b>{m[4] ? `Deleted for the team at v${m[1]}` : `v${m[1]}`}</b> · {localTime(e.timestamp)} · {shortName(m[3])}
+      {note && <> · {note}</>}
+      {inc && <span className="muted"> · takes up {plural(inc.slice('incorporates: '.length).split(/[ ,]+/).filter(Boolean).length, 'comment')}</span>}
     </div>
   )
 }
 
-function Badges({ e }: { e: Entry }) {
+// SeedLine is a seed split off from an entry, under the entry.
+function SeedLine({ e }: { e: Entry }) {
   return (
-    <>
-      {e.orphaned && (
-        <span className="badge warn" title={e.node ? `§${e.anchor}: the plan has no trace step ${e.node} under that heading any more` : `§${e.anchor} matches no heading in the current plan`}>
-          orphaned
+    <div className="seed-line" id={'e-' + e.id}>
+      ↳ {shortName(e.author)} split off a seed:{' '}
+      {e.budded_rel ? (
+        <a className="seed-link" href={docHref(e.budded_rel)}>
+          {e.budded_title || e.budded_seed}
+        </a>
+      ) : (
+        <span className="seed-link" title="not in your folder">
+          {e.budded_title || e.budded_seed}
         </span>
       )}
-      {e.outdated && !e.orphaned && (
-        <span className="badge" title={`written against rev ${e.rev}; the plan has changed since`}>
-          outdated
-        </span>
-      )}
-      {!e.valid && (
-        <span className="badge warn" title="the entry id does not match its content">
-          damaged
-        </span>
-      )}
-      {e.valid && e.sig === 'unsigned' && (
-        <span className="badge" title="no signature: written by hand, not by kalka. It stays in local files and is not shared with a team.">
-          unsigned
-        </span>
-      )}
-      {e.valid && e.sig === 'invalid' && (
-        <span className="badge warn" title={`the signature does not match the key held for ${e.author}; the entry has no effect`}>
-          signature invalid
-        </span>
-      )}
-      {e.valid && e.team_state === 'local-only' && e.sig !== 'unsigned' && e.sig !== 'invalid' && (
-        <span className="badge" title="signed by someone the team log does not know: it stays in this file and does not replicate to the team">
-          local only
-        </span>
-      )}
-      {e.valid && e.sig === 'attested' && (
-        <span className="badge" title={attestedBadge(e.author)}>
-          attested
-        </span>
-      )}
-      {e.incorporated_in && (
-        <span className="badge" title={`the release of version ${e.incorporated_in} took this up`}>
-          incorporated in v{e.incorporated_in}
-        </span>
-      )}
-      {e.valid && e.team_state === 'removed-member' && (
-        <span className="badge" title={`${e.author} is no longer a member of the team; the entry was signed while they were and still replicates`}>
-          removed member
-        </span>
-      )}
-    </>
+    </div>
   )
 }
 
@@ -681,30 +269,41 @@ export function EntryCard({
   byId,
   onReply,
   onSeed,
+  all,
 }: {
   e: Entry
   replies: Map<string, Entry[]>
   byId: Map<string, Entry>
   onReply?: (e: Entry) => void
   onSeed?: (e: Entry) => void
+  /** Every entry of the document, to tell which version one was written on. */
+  all?: Entry[]
 }) {
   const kids = replies.get(e.id) ?? []
   const [unfolded, setUnfolded] = useState(false)
+  const [why, setWhy] = useState('')
+  if (e.kind === 'release') return <VersionLine e={e} />
+  if (e.kind === 'budded' && e.budded_seed) return <SeedLine e={e} />
   if (e.incorporated_in && !unfolded) {
     return (
       <div className={'entry folded kind-' + e.kind} id={'e-' + e.id}>
         <button type="button" className="link" onClick={() => setUnfolded(true)}>
-          {e.kind} by {e.author} · incorporated in v{e.incorporated_in}
+          {e.kind === 'deviation' ? 'Deviation' : 'Comment'} by {shortName(e.author)} · taken up in v{e.incorporated_in}
           {kids.length > 0 ? ` · ${plural(kids.length, 'reply', 'replies')}` : ''}
         </button>
       </div>
     )
   }
+  const bs = badges(e, e.outdated && all ? versionAt(all, e.timestamp) : 0)
+  const seeds = kids.filter((k) => k.kind === 'budded' && k.budded_seed)
+  const talk = kids.filter((k) => !seeds.includes(k))
   return (
     <div className={'entry kind-' + e.kind} id={'e-' + e.id}>
       <div className="entry-head">
-        <span className={'kind kind-' + e.kind}>{e.kind}</span>
-        <span className="author">{e.author}</span>
+        {e.kind !== 'comment' && <span className={'kind kind-' + e.kind}>{e.kind}</span>}
+        <span className="author" title={e.author}>
+          {shortName(e.author)}
+        </span>
         {e.node && (
           <span className="mono small muted" title={`on trace step ${e.node}`}>
             #{e.node}
@@ -718,33 +317,30 @@ export function EntryCard({
             {x}
           </span>
         ))}
-        <Badges e={e} />
+        {bs.map((b) => (
+          <button
+            key={b.label}
+            type="button"
+            className={'badge' + (b.warn ? ' warn' : '')}
+            aria-expanded={why === b.why}
+            onClick={() => setWhy(why === b.why ? '' : b.why)}
+          >
+            {b.label}
+          </button>
+        ))}
       </div>
-      {e.kind === 'budded' && e.budded_seed ? (
-        <div className="entry-body">
-          Split off a seed:{' '}
-          {e.budded_rel ? (
-            <a className="seed-link" href={docHref(e.budded_rel)}>
-              {e.budded_title || e.budded_seed}
-            </a>
-          ) : (
-            <span className="seed-link" title={`kalka_id ${e.budded_seed}; not in your folder`}>
-              {e.budded_title || e.budded_seed}
-            </span>
-          )}
-        </div>
-      ) : e.kind === 'release' ? (
-        <ReleaseBody body={e.body} />
-      ) : (
-        <Markdown src={e.body} className="entry-body" />
-      )}
-      {e.reply_to && !byId.has(e.reply_to) && <div className="muted small">reply to an entry that is not in this file ({e.reply_to})</div>}
+      {why && <div className="badge-why">{why}</div>}
+      <Markdown src={e.body} className="entry-body" />
+      {e.reply_to && !byId.has(e.reply_to) && <div className="muted small">A reply to a comment that is not in this copy.</div>}
       {e.unparsed && (
         <details className="unparsed">
-          <summary>text in the log that is not an entry</summary>
+          <summary>text in the comments that kalka cannot read</summary>
           <pre>{e.unparsed}</pre>
         </details>
       )}
+      {seeds.map((k) => (
+        <SeedLine key={k.id} e={k} />
+      ))}
       <div className="entry-actions">
         {onReply && (
           <button type="button" className="link" onClick={() => onReply(e)}>
@@ -753,14 +349,14 @@ export function EntryCard({
         )}
         {onSeed && e.kind === 'deviation' && e.valid && (
           <button type="button" className="link" onClick={() => onSeed(e)}>
-            Create seed
+            Split off a seed
           </button>
         )}
       </div>
-      {kids.length > 0 && (
+      {talk.length > 0 && (
         <div className="replies">
-          {kids.map((k) => (
-            <EntryCard key={k.id} e={k} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
+          {talk.map((k) => (
+            <EntryCard key={k.id} e={k} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} all={all} />
           ))}
         </div>
       )}
@@ -814,7 +410,7 @@ export function Composer({
     >
       {target && (
         <div className="muted small">
-          Replying to {target.author}, {localTime(target.timestamp)}
+          Replying to {shortName(target.author)}, {localTime(target.timestamp)}
         </div>
       )}
       <div className="row">
@@ -823,18 +419,24 @@ export function Composer({
           <option value="deviation">Deviation</option>
         </select>
         {lockAnchor ? (
-          <span className="mono small muted anchor-fixed">§{anchor}</span>
+          <span className="small muted anchor-fixed">on step {anchor.split('#')[1] ?? anchor}</span>
         ) : (
           <select value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="Section">
-            <option value="">General (whole plan)</option>
-            {anchor.includes('#') && <option value={anchor}>§{anchor}</option>}
+            <option value="">The whole blueprint</option>
+            {anchor.includes('#') && <option value={anchor}>step {anchor.split('#')[1]}</option>}
             {doc.headings.map((h) => (
               <option key={h.slug} value={h.slug}>
-                {'  '.repeat(Math.max(0, h.level - 1))}§{h.slug}
+                {'\u00a0\u00a0'.repeat(Math.max(0, h.level - 1))}
+                {h.text}
               </option>
             ))}
           </select>
         )}
+      </div>
+      <div className="muted small">
+        {kind === 'deviation'
+          ? 'A deviation records what was done differently from the plan, and why. It stands out for the owner.'
+          : 'A comment asks, suggests or agrees. Choose Deviation to record that the work went differently from the plan.'}
       </div>
       {quote && (
         <div className="quote-edit">
@@ -856,7 +458,7 @@ export function Composer({
         placeholder={kind === 'deviation' ? 'What was done differently from the plan, and why' : 'Your comment (Markdown)'}
         aria-label="Entry text"
       />
-      <div className="muted small">Headings in your text become level-4 headings. Ctrl/⌘+Enter to add.</div>
+      <div className="muted small">Markdown works. Ctrl/⌘+Enter to add.</div>
       {err && <div className="error-text">{err}</div>}
       <div className="row end">
         <button type="button" onClick={onCancel} disabled={busy}>
@@ -893,9 +495,20 @@ function SectionBody({ s, doc }: { s: Section; doc: Doc }) {
 }
 
 // Review is the linear review view (spec 11.1).
-export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; onSeed?: (e: Entry) => void }) {
+export function Review({
+  doc,
+  reload,
+  onSeed,
+  onPublish,
+}: {
+  doc: Doc
+  reload: () => void
+  onSeed?: (e?: Entry) => void
+  onPublish?: () => void
+}) {
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [selection, setSelection] = useState<{ slug: string; text: string } | null>(null)
+  const [selection, setSelection] = useState<{ slug: string; text: string; x: number; y: number } | null>(null)
+  const [unfold, setUnfold] = useState<Set<string>>(new Set())
 
   const { bySlug, general, orphaned, replies, byId } = useMemo(() => groupEntries(doc), [doc])
 
@@ -914,8 +527,24 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
   const captureSelection = (slug: string) => {
     const s = window.getSelection()
     const t = s?.toString().trim() ?? ''
-    setSelection(t ? { slug, text: t.slice(0, 2000) } : null)
+    if (!t || !s || s.rangeCount === 0) {
+      setSelection(null)
+      return
+    }
+    const r = s.getRangeAt(0).getBoundingClientRect()
+    setSelection({ slug, text: t.slice(0, 2000), x: r.left + r.width / 2, y: r.top })
   }
+  // The popover is placed where the selection was; it goes when the page moves.
+  useEffect(() => {
+    if (!selection) return
+    const off = () => setSelection(null)
+    window.addEventListener('scroll', off, true)
+    window.addEventListener('resize', off)
+    return () => {
+      window.removeEventListener('scroll', off, true)
+      window.removeEventListener('resize', off)
+    }
+  }, [selection])
 
   const open = (anchor: string, quote?: string) => setDraft({ anchor, quote })
   // A kept domain version is read only (spec 6.12): comments go to the
@@ -933,8 +562,9 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
 
   const sectionView = (s: Section, i: number) => {
     const slug = s.heading?.slug ?? ''
-    const notes = s.heading ? bySlug.get(slug) ?? [] : []
-    const sel = selection && selection.slug === slug ? selection : null
+    const all = s.heading ? bySlug.get(slug) ?? [] : []
+    const old = unfold.has(slug) ? [] : all.filter((e) => oldThread(e, replies))
+    const notes = all.filter((e) => !old.includes(e))
     return (
       <section className="sec" key={i} id={s.heading ? 's-' + slug : undefined}>
         <div className="sec-body" onMouseUp={() => s.heading && captureSelection(slug)}>
@@ -943,20 +573,20 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
         <aside className="sec-notes">
           {s.heading && (
             <>
+              {old.length > 0 && (
+                <button type="button" className="link old-threads" onClick={() => setUnfold(new Set([...unfold, slug]))}>
+                  {plural(old.length, 'comment')} on an earlier version
+                </button>
+              )}
               {notes.map((e) => (
-                <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
+                <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} all={doc.entries} />
               ))}
               {!readOnly &&
-                (composerFor(slug) ??
-                (sel ? (
-                  <button type="button" className="add sel" onClick={() => open(slug, sel.text)}>
-                    Comment on the selected text
-                  </button>
-                ) : (
-                  <button type="button" className="add" onClick={() => open(slug)} aria-label={`Comment on §${slug}`}>
+                (composerFor(slug) ?? (
+                  <button type="button" className="add" onClick={() => open(slug)} aria-label={`Comment on “${s.heading.text}”`}>
                     + Comment
                   </button>
-                )))}
+                ))}
             </>
           )}
         </aside>
@@ -966,27 +596,37 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
 
   return (
     <RefLayer doc={doc} className="review">
-      <TransferStrip doc={doc} />
-      <TeamStrip doc={doc} reload={reload} />
+      <DocHeader doc={doc} reload={reload} onSeed={onSeed && (() => onSeed())} onPublish={onPublish} />
       <DomainRefStrip doc={doc} />
       <SeedStrip doc={doc} reload={reload} />
       <HintStrip doc={doc} />
-      {doc.sections.length === 0 && <p className="muted">This file has no body text.</p>}
+      {doc.sections.length === 0 && <p className="muted">This blueprint has no text yet.</p>}
+      {selection && !readOnly && !draft && (
+        <button
+          type="button"
+          className="sel-pop primary"
+          style={{ left: selection.x, top: Math.max(8, selection.y - 44) }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => open(selection.slug, selection.text)}
+        >
+          Comment
+        </button>
+      )}
       {doc.sections.map(sectionView)}
       <section className="sec general" id="general">
         <div className="sec-body">
           <h2 className="log-title">General</h2>
-          <p className="muted">Entries about the whole plan. {plural(doc.entries.length, 'entry', 'entries')} in the review log.</p>
+          <p className="muted">Comments about the whole blueprint, and its versions.</p>
           {doc.log_lead && (
             <details className="unparsed">
-              <summary>text at the start of the review log that is not an entry</summary>
+              <summary>text at the start of the comments that kalka cannot read</summary>
               <pre>{doc.log_lead}</pre>
             </details>
           )}
         </div>
         <aside className="sec-notes">
           {general.map((e) => (
-            <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
+            <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} all={doc.entries} />
           ))}
           {!readOnly &&
             (composerFor('') ?? (
@@ -999,12 +639,12 @@ export function Review({ doc, reload, onSeed }: { doc: Doc; reload: () => void; 
       {orphaned.length > 0 && (
         <section className="sec" id="orphaned">
           <div className="sec-body">
-            <h2 className="log-title">Orphaned</h2>
-            <p className="muted">These entries point at headings that are no longer in the plan.</p>
+            <h2 className="log-title">On removed sections</h2>
+            <p className="muted">These were written on sections that are no longer in the plan.</p>
           </div>
           <aside className="sec-notes">
             {orphaned.map((e) => (
-              <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} />
+              <EntryCard key={e.id} e={e} replies={replies} byId={byId} onReply={onReply} onSeed={onSeed} all={doc.entries} />
             ))}
           </aside>
         </section>

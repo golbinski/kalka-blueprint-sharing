@@ -1,15 +1,18 @@
-// Team view (spec 11.1): the selected team's members with presence,
-// owners, open invites, transfers and the log as a readable history;
-// Invite, Remove (with a preview of the documents to be reassigned), Make
-// owner, Sync now. Creating and joining teams is in the switcher.
+// Team view (spec 11.1): the team's sync in words with Sync now, Invite
+// a teammate, the members with when they were last seen, what they own
+// and a ⋯ menu (Make team owner, Give their blueprints to someone,
+// Remove), transfers, and folded the history and the technical details.
+// Creating and joining teams is in the switcher.
 import { useCallback, useEffect, useState } from 'react'
 import { act } from './actions'
 import { api, type BlueprintInfo, type DomainRow, type InviteResult, type Reassigned, type Team, type TeamMember } from './api'
-import { findTeam } from './scope'
+import { Menu } from './Menu'
+import { findTeam, shortName } from './scope'
 import { Transfers } from './Transfer'
-import { docHref, localTime, plural, warningOf } from './util'
+import { ago, docHref, localTime, plural, shortTime, warningOf } from './util'
+import { OpenFolder } from './Views'
 
-export function TeamPage({ self, team, reloadKey }: { self: string; team: string; reloadKey: number }) {
+export function TeamPage({ self, team, reloadKey, list }: { self: string; team: string; reloadKey: number; list: BlueprintInfo[] }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [err, setErr] = useState('')
   const load = useCallback(() => {
@@ -21,19 +24,19 @@ export function TeamPage({ self, team, reloadKey }: { self: string; team: string
   const t = teams ? findTeam(team, teams) : undefined
   return (
     <div className="page">
-      <h1>{t ? t.name : 'Team'}</h1>
-      <p className="muted">
-        A team is a signed log of who belongs and who may change the roster. It lives in your folder next to the team's
-        documents. Members trust each other's keys through it, so they never compare codes.
-      </p>
       {err && <div className="error-box">{err}</div>}
-      {teams && !t && <div className="empty">No team “{team}” here. Choose one in the switcher, or create or join one there.</div>}
-      {t && <TeamCard key={t.team} t={t} self={self} reload={load} reloadKey={reloadKey} />}
+      {teams && !t && (
+        <>
+          <h1>Team</h1>
+          <div className="empty">No team “{team}” on this computer. Choose one in the switcher, or create or join one there.</div>
+        </>
+      )}
+      {t && <TeamCard key={t.team} t={t} self={self} reload={load} reloadKey={reloadKey} list={list} />}
     </div>
   )
 }
 
-function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reload: () => void; reloadKey: number }) {
+function TeamCard({ t, self, reload, reloadKey, list }: { t: Team; self: string; reload: () => void; reloadKey: number; list: BlueprintInfo[] }) {
   const owner = t.me === 'owner'
   const [err, setErr] = useState('')
   const [removing, setRemoving] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
@@ -50,80 +53,115 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
       setErr((e as Error).message)
     }
   }
+  const owns = new Map<string, number>()
+  for (const b of list) if (b.owner && b.version) owns.set(b.owner.toLowerCase(), (owns.get(b.owner.toLowerCase()) ?? 0) + 1)
+  const ownsOf = (email: string) => owns.get(email.toLowerCase()) ?? 0
+  const preview = async (email: string, set: typeof setRemoving) => {
+    set({ email, docs: null })
+    try {
+      set({ email, docs: await api.removalPreview(t.team, email) })
+    } catch (e) {
+      set(null)
+      setErr((e as Error).message)
+    }
+  }
   const notCounting = (t.bad_lines?.length ?? 0) + (t.rejected ?? 0)
+  const voids = t.history.filter((h) => !h.effective).length + (t.bad_lines?.length ?? 0)
   return (
     <section className="team-card">
-      <div className="team-head">
-        <span className="muted small mono" title={t.team}>
-          {t.team.slice(0, 12)}
-        </span>
+      <div className="team-title">
+        <h1>
+          {t.name}{' '}
+          <span className="muted small">· {t.me === 'owner' ? 'you are a team owner' : t.me === 'member' ? 'you are a member' : 'you are not a member'}</span>
+        </h1>
         <span className="grow" />
-        <span className="muted small">
-          {t.me === 'owner' ? 'you are an owner' : t.me === 'member' ? 'you are a member' : 'you are not a member'} · {t.dir}
-        </span>
+        {t.me !== 'none' && <SyncLine t={t} self={self} run={run} />}
       </div>
       {t.error && <div className="error-box">{t.error}</div>}
+      <Refusals t={t} />
       {notCounting > 0 && (
         <div className="banner warn">
-          {plural(notCounting, 'line')} of the log do not count (damaged, or not signed by the key they name). They are kept in the file and
-          shown in the history below.
+          {plural(notCounting, 'change')} in the team's history {notCounting === 1 ? 'does' : 'do'} not count: damaged, or not signed by the key
+          {notCounting === 1 ? ' it names' : ' they name'}. They are listed under Team history.
         </div>
       )}
-      {t.me !== 'none' && <Replication t={t} self={self} run={run} />}
       {err && <div className="error-box">{err}</div>}
       {warn && <div className="warn-box">{warn}</div>}
 
-      <h3>Members</h3>
+      {owner && <Invites t={t} run={run} />}
+
+      <h2>
+        Members <span className="muted">· {t.members.length}</span>
+      </h2>
       <div className="table-wrap">
-        <table className="table">
+        <table className="table members">
           <thead>
             <tr>
-              <th>Email</th>
+              <th>Member</th>
               <th>Role</th>
-              <th>Presence</th>
-              <th>Key fingerprint</th>
-              <th>Since</th>
-              {owner && <th />}
+              <th>Last seen</th>
+              <th>Owns</th>
+              {owner && <th aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
             {t.members.map((m) => (
-              <MemberRow
-                key={m.email}
-                m={m}
-                owner={owner}
-                onOwner={(make) => {
-                  setRemoving(null)
-                  setReassigning(null)
-                  setOwnerChange({ email: m.email, make })
-                }}
-                onReassign={async () => {
-                  setRemoving(null)
-                  setReassigning({ email: m.email, docs: null })
-                  try {
-                    setReassigning({ email: m.email, docs: await api.removalPreview(t.team, m.email) })
-                  } catch (e) {
-                    setReassigning(null)
-                    setErr((e as Error).message)
-                  }
-                }}
-                onRemove={async () => {
-                  setReassigning(null)
-                  setRemoving({ email: m.email, docs: null })
-                  try {
-                    setRemoving({ email: m.email, docs: await api.removalPreview(t.team, m.email) })
-                  } catch (e) {
-                    setRemoving(null)
-                    setErr((e as Error).message)
-                  }
-                }}
-              />
+              <tr key={m.email}>
+                <td>
+                  {m.email}
+                  {m.you && <span className="muted small"> (you)</span>}
+                </td>
+                <td>{m.owner ? 'team owner' : 'member'}</td>
+                <td className="small">{lastSeen(m)}</td>
+                <td>{ownsOf(m.email) > 0 ? plural(ownsOf(m.email), 'blueprint') : <span className="muted">—</span>}</td>
+                {owner && (
+                  <td className="actions">
+                    {!m.you && (
+                      <Menu
+                        label="⋯"
+                        title={`Actions for ${m.email}`}
+                        items={[
+                          {
+                            label: m.owner ? 'Remove as team owner…' : 'Make team owner…',
+                            sub: m.owner ? 'they stay a member' : 'they can invite, remove and change any owner',
+                            onSelect: () => {
+                              setRemoving(null)
+                              setReassigning(null)
+                              setOwnerChange({ email: m.email, make: !m.owner })
+                            },
+                          },
+                          {
+                            label: 'Give their blueprints to someone…',
+                            sub: ownsOf(m.email) > 0 ? plural(ownsOf(m.email), 'blueprint') : 'none on this computer',
+                            onSelect: () => {
+                              setRemoving(null)
+                              setOwnerChange(null)
+                              preview(m.email, setReassigning)
+                            },
+                          },
+                          {
+                            label: 'Remove from team…',
+                            sub: ownsOf(m.email) > 0 ? `their ${plural(ownsOf(m.email), 'blueprint')} ${ownsOf(m.email) === 1 ? 'becomes' : 'become'} yours` : undefined,
+                            danger: true,
+                            sep: true,
+                            onSelect: () => {
+                              setReassigning(null)
+                              setOwnerChange(null)
+                              preview(m.email, setRemoving)
+                            },
+                          },
+                        ]}
+                      />
+                    )}
+                  </td>
+                )}
+              </tr>
             ))}
           </tbody>
         </table>
       </div>
       {ownerChange && (
-        <div className="banner warn">
+        <div className="confirm-box warn">
           <b>
             {ownerChange.make ? `Make ${ownerChange.email} a team owner of ${t.name}?` : `Remove ${ownerChange.email} as a team owner of ${t.name}?`}
           </b>{' '}
@@ -150,13 +188,13 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
         </div>
       )}
       {removing && (
-        <div className="banner warn">
+        <div className="confirm-box warn">
           <b>Remove {removing.email} from {t.name}?</b>{' '}
           {removing.docs === null
-            ? 'Looking for their documents…'
+            ? 'Looking for their blueprints…'
             : removing.docs.length === 0
-              ? 'None of the team’s published documents in your folder are theirs.'
-              : `Their ${plural(removing.docs.length, 'published document')} in your folder will be reassigned to you:`}
+              ? 'None of the team’s blueprints on this computer are theirs.'
+              : `Their ${plural(removing.docs.length, 'blueprint')} on this computer will become yours:`}
           {removing.docs && removing.docs.length > 0 && (
             <ul>
               {removing.docs.map((d) => (
@@ -178,7 +216,7 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
                 run(() => api.removeMember(t.team, email))
               }}
             >
-              Remove
+              Remove from team
             </button>
             <button type="button" onClick={() => setRemoving(null)}>
               Cancel
@@ -186,7 +224,6 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
           </div>
         </div>
       )}
-
       {reassigning && (
         <ReassignPanel
           t={t}
@@ -199,101 +236,91 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
         />
       )}
 
-      {owner && <Invites t={t} run={run} />}
-
       {t.me !== 'none' && <Transfers team={t.team} reloadKey={reloadKey} />}
 
-      {(t.not_shared?.length ?? 0) > 0 && (
-        <>
-          <h3>Not shared</h3>
-          <ul className="plain">
-            {t.not_shared!.map((d) => (
-              <li key={d.rel}>
-                <code>{d.rel}</code> · {d.reason}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <details className="fold">
+        <summary>
+          <b>Team history</b>{' '}
+          <span className="muted small">
+            · {plural(t.history.length - voids + (t.bad_lines?.length ?? 0), 'change')}
+            {voids > 0 && `, ${voids} ignored`}
+          </span>
+        </summary>
+        <ol className="team-log">
+          {t.history.map((h) => (
+            <li key={h.hash} className={h.effective ? '' : 'void'}>
+              <span className="muted small">{h.at ? localTime(h.at) : ''}</span> <b>{h.signer === self ? 'You' : h.signer}</b> {h.text}
+              {!h.effective && <span className="cv-flag"> does not count: {h.reason}</span>}
+            </li>
+          ))}
+          {t.bad_lines?.map((b) => (
+            <li key={'bad' + b.line} className="void">
+              line {b.line}: <span className="cv-flag">{b.error}</span>
+            </li>
+          ))}
+        </ol>
+      </details>
 
-      {(t.deleted?.length ?? 0) > 0 && (
-        <>
-          <h3>Deleted for the team</h3>
-          <ul className="plain">
-            {t.deleted!.map((d) => (
-              <li key={d.kalka_id}>
-                {d.title || d.kalka_id} · deleted by {d.by === self ? 'you' : d.by} at version {d.version}
-              </li>
-            ))}
-          </ul>
-          <p className="muted small">The last full copy of each is in the team folder's .kalka/trash.</p>
-        </>
-      )}
-
-      <h3>History</h3>
-      <ol className="team-log">
-        {t.history.map((h) => (
-          <li key={h.hash} className={h.effective ? '' : 'void'}>
-            <span className="muted small">{h.at ? localTime(h.at) : ''}</span> <b>{h.signer === self ? 'You' : h.signer}</b> {h.text}
-            {!h.effective && <span className="cv-flag"> does not count: {h.reason}</span>}
-          </li>
-        ))}
-        {t.bad_lines?.map((b) => (
-          <li key={'bad' + b.line} className="void">
-            line {b.line}: <span className="cv-flag">{b.error}</span>
-          </li>
-        ))}
-      </ol>
+      <details className="fold">
+        <summary>
+          <b>Technical details</b> <span className="muted small">· team id, folder, key fingerprints, files not shared, deleted blueprints</span>
+        </summary>
+        <dl className="facts">
+          <dt>Team id</dt>
+          <dd className="mono small">{t.team}</dd>
+          <dt>Folder</dt>
+          <dd className="small">
+            {t.dir} <OpenFolder rel={t.name} />
+          </dd>
+          <dt>Blueprints</dt>
+          <dd className="small">{plural(t.published, 'published blueprint')} on this computer</dd>
+        </dl>
+        <h3>Key fingerprints</h3>
+        <p className="muted small">Members trust each other's keys through the team's signed history, so nobody has to compare these.</p>
+        <ul className="plain small">
+          {t.members.map((m) => (
+            <li key={m.email}>
+              {m.email} <span className="mono">{m.fingerprint}</span>
+              {m.since && <span className="muted"> · member since {localTime(m.since)}</span>}
+            </li>
+          ))}
+        </ul>
+        {(t.not_shared?.length ?? 0) > 0 && (
+          <>
+            <h3>Not shared</h3>
+            <ul className="plain small">
+              {t.not_shared!.map((d) => (
+                <li key={d.rel}>
+                  <code>{d.rel}</code> · {d.reason}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {(t.deleted?.length ?? 0) > 0 && (
+          <>
+            <h3>Deleted for the team</h3>
+            <ul className="plain small">
+              {t.deleted!.map((d) => (
+                <li key={d.kalka_id}>
+                  {d.title || d.kalka_id} · deleted by {d.by === self ? 'you' : d.by} at version {d.version}
+                </li>
+              ))}
+            </ul>
+            <p className="muted small">The last full copy of each is in the team folder's .kalka/trash.</p>
+          </>
+        )}
+      </details>
     </section>
   )
 }
 
-function MemberRow({
-  m,
-  owner,
-  onOwner,
-  onReassign,
-  onRemove,
-}: {
-  m: TeamMember
-  owner: boolean
-  onOwner: (make: boolean) => void
-  onReassign: () => void
-  onRemove: () => void
-}) {
-  return (
-    <tr>
-      <td>
-        {m.email}
-        {m.you && <span className="muted small"> (you)</span>}
-      </td>
-      <td>{m.owner ? 'owner' : 'member'}</td>
-      <td className="small">{m.you ? '' : m.presence === 'online' ? <span className="presence on">online</span> : m.presence === 'offline' ? 'offline' : <span className="muted">not seen yet</span>}</td>
-      <td>
-        <span className="mono small">{m.fingerprint}</span>
-      </td>
-      <td className="small">{m.since ? localTime(m.since) : ''}</td>
-      {owner && (
-        <td className="actions">
-          {!m.you && (
-            <>
-              <button type="button" className="link" onClick={() => onOwner(!m.owner)}>
-                {m.owner ? 'Remove as team owner…' : 'Make team owner…'}
-              </button>{' '}
-              ·{' '}
-              <button type="button" className="link" onClick={onReassign}>
-                Give their blueprints to someone…
-              </button>{' '}
-              ·{' '}
-              <button type="button" className="link" onClick={onRemove}>
-                Remove…
-              </button>
-            </>
-          )}
-        </td>
-      )}
-    </tr>
-  )
+function lastSeen(m: TeamMember): React.ReactNode {
+  if (m.you) return ''
+  if (m.presence === 'online') return <span className="presence on">online</span>
+  if (m.last_seen) return ago(m.last_seen)
+  if (m.presence === 'offline') return 'offline'
+  return <span className="muted">not seen yet</span>
 }
 
 // ReassignPanel lists a member's published documents in the team, each
@@ -320,13 +347,13 @@ function ReassignPanel({
   const first = others.find((m) => m.email === self)?.email ?? others[0]?.email ?? ''
   const [to, setTo] = useState<Record<string, string>>({})
   return (
-    <div className="banner">
-      <b>Reassign {email}’s documents</b>{' '}
+    <div className="confirm-box">
+      <b>Give {shortName(email)}’s blueprints to someone</b>{' '}
       {docs === null
-        ? 'Looking for their documents…'
+        ? 'Looking for their blueprints…'
         : docs.length === 0
-          ? 'None of the team’s published documents in your folder are theirs.'
-          : 'The new owner’s kalka releases the next version; edits the old owner has not released are moved to their team trash, with a notice.'}
+          ? 'None of the team’s blueprints on this computer are theirs.'
+          : `As a team owner you choose; ${shortName(email)} is not asked. The new owner releases the next version.`}
       {docs && docs.length > 0 && (
         <ul className="plain">
           {docs.map((d) => {
@@ -339,7 +366,7 @@ function ReassignPanel({
                 <select value={target} onChange={(e) => setTo({ ...to, [d.kalka_id]: e.target.value })} aria-label={`New owner of ${d.title}`}>
                   {others.map((m) => (
                     <option key={m.email} value={m.email}>
-                      {m.email === self ? 'you' : m.email}
+                      {m.email === self ? `you (${m.email})` : m.email}
                     </option>
                   ))}
                 </select>
@@ -355,7 +382,7 @@ function ReassignPanel({
                     })
                   }
                 >
-                  Reassign
+                  Make owner
                 </button>
               </li>
             )
@@ -412,11 +439,16 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
       setErr((e as Error).message)
     }
   }
+  const copy = (k: 'link' | 'token' | 'message', text: string) =>
+    navigator.clipboard?.writeText(text).then(
+      () => setCopied(k),
+      () => setCopied(''),
+    )
   return (
-    <>
-      <h3>Invites</h3>
+    <section className="invite">
+      <h2>Invite a teammate</h2>
       <form className="row" onSubmit={submit}>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="new.member@library.example" aria-label="Email to invite" />
+        <input className="grow" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@library.example" aria-label="Email to invite" />
         <select value={expires} onChange={(e) => setExpires(e.target.value)} aria-label="Valid for">
           {EXPIRIES.map(([v, l]) => (
             <option key={v} value={v}>
@@ -424,10 +456,35 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
             </option>
           ))}
         </select>
-        <button type="submit" {...act('team.invite')} disabled={!email.trim()}>
-          Invite
+        <button type="submit" className="primary" {...act('team.invite')} disabled={!email.trim()}>
+          Create invite
         </button>
       </form>
+      <p className="muted small">
+        You get a message to paste into a chat. The invite works once, for that person, and only while your kalka is running.
+        {open.map((i) => (
+          <span key={i.id}>
+            {' '}
+            · Open invite: {i.email} until {localTime(i.expires)}{' '}
+            {i.token && i.link && (
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  setCopied('')
+                  setMade({ token: i.token!, link: i.link!, id: i.id, team: t.team, name: t.name, email: i.email, expires: i.expires })
+                }}
+              >
+                Show
+              </button>
+            )}{' '}
+            ·{' '}
+            <button type="button" className="link" {...act('team.uninvite')} onClick={() => run(() => api.cancelInvite(i.id))}>
+              Cancel
+            </button>
+          </span>
+        ))}
+      </p>
       {err && <div className="error-box">{err}</div>}
       {made && (
         <div className="token-box">
@@ -435,131 +492,78 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
             Paste the invite message into a chat with <b>{made.email}</b>: it says how to install kalka, and holds the link and the code.
             It works once, only for them, until {localTime(made.expires)}, and only while your kalka is running.
           </p>
-          <textarea className="token-input mono" readOnly rows={3} value={made.link} aria-label="Invite link" onFocus={(e) => e.target.select()} />
+          <pre className="invite-message small">{inviteMessage(made)}</pre>
           <div className="row">
-            <button
-              type="button"
-              className="primary"
-              onClick={() =>
-                navigator.clipboard?.writeText(inviteMessage(made)).then(
-                  () => setCopied('message'),
-                  () => setCopied(''),
-                )
-              }
-            >
+            <button type="button" className="primary" onClick={() => copy('message', inviteMessage(made))}>
               {copied === 'message' ? 'Copied' : 'Copy invite message'}
             </button>
-            {(['link', 'token'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() =>
-                  navigator.clipboard?.writeText(k === 'link' ? made.link : made.token).then(
-                    () => setCopied(k),
-                    () => setCopied(''),
-                  )
-                }
-              >
-                {copied === k ? 'Copied' : k === 'link' ? 'Copy link' : 'Copy code'}
-              </button>
-            ))}
+            <button type="button" onClick={() => copy('link', made.link)}>
+              {copied === 'link' ? 'Copied' : 'Copy link'}
+            </button>
+            <button type="button" onClick={() => copy('token', made.token)}>
+              {copied === 'token' ? 'Copied' : 'Copy code'}
+            </button>
             <button type="button" className="link" onClick={() => setMade(null)}>
               Done
             </button>
           </div>
         </div>
       )}
-      {t.invites.length > 0 && (
-        <ul className="plain small">
-          {t.invites
-            .slice()
-            .reverse()
-            .map((i) => (
-              <li key={i.id}>
-                {i.email} · {i.state === 'open' ? `open until ${localTime(i.expires)}` : i.state === 'used' ? `joined ${i.used_at ? localTime(i.used_at) : ''}` : i.state}
-                {i.state === 'open' && i.token && i.link && (
-                  <>
-                    {' '}
-                    ·{' '}
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => {
-                        setCopied('')
-                        setMade({ token: i.token!, link: i.link!, id: i.id, team: t.team, name: t.name, email: i.email, expires: i.expires })
-                      }}
-                    >
-                      Show link
-                    </button>
-                  </>
-                )}
-                {i.state === 'open' && (
-                  <>
-                    {' '}
-                    ·{' '}
-                    <button type="button" className="link" {...act('team.uninvite')} onClick={() => run(() => api.cancelInvite(i.id))}>
-                      Cancel
-                    </button>
-                  </>
-                )}
-              </li>
-            ))}
-        </ul>
-      )}
-      {open.length === 0 && t.invites.length === 0 && <p className="muted small">No invites made on this installation.</p>}
-    </>
+    </section>
   )
 }
 
-// Replication is the team's status line (spec 11.1, 20.3): the last round,
-// who was reached, what was refused and why, and Sync now.
-function Replication({ t, self, run }: { t: Team; self: string; run: (f: () => Promise<unknown>) => Promise<void> }) {
+// SyncLine is the team's sync in words (spec 11.1, 20.3): when kalka last
+// synced, with whom, who was offline, and Sync now.
+function SyncLine({ t, self, run }: { t: Team; self: string; run: (f: () => Promise<unknown>) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const r = t.replication
-  const reached = r?.reached ?? []
-  const refused = r?.refused ?? []
-  const others = t.members.filter((m) => m.email !== self).length
+  const others = t.members.filter((m) => m.email !== self && !m.you)
+  const reached = new Set((r?.reached ?? []).map((x) => x.toLowerCase()))
+  const with_ = others.filter((m) => reached.has(m.email.toLowerCase())).map((m) => shortName(m.email))
+  const offline = others.filter((m) => !reached.has(m.email.toLowerCase())).map((m) => shortName(m.email))
   return (
-    <div className="replication">
-      <p className="small">
-        {plural(t.published, 'published document')} held here.{' '}
-        {others === 0 ? (
-          'No other members to replicate with yet.'
-        ) : !r?.last_round ? (
-          'No replication round yet.'
-        ) : (
-          <>
-            Last round {localTime(r.last_round)}: reached {reached.length > 0 ? reached.join(', ') : 'nobody'}
-            {r.tried > reached.length ? ` (${r.tried - reached.length} not online)` : ''}
-            {r.received > 0 ? `, ${plural(r.received, 'document')} received` : ''}.
-          </>
-        )}{' '}
-        {others > 0 && (
-          <button
-            type="button"
-            className="link"
-            {...act('team.sync')}
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              await run(() => api.replicate(t.team))
-              setBusy(false)
-            }}
-          >
-            {busy ? 'Syncing…' : 'Sync now'}
-          </button>
-        )}
-      </p>
-      {r?.error && <p className="error-text small">{r.error}</p>}
-      {refused.length > 0 && (
-        <ul className="plain small">
-          {refused.map((x, i) => (
-            <li key={i}>
-              <span className="cv-flag">refused</span> {x.title || x.kalka_id} from {x.from}: {x.reason}
-            </li>
-          ))}
-        </ul>
+    <div className="sync-line row">
+      <span className="muted small">
+        {others.length === 0
+          ? 'Nobody to sync with yet: invite a teammate.'
+          : !r?.last_round
+            ? 'No sync yet.'
+            : `Last sync ${shortTime(r.last_round)}${with_.length > 0 ? ` with ${with_.join(', ')}` : ', nobody online'}${offline.length > 0 && with_.length > 0 ? ` · ${offline.join(', ')} offline` : ''}`}
+        {r?.error && <span className="error-text"> · {r.error}</span>}
+      </span>
+      {others.length > 0 && (
+        <button
+          type="button"
+          {...act('team.sync')}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true)
+            await run(() => api.replicate(t.team))
+            setBusy(false)
+          }}
+        >
+          {busy ? 'Syncing…' : 'Sync now'}
+        </button>
       )}
+    </div>
+  )
+}
+
+// Refusals says, in one sentence each, which blueprints the last sync
+// could not take, and where to act on them.
+function Refusals({ t }: { t: Team }) {
+  const refused = t.replication?.refused ?? []
+  if (refused.length === 0) return null
+  return (
+    <div className="banner warn">
+      {plural(refused.length, 'blueprint')} could not be synced:{' '}
+      {refused.map((x, i) => (
+        <span key={i}>
+          {i > 0 && '; '}“{x.title || x.kalka_id}” from {shortName(x.from)}: {x.reason}
+        </span>
+      ))}
+      . <a href="#/needs">Needs you</a> lists what you can settle.
     </div>
   )
 }
@@ -576,17 +580,11 @@ export function DomainsPage({ team, reloadKey, list }: { team: string; reloadKey
     <div className="page">
       <h1>Domains</h1>
       <p className="muted">
-        A domain document holds a team's shared language: glossary, contexts, invariants, events. Its owner releases its versions,
-        like any document's; everyone else comments. Blueprints name the
-        version they rely on with <code>kalka_domain: &lt;team&gt;/&lt;domain&gt;@v&lt;N&gt;</code>.
+        Your team's shared vocabulary: a glossary, its contexts, rules and events, in a blueprint its owner releases in versions.
+        Blueprints say which version they were written against, so a newer one never changes what an older plan meant.
       </p>
       {err && <div className="error-box">{err}</div>}
-      {rows && rows.length === 0 && (
-        <p className="muted">
-          No domain documents here yet. Write one with <code>kalka_kind: domain</code>, <code>kalka_team:</code> and <code>kalka_domain:</code> in its
-          frontmatter, then release it.
-        </p>
-      )}
+      {rows && rows.length === 0 && <DomainEmpty team={team} />}
       {rows && rows.length > 0 && (
         <div className="table-wrap">
           <table className="table">
@@ -612,7 +610,7 @@ export function DomainsPage({ team, reloadKey, list }: { team: string; reloadKey
                     {r.version > 0 ? `v${r.version}` : 'draft'}
                     {r.version > 0 && r.unreleased && <span className="badge">unreleased edits</span>}
                   </td>
-                  <td>{r.you ? 'you' : r.owner || <span className="muted">not assigned</span>}</td>
+                  <td title={r.owner}>{r.you ? 'you' : r.owner ? shortName(r.owner) : <span className="muted">no owner</span>}</td>
                   <td>{r.open}</td>
                   <td className="small">
                     {r.versions.length === 0
@@ -630,6 +628,28 @@ export function DomainsPage({ team, reloadKey, list }: { team: string; reloadKey
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+// DomainEmpty starts a domain: a blueprint in Personal with three lines
+// on top, published to the team.
+function DomainEmpty({ team }: { team: string }) {
+  const [copied, setCopied] = useState(false)
+  const head = `---\nkalka_kind: domain\nkalka_domain: lending\n---\n# Lending\n\n## Glossary\n\n- **Loan**: …\n`
+  return (
+    <div className="empty">
+      <p>
+        <b>No domains in {team} yet.</b> Start one as a blueprint in Personal that begins with these lines, then publish it to {team}.
+        You become its owner.
+      </p>
+      <pre className="mono small">{head}</pre>
+      <div className="row">
+        <button type="button" onClick={() => navigator.clipboard?.writeText(head).then(() => setCopied(true))}>
+          {copied ? 'Copied' : 'Copy the start'}
+        </button>
+        <OpenFolder rel="personal" label="Open Personal folder" />
+      </div>
     </div>
   )
 }

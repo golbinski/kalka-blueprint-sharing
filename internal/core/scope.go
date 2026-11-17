@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/merge"
 	"github.com/golbinski/kalka/internal/store"
 )
 
@@ -200,8 +201,31 @@ func (d *Node) BlueprintsIn(sc Scope) []store.Info {
 	for _, in := range d.Store.List() {
 		if d.Holds(sc, in.Path) {
 			in.New = unread[in.Path]
+			d.releaseState(&in)
 			out = append(out, in)
 		}
 	}
 	return out
+}
+
+// releaseState fills a published blueprint's version and whether its
+// plan has edits the team has not been sent.
+func (d *Node) releaseState(in *store.Info) {
+	if in.Team == "" || in.Duplicate {
+		return
+	}
+	h, err := d.heldAt(in.Path)
+	if err != nil || h.dir.Name != in.Team {
+		return
+	}
+	f, err := d.Store.Load(in.Path)
+	if err != nil {
+		return
+	}
+	head, ok := merge.Releases(entriesOf(f.Doc), f.Doc.KalkaID(), h.team()).Head()
+	if !ok {
+		return
+	}
+	in.Version = head.Release.Version
+	in.Unreleased = head.Release.Plan != f.Doc.PlanHash()
 }

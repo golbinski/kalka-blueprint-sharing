@@ -161,7 +161,7 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 		return exitProblems
 	}
 	opts := daemon.Options{Config: cfg, ConfigDir: dir, Log: stderr, Listener: ln, Token: token, OpenUI: openUI, Lock: lock,
-		NoUI: *noUI, OpenExternal: openBrowser, Autostart: o.Autostart,
+		NoUI: *noUI, OpenExternal: openBrowser, OpenFolder: openFolder, Autostart: o.Autostart,
 		About:   daemon.About{Version: version, WireProtocol: wireProtocol, PluginProtocol: pluginProtocol},
 		Plugins: &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: stderr}}
 	var d *daemon.Daemon
@@ -437,6 +437,17 @@ func openBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
+}
+
+// openFolder shows dir in the file manager.
+func openFolder(dir string) error {
+	switch runtime.GOOS {
+	case "windows":
+		// explorer exits 1 even when it opened the window.
+		return exec.Command("explorer", dir).Start()
+	default:
+		return openBrowser(dir)
+	}
 }
 
 // readEndpoint reads daemon.json.

@@ -592,6 +592,9 @@ type MemberView struct {
 	// Presence is what this daemon last saw of the member (spec 9.3):
 	// online, offline or unknown; empty for the local user.
 	Presence string `json:"presence,omitempty"`
+	// LastSeen is when this kalka last found the member online, since it
+	// started.
+	LastSeen time.Time `json:"last_seen,omitzero"`
 }
 
 // InviteView is an invite this installation issued for the team.
@@ -657,7 +660,8 @@ func (d *Node) teamView(t teamDir) TeamView {
 			}
 		}
 		if !mv.You {
-			mv.Presence = string(d.presenceOf(m.Email))
+			p, seen := d.presenceOf(m.Email)
+			mv.Presence, mv.LastSeen = string(p), seen
 		}
 		v.Members = append(v.Members, mv)
 	}

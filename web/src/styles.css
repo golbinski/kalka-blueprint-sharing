@@ -255,6 +255,10 @@ header.top {
 .table-wrap {
   overflow-x: auto;
 }
+/* A table with row menus lets them hang out of it. */
+.table-wrap:has(.menu) {
+  overflow: visible;
+}
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -474,6 +478,8 @@ button.add.sel {
 }
 .entry-actions {
   margin-top: 4px;
+  display: flex;
+  gap: 14px;
 }
 .replies {
   margin-top: 8px;
@@ -1425,10 +1431,72 @@ a.cv-card:focus-visible {
 
 /* Team view (spec 11.1) */
 .team-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.team-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.team-title h1 {
+  margin: 0;
+}
+.team-card h2 {
+  margin: 12px 0 0;
+}
+.sync-line {
+  gap: 10px;
+}
+.confirm-box {
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px 16px 16px;
-  margin: 16px 0;
+  background: var(--card);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.confirm-box.warn {
+  background: var(--div-soft);
+  border-color: var(--div-line);
+}
+.confirm-box ul {
+  margin: 0;
+}
+details.fold {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+details.fold > summary {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.invite-message {
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0;
+  max-height: 9em;
+  overflow: auto;
+}
+.table.members td.actions {
+  display: table-cell;
+  width: 1%;
+  text-align: right;
+}
+.badge.new {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.table td .badge {
+  margin-left: 6px;
 }
 .team-head {
   display: flex;
@@ -1908,4 +1976,185 @@ a.toast:hover {
   padding: 10px 12px;
   border-radius: 8px;
   border-bottom: 0;
+}
+
+/* The document header (spec 11.1): one card, one sentence of state, one
+   primary action, the rest under More. */
+.doc-head {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doc-head.warn {
+  background: var(--div-soft);
+  border-color: var(--div-line);
+}
+.doc-head.danger {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+.doc-head-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.doc-head-state {
+  font-weight: 600;
+  font-size: 15px;
+}
+.doc-head.warn .doc-head-state {
+  color: var(--div-ink);
+}
+.doc-head.danger .doc-head-state {
+  color: var(--danger);
+}
+.doc-head-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.doc-head .release-note {
+  font-size: 13px;
+  padding: 7px 10px;
+  width: 16em;
+}
+.doc-head .version-switch {
+  font-size: 13px;
+  padding: 7px 10px;
+}
+.doc-head-panel {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+.doc-head-line {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.warn-text {
+  color: var(--div-ink);
+}
+.back {
+  white-space: nowrap;
+}
+
+/* Action menus: More, ⋯ */
+.menu {
+  position: relative;
+}
+.menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 240px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  padding: 6px;
+}
+.menu-list hr {
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  margin: 4px 2px;
+}
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-weight: 400;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--panel);
+}
+.menu-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.danger-text {
+  color: var(--danger);
+}
+
+/* Entry cards (spec 11.1): badges explain themselves on click; releases
+   are a version line; a seed split off sits under its entry. */
+button.badge {
+  min-height: 0;
+  background: none;
+  cursor: pointer;
+}
+button.badge.warn {
+  background: var(--div);
+}
+.badge-why {
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: 4px 0;
+}
+.version-line {
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 4px 2px;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin: 6px 0;
+}
+.seed-line {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.old-threads {
+  display: block;
+  margin: 0 0 8px;
+  text-align: left;
+}
+.sel-pop {
+  position: fixed;
+  z-index: 40;
+  transform: translateX(-50%);
+  min-height: 32px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+}
+
+/* Facts as a list of terms and values: Settings, Team details. */
+dl.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  align-items: baseline;
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+dl.facts dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+dl.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+dl.facts .row {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.page h2 {
+  margin-top: 20px;
 }

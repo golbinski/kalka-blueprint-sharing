@@ -91,17 +91,6 @@ export function useRoute(): Route {
   return route
 }
 
-export function roleText(role: string, owner?: string): string {
-  switch (role) {
-    case 'owner':
-      return 'you own this plan'
-    case 'reviewer':
-      return `owner ${owner} · you are reviewing`
-    default:
-      return 'not shared yet'
-  }
-}
-
 export function plural(n: number, one: string, many = one + 's'): string {
   return `${n} ${n === 1 ? one : many}`
 }
@@ -133,4 +122,21 @@ export function shortTime(utc: string, now = new Date()): string {
   const d = new Date(utc)
   if (isNaN(d.getTime())) return utc
   return d.toDateString() === now.toDateString() ? timeOnly.format(d) : fmt.format(d)
+}
+
+/** ago is a time as how long ago it was, for lists: "just now",
+ * "12 min ago", "3 h ago", "yesterday", "4 days ago", then the date. */
+export function ago(utc?: string, now = Date.now()): string {
+  if (!utc) return '—'
+  const t = new Date(utc).getTime()
+  if (isNaN(t)) return '—'
+  const min = Math.floor((now - t) / 60_000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h} h ago`
+  const d = Math.floor(h / 24)
+  if (d === 1) return 'yesterday'
+  if (d < 7) return `${d} days ago`
+  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: new Date(t).getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric' })
 }

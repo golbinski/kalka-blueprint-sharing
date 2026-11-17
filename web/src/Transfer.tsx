@@ -6,8 +6,8 @@ import { act } from './actions'
 import { Modal } from './Modal'
 import { api, type Doc, type Team, type TransferView } from './api'
 import { useMembers, MemberSelect } from './Members'
-import { attestedText, transferEntries } from './scope'
-import { docHref, localTime } from './util'
+import { shortName, transferEntries } from './scope'
+import { docHref, localTime, plural } from './util'
 
 export function TransferDialog({ doc, mode, onClose, onDone }: { doc: Doc; mode: 'copy' | 'move'; onClose: () => void; onDone: () => void }) {
   const [teams, setTeams] = useState<Team[] | null>(null)
@@ -41,12 +41,12 @@ export function TransferDialog({ doc, mode, onClose, onDone }: { doc: Doc; mode:
   }
   const verb = mode === 'copy' ? 'Copy' : 'Move'
   return (
-    <Modal title={`${verb} to team`} busy={busy} onClose={onClose}>
+    <Modal title={`${verb} to another team`} busy={busy} onClose={onClose}>
       {done ? (
         <>
           <p>
             The offer is with {done}. Its owners accept or decline it; you hear which.{' '}
-            {mode === 'move' && 'Until then the document stays here, and comments added now will not travel.'}
+            {mode === 'move' && 'Until then the blueprint stays here, and comments added now will not travel.'}
           </p>
           <div className="row">
             <button type="button" className="primary" onClick={onClose}>
@@ -67,9 +67,9 @@ export function TransferDialog({ doc, mode, onClose, onDone }: { doc: Doc; mode:
         <form onSubmit={submit} className="seed-form">
           <p className="muted">
             {mode === 'copy'
-              ? `The other team gets its own copy of “${doc.title}” at its last release, with the review entries attested by you. This one stays as it is.`
-              : `“${doc.title}” leaves ${doc.team?.team} once the other team accepts: it is deleted here for every member, and lives on there with its review history attested by you.`}
-            {takeOver && ' You are not its owner: as a team owner you take it over first, by a reassignment to you.'}
+              ? `The other team gets its own copy of “${doc.title}” at its last release, with its comments carried over and vouched for by you. This one stays as it is.`
+              : `“${doc.title}” leaves ${doc.team?.team} once the other team accepts: it is deleted here for every member, and lives on there with its comments, vouched for by you.`}
+            {takeOver && ' You are not its owner: as a team owner you become its owner first.'}
           </p>
           {teams && (
             <label>
@@ -106,27 +106,6 @@ export function TransferDialog({ doc, mode, onClose, onDone }: { doc: Doc; mode:
 
 /** TransferStrip heads a document that came by a transfer, or is being
  * moved away (spec 11.1, 20.7). */
-export function TransferStrip({ doc }: { doc: Doc }) {
-  const t = doc.transfer
-  if (!t) return null
-  return (
-    <div className="hints">
-      {t.moving_to && (
-        <div className="hint warn">
-          <span className="hint-label">moving</span>
-          <span className="hint-text">Being moved to {t.moving_to}; comments added now will not travel.</span>
-        </div>
-      )}
-      {t.from && (
-        <div className="hint">
-          <span className="hint-label">attested</span>
-          <span className="hint-text">{attestedText(t)}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** AcceptButton accepts a transfer, as the user or naming another member
  * of the team as the owner of version 1. */
 export function AcceptButton({ id, team, onDone, onError }: { id: string; team: string; onDone: () => void; onError: (m: string) => void }) {
@@ -194,15 +173,18 @@ export function Transfers({ team, reloadKey }: { team: string; reloadKey: number
   }, [team, reloadKey, tick])
   const reload = () => setTick((n) => n + 1)
   if (!rows || (rows.length === 0 && !err)) return null
+  const waiting = rows.filter((t) => t.status === 'pending').length
   return (
-    <>
-      <h3>Transfers</h3>
+    <details className="fold" open={waiting > 0}>
+      <summary>
+        <b>Transfers</b> <span className="muted small">· {waiting > 0 ? `${waiting} waiting for a decision` : plural(rows.length, 'transfer')}</span>
+      </summary>
       {err && <div className="error-box">{err}</div>}
       <ul className="plain">
         {rows.map((t) => (
           <li key={t.id}>
-            <b>{t.title || t.id}</b> <span className="muted small">{t.mode === 'move' ? 'moved' : 'copied'} from {t.from}</span> ·{' '}
-            {t.mine ? 'by you' : `by ${t.actor}`}, {localTime(t.at)} · {transferEntries(t.entries)} ·{' '}
+            <b>{t.title || t.id}</b> <span className="muted small">{t.mode === 'move' ? 'moved' : 'copied'} from {t.from.split('/')[0]}</span> ·{' '}
+            {t.mine ? 'by you' : `by ${shortName(t.actor)}`}, {localTime(t.at)} · {transferEntries(t.entries)} ·{' '}
             {t.status === 'pending' ? (
               <>
                 waiting{' '}
@@ -241,6 +223,6 @@ export function Transfers({ team, reloadKey }: { team: string; reloadKey: number
           </li>
         ))}
       </ul>
-    </>
+    </details>
   )
 }

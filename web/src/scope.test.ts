@@ -157,17 +157,17 @@ describe('join screen', () => {
 describe('attested history', () => {
   it('says where it came from and who vouches for it', () => {
     expect(attestedText({ mode: 'copy', from: 'lending/0b5e', actor: 'olga@library.example', by: 'ivo@library.example' })).toBe(
-      'Copied from lending/0b5e. Its history is attested by olga@library.example, who offered it, and ivo@library.example, who accepted it.',
+      'Copied from lending. Its comments are carried over, vouched for by olga, who offered it, and ivo, who accepted it.',
     )
-    expect(attestedText({ mode: 'move', from: 'lending/0b5e' })).toBe('Moved from lending/0b5e.')
+    expect(attestedText({ mode: 'move', from: 'lending/0b5e' })).toBe('Moved from lending.')
     expect(attestedText({ moving_to: 'returns' })).toBe('')
   })
   it('names the author on the badge', () => {
     expect(attestedBadge('olga@library.example')).toContain('olga@library.example')
   })
   it('counts what an offer brings', () => {
-    expect(transferEntries(0)).toBe('no review entries')
-    expect(transferEntries(1)).toBe('1 attested entry')
-    expect(transferEntries(3)).toBe('3 attested entries')
+    expect(transferEntries(0)).toBe('no comments')
+    expect(transferEntries(1)).toBe('1 comment carried over')
+    expect(transferEntries(3)).toBe('3 comments carried over')
   })
 })

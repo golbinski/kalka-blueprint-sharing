@@ -15,7 +15,7 @@ import { NeedsPage } from './Needs'
 import { SyncChip } from './Sync'
 import { inDesktopWindow } from './shell'
 import { findTeam, PERSONAL, rememberedScope, rememberScope, resolveScope } from './scope'
-import { canvasHref, docHref, roleText, scopeHref, traceHref, useRoute, type ScopedView } from './util'
+import { canvasHref, docHref, scopeHref, traceHref, useRoute, type ScopedView } from './util'
 
 type Toast = { id: number; text: string; href: string }
 
@@ -236,8 +236,10 @@ export function App() {
         <span className="sep" />
         {inDoc && doc ? (
           <>
+            <a className="back" href={scopeHref(scope, doc.seed ? 'seeds' : undefined)}>
+              ‹ {doc.seed ? 'Seeds' : 'Blueprints'}
+            </a>
             <span className="doc-title">{doc.title}</span>
-            <span className="muted small">{roleText(doc.role, doc.owner)}</span>
           </>
         ) : (
           <nav className="nav">
@@ -245,7 +247,7 @@ export function App() {
               Needs you{needs > 0 && <span className="count">{needs}</span>}
             </a>
             {navLink('list', 'Blueprints')}
-            {navLink('seeds', 'Pre-backlog')}
+            {navLink('seeds', 'Seeds')}
             {!personal && navLink('domains', 'Domains')}
             {!personal && navLink('team', 'Team')}
           </nav>
@@ -270,22 +272,7 @@ export function App() {
                 </span>
               )}
             </nav>
-            {!doc.domain?.viewing && !doc.problems.some((p) => p.severity === 'error') && (
-              <button type="button" onClick={() => setSeedFor({})} title="Split an idea off this blueprint into a seed you own">
-                Create seed
-              </button>
-            )}
-            {doc.role === 'owner' && !doc.team && !doc.problems.some((p) => p.severity === 'error') && (
-              <button type="button" onClick={() => setPublishing(true)} title="Share this blueprint with every member of a team">
-                Publish to team…
-              </button>
-            )}
           </>
-        )}
-        {inDoc && (
-          <a className="back" href={scopeHref(scope)}>
-            All blueprints
-          </a>
         )}
         <SyncChip summary={summary} teams={teams ?? []} onChange={loadTeams} />
         {!inDoc && (
@@ -378,17 +365,17 @@ export function App() {
             <div className="error-box">{docErr}</div>
           </div>
         )}
-        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} />}
+        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} onPublish={() => setPublishing(true)} />}
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && scope && <PreBacklog self={status.email} scope={scope} />}
-        {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} />}
+        {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} list={list ?? []} />}
         {route.view === 'needs' && <NeedsPage reloadKey={teamTick} notices={notices} />}
         {(route.view === 'team' || route.view === 'domains') && personal && (
           <div className="page">
             <div className="empty">Personal is only on this computer: it has no team or domains. Choose a team in the switcher.</div>
           </div>
         )}
-        {route.view === 'settings' && <SettingsPage tick={teamTick} />}
+        {route.view === 'settings' && <SettingsPage tick={teamTick} status={status} />}
         {route.view === 'join' && (
           <JoinScreen token={route.token} status={status} reloadKey={teamTick} onResume={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))} />
         )}

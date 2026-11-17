@@ -46,3 +46,23 @@ export function thread(e: Entry, replies: Map<string, Entry[]>, depth = 0, seen 
   for (const k of replies.get(e.id) ?? []) out.push(...thread(k, replies, depth + 1, seen))
   return out
 }
+
+const releaseLine = /^v(\d+) · plan:/
+
+// versionAt is the version that was current when an entry was written:
+// the last release before it, or 0 when there was none.
+export function versionAt(entries: Entry[], at: string): number {
+  let v = 0
+  for (const e of entries) {
+    if (e.kind !== 'release' || e.timestamp > at) continue
+    const m = releaseLine.exec(e.body)
+    if (m) v = Math.max(v, Number(m[1]))
+  }
+  return v
+}
+
+// oldThread is true when an entry and all its replies were written
+// against an earlier text of the plan: such threads fold in the review.
+export function oldThread(e: Entry, replies: Map<string, Entry[]>): boolean {
+  return thread(e, replies).every((x) => x.e.outdated && !x.e.orphaned && x.e.kind !== 'deviation')
+}

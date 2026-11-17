@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { act } from "./actions";
-import { api, referenceURL, type About, type Settings, type Summary } from "./api";
+import { api, referenceURL, type About, type Settings, type Status, type Summary } from "./api";
 import { localTime } from "./util";
+import { OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
 
 // SettingsPage is the Settings view (spec 11, 22.2): the daemon keeps the
 // values in state.yaml; start at login is the system's own entry.
-export function SettingsPage({ tick }: { tick: number }) {
+export function SettingsPage({ tick, status }: { tick: number; status: Status }) {
   const [s, setS] = useState<Settings | null>(null);
   const [sum, setSum] = useState<Summary | null>(null);
   const [err, setErr] = useState("");
@@ -58,6 +59,30 @@ export function SettingsPage({ tick }: { tick: number }) {
         </p>
       )}
       {err && <div className="error-box">{err}</div>}
+      <h2>You</h2>
+      <dl className="facts">
+        <dt>Email</dt>
+        <dd>
+          {status.email}{" "}
+          <span className="muted small">how teammates find you; not an account</span>
+        </dd>
+        <dt>Folder</dt>
+        <dd>
+          <span className="small">{status.folder}</span> <OpenFolder />
+        </dd>
+        <dt>Server</dt>
+        <dd className="small">
+          {status.rendezvous === "peerjs-cloud"
+            ? "The public demo server"
+            : status.rendezvous}{" "}
+          <span className="muted">(rendezvous)</span>
+        </dd>
+      </dl>
+      <p className="muted small">
+        To change these, run <code>kalka setup</code> in a terminal. A new
+        email or server means teammates have to invite you again.
+      </p>
+      <h2>Sync and notifications</h2>
       <div className="settings">
         <label className="setting">
           <input
@@ -70,7 +95,7 @@ export function SettingsPage({ tick }: { tick: number }) {
           <span>
             <b>Pause sync</b>
             <span className="muted small">
-              kalka goes offline: no syncs, no team replication, no joins. Your
+              kalka goes offline: no syncs and no joins. Your
               own comments, seeds and releases are kept and sent after you
               resume. The pause lasts across restarts.
             </span>
@@ -104,7 +129,7 @@ export function SettingsPage({ tick }: { tick: number }) {
             <b>Start at login</b>
             <span className="muted small">
               {s.start_at_login_available
-                ? "Team replication works only while members are online at the same time, so kalka runs in the background from login."
+                ? "kalka syncs only while teammates are online at the same time, so it runs in the background from login."
                 : "This kalka cannot change its login entry; use `kalka autostart on` in a terminal."}
               {s.start_at_login_error && <> ({s.start_at_login_error})</>}
             </span>
@@ -131,10 +156,10 @@ export function SettingsPage({ tick }: { tick: number }) {
           </label>
         )}
       </div>
-      <h2>Blueprint reference</h2>
+      <h2>Blueprint writing guide for agents</h2>
       <p className="small">
-        The format of a blueprint, written for agents: drop it in as a skill or
-        an instruction file{about ? ` (${about.reference})` : ""}.{" "}
+        How a blueprint is written, for agents: drop it in as a skill or an
+        instruction file{about ? ` (${about.reference})` : ""}.{" "}
         <a href={referenceURL} download {...act("reference.export")}>
           Save a copy
         </a>
@@ -157,10 +182,14 @@ export function SettingsPage({ tick }: { tick: number }) {
         <span className="muted">{copied}</span>
       </p>
       {about && (
-        <p className="muted small">
-          kalka {about.version} · wire protocol {about.wire_protocol} · plugin
-          protocol {about.plugin_protocol} · reference {about.reference}
-        </p>
+        <details className="small">
+          <summary>kalka {about.version}</summary>
+          <p className="muted">
+            Wire protocol {about.wire_protocol} · plugin protocol{" "}
+            {about.plugin_protocol} · reference {about.reference}
+            {status.fingerprint && <> · your key {status.fingerprint}</>}
+          </p>
+        </details>
       )}
     </div>
   );

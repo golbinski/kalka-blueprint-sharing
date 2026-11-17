@@ -123,6 +123,8 @@ type Node struct {
 type presence struct {
 	State   transport.Presence `json:"state"`
 	Checked time.Time          `json:"checked"`
+	// Seen is when the member was last found online by this kalka.
+	Seen time.Time `json:"seen,omitzero"`
 }
 
 // New prepares a node: identity key and folder index.
@@ -370,6 +372,9 @@ func (d *Node) Bus() *Bus { return d.bus }
 // ConfigDir is the configuration directory.
 func (d *Node) ConfigDir() string { return d.dir }
 
+// Folder is the blueprint folder.
+func (d *Node) Folder() string { return d.cfg.Folder }
+
 // Ready is closed when the daemon first registers with the rendezvous.
 func (d *Node) Ready() <-chan struct{} { return d.readyCh }
 
@@ -522,20 +527,27 @@ func (e *ErrOffline) Error() string {
 
 func newUUID() string { return bp.NewKalkaID() }
 
-// presenceOf is what was last seen of a member: unknown until probed.
-func (d *Node) presenceOf(email string) transport.Presence {
+// presenceOf is what was last seen of a member: unknown until probed,
+// and when it was last online, if it was since this kalka started.
+func (d *Node) presenceOf(email string) (transport.Presence, time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if p, ok := d.presence[addr.Canonical(email)]; ok && p.State != "" {
-		return p.State
+		return p.State, p.Seen
 	}
-	return transport.Unknown
+	return transport.Unknown, time.Time{}
 }
 
 func (d *Node) markPresence(email string, p transport.Presence) {
 	d.mu.Lock()
-	old := d.presence[addr.Canonical(email)].State
-	d.presence[addr.Canonical(email)] = presence{State: p, Checked: time.Now()}
+	was := d.presence[addr.Canonical(email)]
+	old := was.State
+	now := time.Now()
+	seen := was.Seen
+	if p == transport.Online {
+		seen = now
+	}
+	d.presence[addr.Canonical(email)] = presence{State: p, Checked: now, Seen: seen}
 	d.mu.Unlock()
 	if old != p {
 		d.bus.Publish(BusEvent{Type: "teams"})

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { act } from './actions'
 import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status, type Team } from './api'
 import { PublishDialog } from './Dialogs'
-import { PERSONAL } from './scope'
+import { PERSONAL, shortName } from './scope'
 import { AUTOJOIN_KEY } from './Join'
 import { inDesktopWindow } from './shell'
-import { docHref, plural, setupFromInvite, useRoute } from './util'
+import { ago, docHref, plural, scopeHref, setupFromInvite, useRoute } from './util'
 
 // Setup asks for the three required settings (spec 5). Opened from an
 // invite, the email and the server come from it and only the folder is
@@ -156,12 +156,9 @@ export function Setup({ status }: { status: Status }) {
   )
 }
 
-const roleLabel = (b: BlueprintInfo, self: string) =>
-  !b.kalka_id ? 'local' : b.owner && b.owner.toLowerCase() === self.toLowerCase() ? 'owner' : 'reviewer'
-
-/** Blueprints lists the files of the scope (spec 11.1). In Personal each
- * offers Publish to team…; in a team folder a file that does not
- * replicate says why. */
+/** Blueprints lists the blueprints of the scope (spec 11.1), the most
+ * recently active first. In Personal each offers Publish to team…; in a
+ * team folder one that is not shared says why. */
 export function Blueprints({ list, status, scope, team, reload }: { list: BlueprintInfo[]; status: Status; scope: string; team?: Team; reload: () => void }) {
   const [publishing, setPublishing] = useState<BlueprintInfo | null>(null)
   const personal = scope === PERSONAL
@@ -172,20 +169,37 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
       <div className="page">
         <h1>Blueprints · {where}</h1>
         <div className="empty">
-          <p>No blueprints here yet.</p>
-          <p className="muted">
-            {personal ? (
-              <>
-                Put a Markdown file into <code>{status.folder}/personal</code>: what you write there stays yours until you publish it.
-              </>
-            ) : (
-              <>A team's documents arrive as its members publish them. Publish one of yours from Personal.</>
-            )}
-          </p>
+          {personal ? (
+            <>
+              <p>
+                <b>Nothing in Personal yet.</b> Personal is only on this computer: what you write here stays yours until you publish it to a
+                team.
+              </p>
+              <p className="muted">
+                Put a Markdown file into <code>{status.folder}/personal</code>, or ask an agent to write one (<code>kalka reference</code>{' '}
+                tells it how).
+              </p>
+              <OpenFolder rel="personal" />
+            </>
+          ) : (
+            <>
+              <p>
+                <b>No blueprints in {where} yet.</b> They arrive as members publish them.
+              </p>
+              <div className="row">
+                <a className="button" href={scopeHref(PERSONAL)}>
+                  Publish one from Personal
+                </a>
+                <a href={scopeHref(scope, 'team')}>Invite a teammate</a>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )
   }
+  const sorted = [...list].sort((a, b) => (b.activity ?? b.modified).localeCompare(a.activity ?? a.modified))
+  const mine = (b: BlueprintInfo) => !!b.owner && b.owner.toLowerCase() === status.email.toLowerCase()
   return (
     <div className="page">
       <h1>Blueprints · {where}</h1>
@@ -193,47 +207,34 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
         <table className="table">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Role</th>
+              <th>Blueprint</th>
               <th>Owner</th>
-              <th>Entries</th>
-              <th>Problems</th>
-              <th>File</th>
+              <th>Version</th>
+              <th>Last activity</th>
               {personal && <th />}
             </tr>
           </thead>
           <tbody>
-            {list.map((b) => {
-              const role = roleLabel(b, status.email)
+            {sorted.map((b) => {
               const why = notShared.get(b.rel)
+              const broken = b.errors > 0 || !!b.parse_error || !!b.duplicate
               return (
                 <tr key={b.path}>
                   <td>
                     <a href={docHref(b.rel)}>{b.title || b.rel}</a>
-                  </td>
-                  <td>
-                    <span className={'role role-' + role}>{role}</span>
-                  </td>
-                  <td>{b.owner ?? <span className="muted">—</span>}</td>
-                  <td>{b.entries}</td>
-                  <td>
+                    {(b.new ?? 0) > 0 && <span className="badge new">{b.new} new</span>}
+                    {b.unreleased && <span className="badge">{mine(b) ? 'unreleased edits' : 'edited, not released'}</span>}
                     {b.parse_error && <span className="badge warn">{b.parse_error}</span>}
                     {b.errors > 0 && <span className="badge warn">{plural(b.errors, 'error')}</span>}
-                    {b.duplicate && (
-                      <span className="badge warn" title="Two files have the same kalka_id; publishing is refused until one is removed">
-                        duplicate id
-                      </span>
-                    )}
-                    {why && (
-                      <span className="badge warn" title={why}>
-                        not shared: publish it or move it to Personal
-                      </span>
-                    )}
+                    {b.duplicate && <span className="badge warn">same kalka_id as another file</span>}
+                    {why && <div className="small warn-text">Not shared: {why.replace(/^not shared: /, '')}</div>}
                   </td>
-                  <td className="mono muted">{b.rel}</td>
+                  <td title={b.owner}>{!b.owner ? <span className="muted">—</span> : mine(b) ? 'you' : shortName(b.owner)}</td>
+                  <td>{b.version ? `v${b.version}` : <span className="muted">{personal ? 'not shared' : '—'}</span>}</td>
+                  <td title={b.activity ?? b.modified}>{ago(b.activity ?? b.modified)}</td>
                   {personal && (
                     <td>
-                      {b.errors === 0 && !b.parse_error && !b.duplicate && (
+                      {!broken && (
                         <button type="button" className="link" {...act('doc.publish')} onClick={() => setPublishing(b)}>
                           Publish to team…
                         </button>
@@ -253,18 +254,22 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
   )
 }
 
-function age(active?: string): string {
-  if (!active) return 'age unknown'
-  const ms = Date.now() - new Date(active).getTime()
-  if (isNaN(ms)) return 'age unknown'
-  const h = ms / 3_600_000
-  if (h < 1) return 'active now'
-  if (h < 48) return `${Math.floor(h)} h`
-  return `${Math.floor(h / 24)} days`
+/** OpenFolder opens a folder under the blueprint folder in the file
+ * manager (spec 11.1). */
+export function OpenFolder({ rel = '', label = 'Open folder' }: { rel?: string; label?: string }) {
+  const [err, setErr] = useState('')
+  return (
+    <span className="row">
+      <button type="button" onClick={() => api.openFolder(rel).then(() => setErr(''), (e: Error) => setErr(e.message))}>
+        {label}
+      </button>
+      {err && <span className="error-text small">{err}</span>}
+    </span>
+  )
 }
 
-// PreBacklog lists every seed in the folder (spec 6.11): title, owner,
-// parent and age, newest activity first.
+// PreBacklog is Seeds (spec 6.11): every seed in the scope, with its
+// owner, where it was split off from and its last activity.
 export function PreBacklog({ self, scope }: { self: string; scope: string }) {
   const [rows, setRows] = useState<SeedRow[] | null>(null)
   const [err, setErr] = useState('')
@@ -285,13 +290,20 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
   }
   return (
     <div className="page">
-      <h1>Pre-backlog</h1>
+      <h1>Seeds</h1>
       <p className="muted">
-        Seeds: ideas split off from growing blueprints, kept small until someone takes them up. Create one from a blueprint
-        (“Create seed”) or from a deviation entry.
+        Ideas split off from growing blueprints, kept small until someone takes them up. Split one off from a blueprint (More ▾ Split
+        off a seed…) or from a deviation.
       </p>
       {err && <div className="error-box">{err}</div>}
-      {rows && rows.length === 0 && <div className="empty">No seeds yet.</div>}
+      {rows && rows.length === 0 && (
+        <div className="empty">
+          <p>
+            <b>No seeds yet.</b> When a review turns up an idea that does not belong in the plan, split it off as a seed instead of
+            letting the plan grow.
+          </p>
+        </div>
+      )}
       {rows && rows.length > 0 && (
         <div className="table-wrap">
           <table className="table">
@@ -300,7 +312,7 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
                 <th>Seed</th>
                 <th>Owner</th>
                 <th>Split off from</th>
-                <th>Age</th>
+                <th>Last activity</th>
                 <th />
               </tr>
             </thead>
@@ -310,15 +322,15 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
                   <td>
                     <a href={docHref(r.rel)}>{r.title}</a>
                   </td>
-                  <td>{r.mine ? 'you' : r.owner}</td>
+                  <td title={r.owner}>{r.mine ? 'you' : shortName(r.owner)}</td>
                   <td>
                     {r.parent_rel ? <a href={docHref(r.parent_rel)}>{r.parent_title || r.parent_rel}</a> : r.parent ? <span className="muted">not in your folder</span> : '—'}
                   </td>
-                  <td title={r.active}>{age(r.active)}</td>
+                  <td title={r.active}>{ago(r.active)}</td>
                   <td>
                     {r.mine && bpEq(r.owner, self) && (
                       <button type="button" className="link" {...act('seed.promote')} disabled={busy === r.rel} onClick={() => promote(r.rel)}>
-                        Promote to draft
+                        Turn into a blueprint
                       </button>
                     )}
                   </td>

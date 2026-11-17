@@ -117,6 +117,9 @@ export interface BlueprintInfo {
   new?: number
   /** The newest entry's time, or the file's. */
   activity?: string
+  /** The team's released version, and whether this copy has edits not released. */
+  version?: number
+  unreleased?: boolean
 }
 
 export interface Heading {
@@ -479,6 +482,8 @@ export interface TeamMember {
   you?: boolean
   /** What this kalka last saw of the member (spec 9.3); absent for you. */
   presence?: 'online' | 'offline' | 'unknown'
+  /** When this kalka last found the member online, since it started. */
+  last_seen?: string
 }
 export interface TeamInvite {
   id: string
@@ -602,6 +607,7 @@ export const api = {
   markRead: (path: string) => call<object>('POST', '/api/read', { path }),
   /** The system's folder dialog; '' when canceled. */
   pickFolder: (start: string) => call<{ folder: string }>('POST', '/api/pick-folder', { start }).then((r) => r.folder),
+  openFolder: (rel: string) => call<unknown>('POST', '/api/open-folder', { path: rel }),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),
   joinPreview: (token: string) => call<JoinPreview>('POST', '/api/joins/preview', { token }),
   seeds: (team = '') => call<SeedRow[] | null>('GET', '/api/seeds' + scope(team)).then((l) => l ?? []),

@@ -115,6 +115,7 @@ func (d *Daemon) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
 	mux.HandleFunc("POST /api/pick-folder", apiPickFolder)
+	mux.HandleFunc("POST /api/open-folder", d.apiOpenFolder)
 	mux.HandleFunc("POST /api/ui/show", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
 			Path  string `json:"path"`
@@ -333,4 +334,35 @@ func (d *Daemon) apiOpenExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"opened": true})
+}
+
+// apiOpenFolder shows the blueprint folder, or a folder in it, in the
+// file manager: Settings' and Personal's "Open folder".
+func (d *Daemon) apiOpenFolder(w http.ResponseWriter, r *http.Request) {
+	var q struct {
+		Path string `json:"path"`
+	}
+	if err := readBody(r, &q); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	root := d.Folder()
+	dir := filepath.Join(root, filepath.FromSlash(q.Path))
+	if rel, err := filepath.Rel(root, dir); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		fail(w, http.StatusBadRequest, errors.New("only folders inside the blueprint folder can be opened"))
+		return
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		fail(w, http.StatusNotFound, fmt.Errorf("no folder %s", dir))
+		return
+	}
+	if d.opts.OpenFolder == nil {
+		fail(w, http.StatusNotImplemented, fmt.Errorf("this kalka cannot open a file manager; the folder is %s", dir))
+		return
+	}
+	if err := d.opts.OpenFolder(dir); err != nil {
+		fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"opened": dir})
 }

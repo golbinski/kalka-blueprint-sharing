@@ -40,6 +40,9 @@ type Options struct {
 	// OpenExternal, if set, opens an http or https link in the system
 	// browser (POST /api/open-external).
 	OpenExternal func(url string) error
+	// OpenFolder, if set, shows a folder in the system's file manager
+	// (POST /api/open-folder).
+	OpenFolder func(dir string) error
 	// Notify, if set, shows a notice as an OS notification; it is called
 	// only while no UI page is connected, and must not block for long.
 	Notify func(core.Notice)

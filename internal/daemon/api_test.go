@@ -137,6 +137,31 @@ func TestNoUI(t *testing.T) {
 	}
 }
 
+// TestOpenFolder: only folders inside the blueprint folder are shown.
+func TestOpenFolder(t *testing.T) {
+	w := newWorld(t)
+	opened := make(chan string, 4)
+	a := w.node("alice@parcels.example", func(o *Options) {
+		o.OpenFolder = func(dir string) error { opened <- dir; return nil }
+	})
+	c, _ := Connect(a.cfgDir)
+	ctx := context.Background()
+	for _, bad := range []string{"..", "../..", "personal/../..", "no-such-folder"} {
+		if err := c.do(ctx, http.MethodPost, "/api/open-folder", map[string]string{"path": bad}, nil); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if len(opened) > 0 {
+		t.Fatalf("opened %q", <-opened)
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/open-folder", map[string]string{"path": "personal"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if d := <-opened; filepath.Base(d) != "personal" {
+		t.Fatalf("opened %q", d)
+	}
+}
+
 // TestOpenExternal: only http and https links leave the window.
 func TestOpenExternal(t *testing.T) {
 	w := newWorld(t)

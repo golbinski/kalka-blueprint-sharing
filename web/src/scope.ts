@@ -200,13 +200,13 @@ export function joinState(p: JoinPreview): JoinState {
 export function attestedText(t: TransferInfo): string {
   if (!t.from) return ''
   const how = t.mode === 'move' ? 'Moved' : 'Copied'
-  const who = t.actor && t.by ? ` Its history is attested by ${t.actor}, who offered it, and ${t.by}, who accepted it.` : ''
-  return `${how} from ${t.from}.${who}`
+  const who = t.actor && t.by ? ` Its comments are carried over, vouched for by ${shortName(t.actor)}, who offered it, and ${shortName(t.by)}, who accepted it.` : ''
+  return `${how} from ${t.from.split('/')[0]}.${who}`
 }
 
 /** transferEntries is what an offer brings, for its row. */
 export function transferEntries(n: number): string {
-  return n === 0 ? 'no review entries' : plural(n, 'attested entry', 'attested entries')
+  return n === 0 ? 'no comments' : `${plural(n, 'comment')} carried over`
 }
 
 /** attestedBadge is the title of an entry's "attested" badge: written in

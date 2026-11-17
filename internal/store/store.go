@@ -92,6 +92,11 @@ type Info struct {
 	New int `json:"new,omitempty"`
 	// Activity is the newest entry's time, or the file's when it has none.
 	Activity time.Time `json:"activity,omitzero"`
+	// Version is the team's released version of a published blueprint,
+	// and Unreleased tells that this copy's plan differs from it. Both
+	// are filled by the node, not by the index.
+	Version    int64 `json:"version,omitempty"`
+	Unreleased bool  `json:"unreleased,omitempty"`
 	// Notes are the file's entries in short, for what is new since the
 	// user last looked (core's read marks).
 	Notes []Note `json:"-"`
