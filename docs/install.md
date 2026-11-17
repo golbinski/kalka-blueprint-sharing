@@ -2,6 +2,17 @@
 
 kalka is a desktop app that lives in the menu bar (macOS) or the notification area (Windows, Linux) and keeps syncing with your team in the background. It runs **per user, started at login**, not as a system service: a service runs in a separate session and could not show you anything.
 
+## You were sent an invite
+
+A teammate sent you a message with a `kalka://join/…` link and an invite code.
+
+1. Install kalka for your system (below) and start it. Leave the window open.
+2. Click the link in the message again. If nothing happens (the link is not clickable, or your system does not pass it on), choose *Join with an invite…* in the switcher at the top left of the kalka window, and paste the link or the code.
+3. kalka fills in your email and your team's server from the invite. Choose where to keep your blueprints (the suggested folder is fine) and click *Save and join*.
+4. You are in as soon as your teammate's kalka is running. Until then the window shows what it is waiting for, and kalka keeps trying in the background, also with the window closed.
+
+## Downloads
+
 Every release has, per system:
 
 | System | Desktop app | Command line and headless only |
@@ -19,7 +30,7 @@ Where IT policy blocks the desktop app, autostart entries or the webview, see [h
 ## Windows
 
 1. Run `kalka_<v>_windows_amd64_setup.exe` (`arm64` on ARM machines). It needs no administrator rights. It installs into `%LOCALAPPDATA%\Programs\kalka`, adds that folder to your `PATH`, and adds *kalka* to the Start menu.
-2. Leave *Start kalka* ticked on the last page. The kalka window opens on the setup form: your email, the rendezvous your team uses, and your blueprint folder.
+2. Leave *Start kalka* ticked on the last page. The kalka window opens on the setup form: your email, your team's kalka server (the *rendezvous*, or the public demo server to try kalka), and your blueprint folder.
 3. From then on kalka starts at each login, without a window, with its icon in the notification area. Closing the window hides it; the icon, the Start menu, or `kalka` in a terminal brings it back. *Quit kalka* in the icon's menu stops syncing.
 
 The window needs the Microsoft Edge WebView2 runtime, which Windows 10 and 11 normally have. If it is missing, the installer offers its download page, and kalka offers to use the browser instead.

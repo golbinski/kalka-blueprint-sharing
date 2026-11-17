@@ -259,12 +259,14 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	show := fs.Bool("show", false, "show what the invite is, without joining")
 	wait := fs.Duration("wait", 20*time.Second, "how long to wait for the owner before leaving it to the daemon")
+	list := fs.Bool("list", false, "list the joins in progress or failed")
+	forget := fs.Bool("forget", false, "stop a join in progress, or clear a failed one")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return exitUsage
 	}
-	if len(pos) == 0 {
-		fmt.Fprintf(stderr, "usage: %s join [--show] <link or token> [--wait 20s] [--json]\n", name.Binary)
+	if len(pos) == 0 && !*list {
+		fmt.Fprintf(stderr, "usage: %s join [--show | --forget] <link or token> [--wait 20s] [--json]\n       %s join --list [--json]\n", name.Binary, name.Binary)
 		return exitUsage
 	}
 	token := strings.Join(pos, "")
@@ -274,6 +276,46 @@ func cmdJoin(args []string, stdout, stderr io.Writer) int {
 	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
 		return code
+	}
+	if *list || *forget {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if *forget {
+			if err := c.ForgetJoin(ctx, token); err != nil {
+				return failWith(*asJSON, stdout, stderr, err)
+			}
+			if *asJSON {
+				writeJSON(stdout, map[string]bool{"forgotten": true})
+			} else {
+				fmt.Fprintln(stdout, "join forgotten")
+			}
+			return exitOK
+		}
+		js, err := c.Joins(ctx)
+		if err != nil {
+			return failWith(*asJSON, stdout, stderr, err)
+		}
+		if *asJSON {
+			writeJSON(stdout, js)
+			return exitOK
+		}
+		if len(js) == 0 {
+			fmt.Fprintln(stdout, "no joins")
+		}
+		for _, j := range js {
+			line := fmt.Sprintf("%s  %-8s %s", j.ID, j.State, j.Name)
+			if j.Inviter != "" {
+				line += ", invited by " + j.Inviter
+			}
+			if j.State == core.JoinPending {
+				line += fmt.Sprintf(", %d tries, valid until %s", j.Tries, j.Expires.Local().Format("2 Jan 15:04"))
+			}
+			if j.Detail != "" {
+				line += ": " + j.Detail
+			}
+			fmt.Fprintln(stdout, line)
+		}
+		return exitOK
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *wait+10*time.Second)
 	defer cancel()

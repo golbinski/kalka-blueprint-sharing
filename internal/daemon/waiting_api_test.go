@@ -47,7 +47,7 @@ func TestWaitingAPI(t *testing.T) {
 	if _, err := c.Waiting(ctx, "lending"); !errors.As(err, &re) || re.Kind != core.KindUnknownTeam {
 		t.Fatalf("an unknown team: %v", err)
 	}
-	if sum, _ := c.Summary(ctx); sum.Waiting.Total != 1 || sum.Waiting.Oldest == nil || sum.Waiting.Oldest.Target != "#/t/parcels/waiting" {
+	if sum, _ := c.Summary(ctx); sum.Waiting.Total != 1 || sum.Waiting.Oldest == nil || sum.Waiting.Oldest.Target != "#/needs" {
 		t.Fatalf("summary: %+v", sum.Waiting)
 	}
 	if ts, _ := c.Teams(ctx); len(ts) != 1 || ts[0].Waiting != 1 {

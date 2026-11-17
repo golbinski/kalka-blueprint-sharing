@@ -6,7 +6,9 @@ package core
 // in through SetSeen.
 
 import (
+	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,8 +33,8 @@ type WaitingItem struct {
 	Team     string `json:"team"`      // hash
 	TeamName string `json:"team_name"` // name
 	At       string `json:"at"`
-	// Target is the page's route for the item: the document, or the
-	// team's waiting list for a transfer.
+	// Target is the page's route for the item: the document, or
+	// "Needs you" for a transfer.
 	Target   string `json:"target"`
 	Title    string `json:"title"`
 	Path     string `json:"path,omitempty"`
@@ -40,7 +42,12 @@ type WaitingItem struct {
 	Transfer string `json:"transfer,omitempty"` // the transfer id
 	// By is who caused it: the actor of a transfer, who handed off or
 	// reassigned, the removed owner.
-	By      string `json:"by,omitempty"`
+	By string `json:"by,omitempty"`
+	// Candidates are, for a dispute, the members whose releases compete.
+	Candidates []string `json:"candidates,omitempty"`
+	// Mode and From are a transfer's: copy or move, and the source team.
+	Mode    string `json:"mode,omitempty"`
+	From    string `json:"from,omitempty"`
 	Message string `json:"message"`
 
 	mark string // handed: what a seen mark names (a release id or an op hash)
@@ -53,8 +60,8 @@ type WaitingSummary struct {
 	Teams  []WaitingTeam `json:"teams"`
 }
 
-// WaitingAt is the oldest item: its team, time and the team's waiting
-// list, where the tray opens the window (spec 22.1).
+// WaitingAt is the oldest item: its team, time and where the tray opens
+// the window (spec 22.1).
 type WaitingAt struct {
 	Team   string `json:"team"`
 	At     string `json:"at"`
@@ -68,8 +75,9 @@ type WaitingTeam struct {
 	Count int    `json:"count"`
 }
 
-// WaitingRoute is a team's waiting list in the page.
-func WaitingRoute(teamName string) string { return "#/t/" + teamName + "/waiting" }
+// NeedsRoute is where the page lists waiting items: "Needs you", over
+// every team.
+const NeedsRoute = "#/needs"
 
 // DocRoute is a document in the page, by its path in the folder.
 func DocRoute(rel string) string { return "#/doc/" + url.PathEscape(rel) }
@@ -146,9 +154,10 @@ func (d *Node) waitingIn(dirs []teamDir) []WaitingItem {
 		if !teams[v.teamHash] || !v.CanDecide || v.Status != TransferPending {
 			continue
 		}
+		from, _, _ := strings.Cut(v.From, "/")
 		out = append(out, WaitingItem{Kind: WaitTransfer, Team: v.teamHash, TeamName: v.Team, At: v.At,
-			Target: WaitingRoute(v.Team), Title: v.Title, Transfer: v.ID, By: v.Actor,
-			Message: v.Actor + " offers “" + v.Title + "” to " + v.Team + " (" + v.Mode + ")"})
+			Target: NeedsRoute, Title: v.Title, Transfer: v.ID, By: v.Actor, Mode: v.Mode, From: from,
+			Message: v.Actor + " wants to " + v.Mode + " “" + v.Title + "” from " + from + " into " + v.Team})
 	}
 	return out
 }
@@ -168,12 +177,33 @@ func (d *Node) docWaiting(h *held, teamOwner bool, id string, td teamDoc) []Wait
 	if ch.Disputed {
 		it := base
 		it.Kind = WaitDisputed
+		version := ""
 		for _, e := range entriesOf(td.doc) {
-			if e.Kind == bp.KindRelease && strings.HasPrefix(ch.Void[e.ID], "ownership disputed") && e.Timestamp > it.At {
+			if e.Kind != bp.KindRelease || !strings.HasPrefix(ch.Void[e.ID], "ownership disputed") {
+				continue
+			}
+			if e.Timestamp > it.At {
 				it.At = e.Timestamp
 			}
+			if !slices.ContainsFunc(it.Candidates, func(c string) bool { return bp.SameEmail(c, e.Author) }) {
+				it.Candidates = append(it.Candidates, e.Author)
+			}
+			if r, ok := e.Release(); ok {
+				version = fmt.Sprintf(" %d", r.Version)
+			}
 		}
-		it.Message = "ownership of “" + it.Title + "” is disputed: two releases of one version; reassign it to settle it"
+		who := "two releases claim it"
+		switch len(it.Candidates) {
+		case 1:
+			who = it.Candidates[0] + " released it twice, with different text"
+		case 2:
+			who = it.Candidates[0] + " and " + it.Candidates[1] + " both released it"
+		default:
+			if len(it.Candidates) > 2 {
+				who = strings.Join(it.Candidates, ", ") + " released it"
+			}
+		}
+		it.Message = "“" + it.Title + "” has two competing versions" + version + ": " + who + "; choose its owner to settle it"
 		out = append(out, it)
 	}
 	if next := ch.NextSigner(); next != "" {
@@ -181,7 +211,7 @@ func (d *Node) docWaiting(h *held, teamOwner bool, id string, td teamDoc) []Wait
 			it := base
 			it.Kind, it.By = WaitOwnerGone, next
 			it.At = removedAt(h, next)
-			it.Message = "the owner of “" + it.Title + "”, " + next + ", is no longer a member; reassign it"
+			it.Message = "“" + it.Title + "” has no owner: " + next + " is no longer a member, and nobody can release it until a team owner chooses one"
 			out = append(out, it)
 		}
 	}
@@ -212,9 +242,9 @@ func (d *Node) handed(h *held, id string, ch merge.ReleaseChain, base WaitingIte
 			it := base
 			it.Kind, it.At, it.By, it.mark = WaitHanded, a.At, a.By, a.Op
 			if a.Transfer != "" {
-				it.Message = a.By + " accepted “" + it.Title + "” into " + it.TeamName + " in your name"
+				it.Message = a.By + " accepted “" + it.Title + "” into " + it.TeamName + " with you as its owner: you release its next version"
 			} else {
-				it.Message = a.By + " reassigned “" + it.Title + "” to you"
+				it.Message = a.By + " made you the owner of “" + it.Title + "”: you release its next version"
 			}
 			return it, true
 		}
@@ -222,7 +252,7 @@ func (d *Node) handed(h *held, id string, ch merge.ReleaseChain, base WaitingIte
 	if hasHead && !bp.SameEmail(head.Entry.Author, d.self.Email) && bp.SameEmail(head.Release.Owner, d.self.Email) {
 		it := base
 		it.Kind, it.At, it.By, it.mark = WaitHanded, head.Entry.Timestamp, head.Entry.Author, head.Entry.ID
-		it.Message = head.Entry.Author + " handed “" + it.Title + "” off to you"
+		it.Message = head.Entry.Author + " handed you “" + it.Title + "”: you release its next version"
 		return it, true
 	}
 	return WaitingItem{}, false
@@ -278,7 +308,7 @@ func summarize(items []WaitingItem, dirs []teamDir) WaitingSummary {
 	for _, it := range items {
 		counts[it.Team]++
 		if s.Oldest == nil || it.At < s.Oldest.At {
-			s.Oldest = &WaitingAt{Team: it.TeamName, At: it.At, Target: WaitingRoute(it.TeamName)}
+			s.Oldest = &WaitingAt{Team: it.TeamName, At: it.At, Target: NeedsRoute}
 		}
 	}
 	for _, t := range dirs {

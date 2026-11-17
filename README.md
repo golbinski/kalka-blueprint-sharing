@@ -17,6 +17,20 @@ changing how anyone writes.
 
 ## How it works
 
+1. **Write a plan** in any editor, or let an agent write it: a Markdown
+   file in your kalka folder's `personal/` area. Nobody sees it yet.
+2. **Publish it to your team.** Every teammate gets a copy, kept in step
+   directly between your machines.
+3. **Read their comments beside the text.** Teammates comment on a
+   section, or record a *deviation* when the code did something
+   differently. You edit the plan and release the next version.
+
+*Needs you* lists what only you can move forward, across your teams: a
+blueprint that became yours, an offer to decide on, comments you have not
+read yet.
+
+### Under the hood
+
 - **Drop a file in a folder.** Your kalka folder has a `personal/` area
   that never leaves your machine, and one folder per team you belong to.
   Publishing a blueprint moves it from Personal into a team.
@@ -41,8 +55,7 @@ Beyond review: **seeds** (ideas split off a growing plan into the team's
 pre-backlog), **domain documents** (a team's shared vocabulary, versioned,
 referenced from blueprints), **trace blocks** (a process at business level
 and in code side by side, with kalka pointing out where they diverge),
-**transfers** of documents between teams, and a **waiting list** of what
-only you can move forward.
+**transfers** of documents between teams.
 
 ## Install
 
@@ -58,10 +71,28 @@ page. [docs/install.md](docs/install.md) has the steps for each system.
 
 ## Quick start
 
-In the app, the first window is the setup form: your email, the rendezvous
-(`peerjs-cloud` to try it out), and your blueprint folder. Then *Create
-team…* in the switcher, *Invite* on the Team page, and send the
-`kalka://join/…` link to a teammate.
+**You**
+
+1. Install kalka and open it. The setup form asks for your email, your
+   team's kalka server (the *rendezvous*; choose the public demo server to
+   try kalka) and your blueprint folder.
+2. *Create team…* in the switcher at the top left.
+3. On the Team page, enter a teammate's email and *Copy invite message*.
+   Paste it into any chat: it says how to install kalka and holds the
+   invite.
+
+**Your teammate**
+
+1. Installs kalka and clicks the link in your message (or pastes the
+   code under *Join with an invite…*).
+2. Chooses a folder and clicks *Save and join*. They are in as soon as
+   your kalka is running.
+
+**Then**
+
+- You drop a plan into `personal/`, open it and *Publish to team…*.
+- Your teammate finds it under *Needs you*, comments beside the text.
+- You edit the file and *Release v2*.
 
 The same from the command line:
 
@@ -72,7 +103,7 @@ kalka team create kalka-core
 kalka team invite marek@example.org        # prints a kalka://join/… link; send it any way you like
 
 # Your teammate, after their own setup
-kalka join 'kalka://join/…'
+kalka join 'kalka://join/…'               # waits for your kalka; `kalka join --list` shows progress
 
 # You: share a blueprint, then release your edits
 kalka publish ~/blueprints/personal/push-during-round.md --team kalka-core
@@ -86,6 +117,18 @@ kalka waiting
 ```
 
 `samples/` holds blueprints to try this with, about kalka's own code ([samples/README.md](samples/README.md)).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [specification.md](specification.md) | What kalka does and why: file format, ownership, trust, transport, teams, replication, UI, CLI, API, threat model, packaging |
+| [docs/install.md](docs/install.md) | Installing on Windows, macOS and Linux |
+| [docs/headless.md](docs/headless.md) | Running without the desktop app, for servers and agents |
+| [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
+| [docs/teamlog.md](docs/teamlog.md) | The team log's encoding and replay rules |
+| [docs/peerjs.md](docs/peerjs.md) | How the PeerJS servers behave where kalka depends on it |
+| [samples/README.md](samples/README.md) | Sample blueprints for trying kalka |
 
 ## For agents
 
@@ -111,18 +154,6 @@ content is never written into the file or sent to anyone. kalka ships
 The repository and commit come from the blueprint's frontmatter (`repo`,
 `base_sha`). A plan that spans several repositories names the others under
 `repos:` and picks one per link: `[form](gh:web:src/upload/Form.tsx#L10-L60)`.
-
-## Documentation
-
-| Document | What it covers |
-|---|---|
-| [specification.md](specification.md) | What kalka does and why: file format, ownership, trust, transport, teams, replication, UI, CLI, API, threat model, packaging |
-| [docs/install.md](docs/install.md) | Installing on Windows, macOS and Linux |
-| [docs/headless.md](docs/headless.md) | Running without the desktop app, for servers and agents |
-| [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
-| [docs/teamlog.md](docs/teamlog.md) | The team log's encoding and replay rules |
-| [docs/peerjs.md](docs/peerjs.md) | How the PeerJS servers behave where kalka depends on it |
-| [samples/README.md](samples/README.md) | Sample blueprints for trying kalka |
 
 ## Building from source
 

@@ -527,8 +527,16 @@ button.add.sel {
   justify-content: center;
   padding: 10vh 16px;
 }
+dialog.modal {
+  border: none;
+  color: inherit;
+  margin: 10vh auto auto;
+}
+dialog.modal::backdrop {
+  background: rgba(28, 28, 26, 0.35);
+}
 .modal {
-  width: min(560px, 100%);
+  width: min(560px, calc(100% - 32px));
   max-height: 80vh;
   overflow: auto;
   background: var(--card);
@@ -1442,8 +1450,9 @@ a.cv-card:focus-visible {
   margin-top: 16px;
 }
 .team-box {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 10px;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
@@ -1702,4 +1711,201 @@ button.link.danger {
 .presence.on {
   color: var(--ok);
   font-weight: 500;
+}
+
+/* ---- Buttons as links, the header's sync chip and Settings ---- */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+}
+a.button:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+.settings-link {
+  font-size: 13px;
+  text-decoration: none;
+}
+.settings-link.active {
+  font-weight: 600;
+  color: var(--text);
+}
+.sync-chip-box {
+  position: relative;
+}
+button.sync-chip {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  font-size: 12.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+}
+.sync-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.sync-chip.synced .dot {
+  background: var(--ok);
+}
+.sync-chip.paused .dot,
+.sync-chip.never .dot {
+  background: var(--div);
+}
+.sync-chip.offline .dot {
+  background: var(--danger);
+}
+.sync-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: 380px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sync-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.sync-row button {
+  white-space: nowrap;
+}
+a.toast {
+  color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.toast:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+/* ---- Needs you ---- */
+.needs-group {
+  margin: 20px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1140px;
+}
+.group-title {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 2px;
+}
+.needs-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.needs-card.quiet {
+  background: transparent;
+  border-style: dashed;
+}
+.needs-card .grow > div:first-child {
+  font-weight: 500;
+}
+
+/* ---- Join progress ---- */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  counter-reset: step;
+}
+.steps li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+}
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+.steps li.done::before {
+  content: '✓';
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+.steps li.now::before {
+  content: '…';
+  border-color: var(--div);
+  color: var(--div);
+}
+.steps li.done b,
+.steps li.now b {
+  color: var(--text);
+}
+.join-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.paste-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.switcher-row a.join-failed {
+  color: var(--danger);
+}
+.facts {
+  padding: 10px 12px;
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+/* A banner inside a page or a box lines up with the content around it. */
+.page .banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-bottom: 0;
 }

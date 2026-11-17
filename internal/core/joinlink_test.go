@@ -59,7 +59,7 @@ func TestJoinPreview(t *testing.T) {
 	// Another rendezvous server.
 	iv, _ := teamlog.ParseToken(inv.Token)
 	iv.Rendezvous = "wss://elsewhere.example/"
-	problem(carol, iv.Link(), KindRendezvousMismatch, "another rendezvous server")
+	problem(carol, iv.Link(), KindRendezvousMismatch, "another kalka server")
 	// The same server, written another way, is no mismatch.
 	iv.Rendezvous = carol.d.cfg.Rendezvous + "/"
 	if p, err := carol.d.JoinPreview(iv.Token()); err != nil || (p.Problem != "" && p.Problem != KindRendezvousMismatch) {

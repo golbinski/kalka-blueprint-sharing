@@ -26,10 +26,25 @@ export function notifyNotice(n: Notice): boolean {
     const note = new Notification(n.title ? `kalka · ${n.title}` : 'kalka', { body: n.message, tag: 'kalka-notice-' + n.kind + (n.path ?? '') })
     note.onclick = () => {
       window.focus()
+      const href = noticeHref(n)
+      if (href) location.hash = href
       note.close()
     }
     return true
   } catch {
     return false
   }
+}
+
+// noticeHref is where a notice leads: the document, the joins for a failed
+// join, the team it is about, or Needs you. internal/desktop NoticeHash is
+// the same mapping for the shell's notifications.
+export function noticeHref(n: Notice): string {
+  const team = '#/t/' + encodeURIComponent(n.team ?? '') + '/'
+  if (n.path) return '#/doc/' + encodeURIComponent(n.path)
+  if (n.kind === 'join-failed') return '#/join'
+  if (!n.team) return ''
+  if (n.kind === 'join-done') return team
+  if (n.kind === 'transfer') return '#/needs'
+  return team + 'team'
 }

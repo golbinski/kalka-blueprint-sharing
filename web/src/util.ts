@@ -9,8 +9,8 @@ export function localTime(utc: string): string {
 }
 
 /** The views that show one scope: a team, or Personal (spec 11.1). */
-export type ScopedView = 'list' | 'seeds' | 'team' | 'domains' | 'waiting'
-const scopedViews: ScopedView[] = ['seeds', 'team', 'domains', 'waiting']
+export type ScopedView = 'list' | 'seeds' | 'team' | 'domains'
+const scopedViews: ScopedView[] = ['seeds', 'team', 'domains']
 
 export type Route =
   /** scope is the route's `#/t/<scope>/`; '' when the route names none. */
@@ -19,6 +19,8 @@ export type Route =
   | { view: 'canvas'; path: string }
   | { view: 'trace'; path: string; index: number; node?: string }
   | { view: 'settings' }
+  /** Needs you: every team at once (spec 11.3). */
+  | { view: 'needs' }
   | { view: 'join'; token: string }
 
 function decode(s: string): string | null {
@@ -44,13 +46,15 @@ export function parseRoute(hash: string): Route {
     return { view: 'trace', path: decodeURIComponent(rest.slice(0, i)), index: Number.isInteger(index) && index >= 0 ? index : 0, node: q.get('node') ?? undefined }
   }
   if (h.startsWith('t/')) {
-    // #/t/<scope>/<view>: the tray opens #/t/<team>/waiting (spec 22.1).
+    // #/t/<scope>/<view>; a team's old waiting list is Needs you.
     const [raw, view = ''] = h.slice(2).split('/')
+    if (view === 'waiting') return { view: 'needs' }
     const scope = decode(raw) ?? ''
     return { view: (scopedViews as string[]).includes(view) ? (view as ScopedView) : 'list', scope }
   }
   if ((scopedViews as string[]).includes(h)) return { view: h as ScopedView, scope: '' }
   if (h === 'settings') return { view: 'settings' }
+  if (h === 'needs' || h === 'waiting') return { view: 'needs' }
   if (h === 'join' || h.startsWith('join/')) {
     return { view: 'join', token: decode(h.slice(5)) ?? '' }
   }
@@ -120,4 +124,13 @@ export function setupFromInvite(p: { email: string; rendezvous: string }): { ema
 // signed while no other member could be reached (spec 19.5).
 export function warningOf(r: unknown): string {
   return r && typeof r === 'object' && 'warning' in r && typeof r.warning === 'string' ? r.warning : ''
+}
+
+const timeOnly = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+
+// shortTime is a time of today as 11:02, any other as localTime does.
+export function shortTime(utc: string, now = new Date()): string {
+  const d = new Date(utc)
+  if (isNaN(d.getTime())) return utc
+  return d.toDateString() === now.toDateString() ? timeOnly.format(d) : fmt.format(d)
 }

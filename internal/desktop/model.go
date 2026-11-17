@@ -194,13 +194,22 @@ func DocHash(path string) string {
 	return "#/doc/" + url.PathEscape(path)
 }
 
-// NoticeHash is where a notice's click opens the window.
+// NoticeHash is where a notice's click opens the window: the document,
+// the joins for a failed join, the team it is about, or what needs you.
+// The page's noticeHref (web/src/notify.ts) is the same mapping.
 func NoticeHash(n core.Notice) string {
+	team := "#/t/" + url.PathEscape(n.Team) + "/"
 	switch {
 	case n.Path != "":
 		return DocHash(n.Path)
-	case n.Team != "":
-		return "#/team"
+	case n.Kind == core.NoticeJoinFail:
+		return "#/join"
+	case n.Team == "":
+		return ""
+	case n.Kind == core.NoticeJoinDone:
+		return team
+	case n.Kind == core.NoticeTransfer:
+		return "#/needs"
 	}
-	return ""
+	return team + "team"
 }

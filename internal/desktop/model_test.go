@@ -120,8 +120,16 @@ func TestHashes(t *testing.T) {
 	if h := DocHash("plans/Parcel routing.md"); h != "#/doc/plans%2FParcel%20routing.md" {
 		t.Error(h)
 	}
-	if h := NoticeHash(core.Notice{Team: "lending"}); h != "#/team" {
-		t.Error(h)
+	for n, want := range map[core.Notice]string{
+		{Team: "lending desk"}:                       "#/t/lending%20desk/team",
+		{Team: "lending", Kind: core.NoticeJoinDone}: "#/t/lending/",
+		{Team: "lending", Kind: core.NoticeJoinFail}: "#/join",
+		{Team: "lending", Kind: core.NoticeTransfer}: "#/needs",
+		{Team: "lending", Path: "lending/loans.md"}:  "#/doc/lending%2Floans.md",
+	} {
+		if h := NoticeHash(n); h != want {
+			t.Errorf("%+v: %s, want %s", n, h, want)
+		}
 	}
 	if h := NoticeHash(core.Notice{}); h != "" {
 		t.Error(h)

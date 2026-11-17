@@ -87,8 +87,8 @@ export function SettingsPage({ tick }: { tick: number }) {
           <span>
             <b>Notifications</b>
             <span className="muted small">
-              New comments on your documents, joins, newer domain versions.
-              Questions from teammates' syncs always show here.
+              New comments on your blueprints, joins, newer domain versions.
+              Everything also stays listed under Needs you.
             </span>
           </span>
         </label>

@@ -196,8 +196,10 @@ func (d *Node) DomainsIn(sc Scope) []DomainRow {
 // BlueprintsIn lists the indexed files of a scope.
 func (d *Node) BlueprintsIn(sc Scope) []store.Info {
 	out := []store.Info{}
+	unread := d.UnreadCounts()
 	for _, in := range d.Store.List() {
 		if d.Holds(sc, in.Path) {
+			in.New = unread[in.Path]
 			out = append(out, in)
 		}
 	}

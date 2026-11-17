@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { act } from './actions'
+import { Modal } from './Modal'
 import { api, type Doc, type Entry, type Section } from './api'
 import { render, renderParts } from './markdown'
 import { Mermaid } from './Mermaid'
@@ -7,6 +8,7 @@ import { RefLayer } from './refs'
 import { TraceInline } from './Trace'
 import { groupEntries } from './entries'
 import { attestedBadge } from './scope'
+import { MemberSelect, useMembers } from './Members'
 import { TransferDialog, TransferStrip } from './Transfer'
 import { docHref, localTime, plural, scopeHref, warningOf } from './util'
 
@@ -179,7 +181,8 @@ function PublishedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
           <>
             <input
               className="release-note"
-              placeholder="note (optional)"
+              placeholder="What changed (optional)"
+              aria-label="Release note"
               value={note}
               disabled={busy}
               onChange={(e) => setNote(e.target.value)}
@@ -341,6 +344,7 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [warn, setWarn] = useState('')
+  const members = useMembers(mode === 'handoff' || mode === 'reassign' ? t?.team : undefined)
   if (!t?.held || t.version === 0) return null
   if (!t.can_act && !t.team_owner) return null
   const go = async (f: () => Promise<unknown>) => {
@@ -402,7 +406,7 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
           onDone={reload}
         />
       )}
-      {(mode === 'handoff' || mode === 'reassign') && (
+      {(mode === 'handoff' || mode === 'reassign') && t && (
         <form
           className="row"
           onSubmit={(e) => {
@@ -413,10 +417,10 @@ function OwnershipActions({ doc, reload }: { doc: Doc; reload: () => void }) {
         >
           <span className="hint-text">
             {mode === 'handoff'
-              ? 'Make another member the owner. It is a release naming them; no confirmation is asked of them.'
-              : 'Make any member the owner from the next version, without the current owner’s consent.'}
+              ? 'They become the owner at once and release the next version. You can still comment.'
+              : 'As a team owner you choose the next owner; the current owner is not asked.'}
           </span>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="member's email" aria-label="Member" />
+          <MemberSelect members={members} value={email} onChange={setEmail} exclude={t.releaser ? [t.releaser] : []} label="New owner" />
           {mode === 'handoff' ? (
             <button type="submit" {...act('doc.handoff')} disabled={busy || !email.trim()}>
               Hand off
@@ -479,54 +483,51 @@ function ReleaseDialog({ doc, onClose, onDone }: { doc: Doc; onClose: () => void
     }
   }
   return (
-    <div className="modal-back" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="modal" role="dialog" aria-label={`Release version ${next}`}>
-        <h2>Release version {next}</h2>
-        <form onSubmit={submit} className="seed-form">
-          <p className="muted">
-            The current text becomes version {next} for every member of {doc.domain?.team}. Blueprints that name an older version
-            keep resolving to it.
-          </p>
-          <label>
-            Summary <span className="muted">(optional)</span>
-            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
-          </label>
-          {open.length > 0 ? (
-            <fieldset className="incorporate">
-              <legend>Comments this version takes up</legend>
-              {open.map((e) => (
-                <label key={e.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={picked.has(e.id)}
-                    onChange={(ev) => {
-                      const n = new Set(picked)
-                      if (ev.target.checked) n.add(e.id)
-                      else n.delete(e.id)
-                      setPicked(n)
-                    }}
-                  />
-                  <span>
-                    <b>{e.author}</b> on §{e.anchor || 'plan'}: {e.body.length > 120 ? e.body.slice(0, 120) + '…' : e.body}
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-          ) : (
-            <p className="muted small">No open comments.</p>
-          )}
-          {err && <p className="error-text">{err}</p>}
-          <div className="row">
-            <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
-              Release v{next}
-            </button>
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal title={`Release version ${next}`} busy={busy} onClose={onClose}>
+      <form onSubmit={submit} className="seed-form">
+        <p className="muted">
+          The current text becomes version {next} for every member of {doc.domain?.team}. Blueprints that name an older version
+          keep resolving to it.
+        </p>
+        <label>
+          Summary <span className="muted">(optional)</span>
+          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        {open.length > 0 ? (
+          <fieldset className="incorporate">
+            <legend>Comments this version takes up</legend>
+            {open.map((e) => (
+              <label key={e.id} className="check">
+                <input
+                  type="checkbox"
+                  checked={picked.has(e.id)}
+                  onChange={(ev) => {
+                    const n = new Set(picked)
+                    if (ev.target.checked) n.add(e.id)
+                    else n.delete(e.id)
+                    setPicked(n)
+                  }}
+                />
+                <span>
+                  <b>{e.author}</b> on §{e.anchor || 'plan'}: {e.body.length > 120 ? e.body.slice(0, 120) + '…' : e.body}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <p className="muted small">No open comments.</p>
+        )}
+        {err && <p className="error-text">{err}</p>}
+        <div className="row">
+          <button type="submit" className="primary" {...act('doc.release')} disabled={busy}>
+            Release v{next}
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

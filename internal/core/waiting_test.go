@@ -53,7 +53,7 @@ func TestWaitingHanded(t *testing.T) {
 		t.Fatalf("others wait for %s", k)
 	}
 	sum := courier.d.Summary().Waiting
-	if sum.Total != 1 || sum.Oldest == nil || sum.Oldest.Target != "#/t/parcels/waiting" || len(sum.Teams) != 1 || sum.Teams[0].Count != 1 {
+	if sum.Total != 1 || sum.Oldest == nil || sum.Oldest.Target != "#/needs" || len(sum.Teams) != 1 || sum.Teams[0].Count != 1 {
 		t.Fatalf("summary: %+v", sum)
 	}
 	if ts := courier.d.Teams(); ts[0].Waiting != 1 {
@@ -95,7 +95,7 @@ func TestWaitingHanded(t *testing.T) {
 	depot.replicate(hub) // the log, then version 3 that its cut-off waits for
 	waitOwner(t, hub, id, hub.email)
 	items = waitingOf(t, hub)
-	if len(items) != 1 || items[0].Kind != WaitHanded || items[0].By != depot.email || !strings.Contains(items[0].Message, "reassigned") {
+	if len(items) != 1 || items[0].Kind != WaitHanded || items[0].By != depot.email || !strings.Contains(items[0].Message, "made you the owner") {
 		t.Fatalf("hub: %+v", items)
 	}
 	hub.replicate(depot)
@@ -139,7 +139,8 @@ func TestWaitingDisputed(t *testing.T) {
 	courier.replicate(depot)
 
 	items := waitingOf(t, depot)
-	if len(items) != 1 || items[0].Kind != WaitDisputed || items[0].KalkaID != id {
+	if len(items) != 1 || items[0].Kind != WaitDisputed || items[0].KalkaID != id || len(items[0].Candidates) != 1 ||
+		items[0].Candidates[0] != courier.email || !strings.Contains(items[0].Message, "versions 2: "+courier.email+" released it twice") {
 		t.Fatalf("depot: %+v", items)
 	}
 	if k := waitKinds(waitingOf(t, courier)); k != "" {
@@ -193,7 +194,7 @@ func TestWaitingTransfer(t *testing.T) {
 	roundIn(t, x.ewa, x.jan, x.lib)
 	roundIn(t, x.jan, x.olga, x.lib)
 	items, _ := x.jan.d.Waiting("library-desk")
-	if len(items) != 1 || items[0].Kind != WaitTransfer || items[0].Transfer != r.ID || items[0].By != x.ewa.email || items[0].Target != WaitingRoute("library-desk") {
+	if len(items) != 1 || items[0].Kind != WaitTransfer || items[0].Transfer != r.ID || items[0].By != x.ewa.email || items[0].Target != NeedsRoute {
 		t.Fatalf("jan: %+v", items)
 	}
 	if items, _ := x.jan.d.Waiting("personal"); len(items) != 0 {
@@ -222,7 +223,7 @@ func TestWaitingSummaryOrder(t *testing.T) {
 		{Team: "b2", TeamName: "returns", At: "2026-11-02T08:00:00Z"},
 	}
 	s := summarize(items, dirs)
-	if s.Total != 3 || s.Oldest == nil || s.Oldest.Team != "parcels" || s.Oldest.Target != "#/t/parcels/waiting" {
+	if s.Total != 3 || s.Oldest == nil || s.Oldest.Team != "parcels" || s.Oldest.Target != "#/needs" {
 		t.Fatalf("%+v", s)
 	}
 	if len(s.Teams) != 2 || s.Teams[0].Name != "returns" || s.Teams[0].Count != 2 || s.Teams[1].Name != "parcels" || s.Teams[1].Count != 1 {

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -227,6 +228,31 @@ func serveEvents(b *core.Bus, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PickFolder, if set, shows the system's folder dialog for POST
+// /api/pick-folder (pickfolder.Pick in the real binary; nil in tests).
+var PickFolder func(ctx context.Context, start string) (string, error)
+
+// apiPickFolder answers the folder field's "Choose…": the folder chosen,
+// or "" when the dialog was canceled.
+func apiPickFolder(w http.ResponseWriter, r *http.Request) {
+	var q struct {
+		Start string `json:"start"`
+	}
+	_ = readBody(r, &q)
+	if PickFolder == nil {
+		fail(w, http.StatusNotImplemented, errors.New("this kalka cannot show a folder dialog; type the path"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+	dir, err := PickFolder(ctx, q.Start)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"folder": dir})
+}
+
 // SetupDefaults are suggested values for the setup form.
 type SetupDefaults struct {
 	Folder     string `json:"folder"`
@@ -258,6 +284,7 @@ func SetupHandler(token string, port func() string, done chan<- *config.Config) 
 		writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 		once.Do(func() { done <- cfg })
 	})
+	mux.HandleFunc("POST /api/pick-folder", apiPickFolder)
 	// The setup form opened from a join link fills in the email and the
 	// rendezvous from the token (spec 11.1).
 	mux.HandleFunc("POST /api/joins/preview", func(w http.ResponseWriter, r *http.Request) {

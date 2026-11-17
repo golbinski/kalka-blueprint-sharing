@@ -88,16 +88,61 @@ export function scopeLabel(scope: string, teams: Team[]): string {
   return findTeam(scope, teams)?.name ?? scope
 }
 
-/** joiningLines: "joining <team>…" for each join still pending. */
-export function joiningLines(joins: Join[]): string[] {
-  return joins.filter((j) => j.state === 'pending').map((j) => `joining ${j.name}…`)
+export interface JoinLine {
+  id: string
+  name: string
+  /** "joining, waiting for kasia", or "could not join". */
+  text: string
+  failed: boolean
 }
 
-export type WaitingButton = 'accept' | 'decline' | 'open' | 'reassign'
+/** joiningLines: one row per join still pending or failed and not yet
+ * dismissed, for the switcher (spec 11.1). */
+export function joiningLines(joins: Join[]): JoinLine[] {
+  return joins
+    .filter((j) => j.state === 'pending' || j.state === 'failed')
+    .map((j) => ({
+      id: j.id,
+      name: j.name,
+      failed: j.state === 'failed',
+      text: j.state === 'failed' ? 'could not join' : `joining, waiting for ${shortName(j.inviter ?? j.owner ?? '') || 'the inviter'}`,
+    }))
+}
+
+/** shortName is the part of an address before @, for running text. */
+export function shortName(email: string): string {
+  const i = email.indexOf('@')
+  return i > 0 ? email.slice(0, i) : email
+}
+
+/** Letters NFKD does not take apart. */
+const FOLD: Record<string, string> = { ł: 'l', Ł: 'l', đ: 'd', Đ: 'd', ø: 'o', Ø: 'o', ß: 'ss', æ: 'ae', Æ: 'ae', œ: 'oe', Œ: 'oe' }
+
+/** teamSlug turns what a person typed into a team name (spec 19.2):
+ * lower case, letters and digits, dashes between words. */
+export function teamSlug(input: string): string {
+  return input
+    .replace(/[łŁđĐøØßæÆœŒ]/g, (c) => FOLD[c] ?? c)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)
+    .replace(/-+$/, '')
+}
+
+export type WaitingButton = 'accept' | 'decline' | 'open' | 'choose'
+
+/** Needs you's groups: what only you can decide, and what became yours. */
+export type WaitingGroup = 'decide' | 'yours'
 
 export interface WaitingRow {
   key: string
+  group: WaitingGroup
+  /** The item's short label, for the badge: "Two owners", "No owner". */
   kind: string
+  /** A sentence about the situation. */
   text: string
   by?: string
   at: string
@@ -109,21 +154,26 @@ export interface WaitingRow {
 const KIND_LABEL: Record<WaitingItem['kind'], string> = {
   transfer: 'Transfer',
   handed: 'Yours now',
-  disputed: 'Ownership disputed',
-  'owner-gone': 'Owner left',
+  disputed: 'Two owners',
+  'owner-gone': 'No owner',
 }
 
-/** waitingRows: each item with its kind, who and when, and its buttons
- * (spec 11.1, 11.3). The list stays in the daemon's order, oldest first. */
+// cap capitalizes a sentence, but not one that starts with an address.
+const cap = (s: string) => (!s || /^\S+@/.test(s) ? s : s[0].toUpperCase() + s.slice(1))
+
+/** waitingRows: each item with its group, a sentence, who and when, and
+ * its buttons (spec 11.1, 11.3). The list stays in the daemon's order,
+ * oldest first. */
 export function waitingRows(items: WaitingItem[]): WaitingRow[] {
   return items.map((it) => {
     const doc = it.kind !== 'transfer' && it.target.startsWith('#/doc/')
     const buttons: WaitingButton[] =
-      it.kind === 'transfer' ? ['accept', 'decline'] : it.kind === 'handed' ? ['open'] : ['open', 'reassign']
+      it.kind === 'transfer' ? ['accept', 'decline'] : it.kind === 'handed' ? ['open'] : ['choose', 'open']
     return {
       key: it.kind + ':' + (it.transfer ?? it.kalka_id ?? it.path ?? it.title),
+      group: it.kind === 'handed' ? 'yours' : 'decide',
       kind: KIND_LABEL[it.kind] ?? it.kind,
-      text: it.message || it.title,
+      text: cap(it.message || it.title),
       by: it.by,
       at: it.at,
       href: doc ? it.target : undefined,
@@ -133,12 +183,14 @@ export function waitingRows(items: WaitingItem[]): WaitingRow[] {
   })
 }
 
-export type JoinState = 'ready' | 'problem' | 'joining' | 'joined'
+export type JoinState = 'ready' | 'problem' | 'joining' | 'joined' | 'failed'
 
-/** joinState is what the join screen shows in place of its button. */
+/** joinState is what the join screen shows in place of its button. A
+ * failed join is shown with its reason until it is dismissed. */
 export function joinState(p: JoinPreview): JoinState {
   if (p.joining && p.joining.state === 'joined') return 'joined'
   if (p.joining && p.joining.state === 'pending') return 'joining'
+  if (p.joining && p.joining.state === 'failed') return 'failed'
   if (p.problem) return 'problem'
   return 'ready'
 }

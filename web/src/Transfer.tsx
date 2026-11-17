@@ -3,7 +3,9 @@
 // and where an attested history came from.
 import { useEffect, useState } from 'react'
 import { act } from './actions'
+import { Modal } from './Modal'
 import { api, type Doc, type Team, type TransferView } from './api'
+import { useMembers, MemberSelect } from './Members'
 import { attestedText, transferEntries } from './scope'
 import { docHref, localTime } from './util'
 
@@ -39,69 +41,66 @@ export function TransferDialog({ doc, mode, onClose, onDone }: { doc: Doc; mode:
   }
   const verb = mode === 'copy' ? 'Copy' : 'Move'
   return (
-    <div className="modal-back" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="modal" role="dialog" aria-label={`${verb} to team`}>
-        <h2>{verb} to team</h2>
-        {done ? (
-          <>
-            <p>
-              The offer is with {done}. Its owners accept or decline it; you hear which.{' '}
-              {mode === 'move' && 'Until then the document stays here, and comments added now will not travel.'}
-            </p>
-            <div className="row">
-              <button type="button" className="primary" onClick={onClose}>
-                Done
+    <Modal title={`${verb} to team`} busy={busy} onClose={onClose}>
+      {done ? (
+        <>
+          <p>
+            The offer is with {done}. Its owners accept or decline it; you hear which.{' '}
+            {mode === 'move' && 'Until then the document stays here, and comments added now will not travel.'}
+          </p>
+          <div className="row">
+            <button type="button" className="primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </>
+      ) : teams && teams.length === 0 ? (
+        <>
+          <p>You are a member of no other team. Create or join one from the switcher first.</p>
+          <div className="row">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={submit} className="seed-form">
+          <p className="muted">
+            {mode === 'copy'
+              ? `The other team gets its own copy of “${doc.title}” at its last release, with the review entries attested by you. This one stays as it is.`
+              : `“${doc.title}” leaves ${doc.team?.team} once the other team accepts: it is deleted here for every member, and lives on there with its review history attested by you.`}
+            {takeOver && ' You are not its owner: as a team owner you take it over first, by a reassignment to you.'}
+          </p>
+          {teams && (
+            <label>
+              To
+              <select value={team} onChange={(e) => setTeam(e.target.value)}>
+                {teams.map((t) => (
+                  <option key={t.team} value={t.team}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {err && <p className="error-text">{err}</p>}
+          <div className="row">
+            {mode === 'copy' ? (
+              <button type="submit" className="primary" {...act('doc.copy')} disabled={busy || !team}>
+                Offer a copy
               </button>
-            </div>
-          </>
-        ) : teams && teams.length === 0 ? (
-          <>
-            <p>You are a member of no other team. Create or join one from the switcher first.</p>
-            <div className="row">
-              <button type="button" onClick={onClose}>
-                Close
+            ) : (
+              <button type="submit" className="primary" {...act('doc.move')} disabled={busy || !team}>
+                {takeOver ? 'Take over and offer the move' : 'Offer the move'}
               </button>
-            </div>
-          </>
-        ) : (
-          <form onSubmit={submit} className="seed-form">
-            <p className="muted">
-              {mode === 'copy'
-                ? `The other team gets its own copy of “${doc.title}” at its last release, with the review entries attested by you. This one stays as it is.`
-                : `“${doc.title}” leaves ${doc.team?.team} once the other team accepts: it is deleted here for every member, and lives on there with its review history attested by you.`}
-              {takeOver && ' You are not its owner: as a team owner you take it over first, by a reassignment to you.'}
-            </p>
-            {teams && (
-              <label>
-                To
-                <select value={team} onChange={(e) => setTeam(e.target.value)}>
-                  {teams.map((t) => (
-                    <option key={t.team} value={t.team}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
             )}
-            {err && <p className="error-text">{err}</p>}
-            <div className="row">
-              {mode === 'copy' ? (
-                <button type="submit" className="primary" {...act('doc.copy')} disabled={busy || !team}>
-                  Offer a copy
-                </button>
-              ) : (
-                <button type="submit" className="primary" {...act('doc.move')} disabled={busy || !team}>
-                  {takeOver ? 'Take over and offer the move' : 'Offer the move'}
-                </button>
-              )}
-              <button type="button" onClick={onClose}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </Modal>
   )
 }
 
@@ -129,15 +128,16 @@ export function TransferStrip({ doc }: { doc: Doc }) {
 }
 
 /** AcceptButton accepts a transfer, as the user or naming another member
- * as the owner of version 1. */
-export function AcceptButton({ id, onDone, onError }: { id: string; onDone: () => void; onError: (m: string) => void }) {
+ * of the team as the owner of version 1. */
+export function AcceptButton({ id, team, onDone, onError }: { id: string; team: string; onDone: () => void; onError: (m: string) => void }) {
   const [asked, setAsked] = useState(false)
   const [owner, setOwner] = useState('')
   const [busy, setBusy] = useState(false)
+  const members = useMembers(asked ? team : undefined)
   const go = async () => {
     setBusy(true)
     try {
-      await api.decideTransfer(id, 'accept', owner.trim())
+      await api.decideTransfer(id, 'accept', owner)
       onDone()
     } catch (e) {
       onError((e as Error).message)
@@ -146,31 +146,40 @@ export function AcceptButton({ id, onDone, onError }: { id: string; onDone: () =
   }
   return (
     <>
-      {asked && (
-        <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="owner (default: you)" aria-label="Owner of version 1" />
-      )}
-      <button type="button" className="link" {...act('transfer.accept')} disabled={busy} onClick={go}>
-        Accept
+      {asked && <MemberSelect members={members} value={owner} onChange={setOwner} label="Owner of version 1" />}
+      <button type="button" className="primary" {...act('transfer.accept')} disabled={busy} onClick={go}>
+        {owner ? 'Accept for them' : 'Accept'}
       </button>
       {!asked && (
-        <button type="button" className="link muted" onClick={() => setAsked(true)} title="Name another member as its owner">
-          …
+        <button type="button" className="link" onClick={() => setAsked(true)}>
+          Someone else owns it…
         </button>
       )}
     </>
   )
 }
 
-export function DeclineButton({ id, onDone, onError }: { id: string; onDone: () => void; onError: (m: string) => void }) {
+/** DeclineButton declines a transfer after one confirming click: the
+ * offering team hears of it, and it cannot be undone. */
+export function DeclineButton({ id, who, onDone, onError }: { id: string; who?: string; onDone: () => void; onError: (m: string) => void }) {
+  const [sure, setSure] = useState(false)
+  if (!sure) {
+    return (
+      <button type="button" onClick={() => setSure(true)}>
+        Decline
+      </button>
+    )
+  }
   return (
-    <button
-      type="button"
-      className="link"
-      {...act('transfer.decline')}
-      onClick={() => api.decideTransfer(id, 'decline').then(onDone, (e: Error) => onError(e.message))}
-    >
-      Decline
-    </button>
+    <>
+      <span className="small">Decline {who ? `${who}'s` : 'the'} offer? They will be told.</span>
+      <button type="button" className="danger" {...act('transfer.decline')} onClick={() => api.decideTransfer(id, 'decline').then(onDone, (e: Error) => onError(e.message))}>
+        Decline
+      </button>
+      <button type="button" className="link" onClick={() => setSure(false)}>
+        Keep it
+      </button>
+    </>
   )
 }
 
@@ -199,7 +208,7 @@ export function Transfers({ team, reloadKey }: { team: string; reloadKey: number
                 waiting{' '}
                 {t.can_decide && (
                   <>
-                    <AcceptButton id={t.id} onDone={reload} onError={setErr} /> · <DeclineButton id={t.id} onDone={reload} onError={setErr} />
+                    <AcceptButton id={t.id} team={t.team} onDone={reload} onError={setErr} /> <DeclineButton id={t.id} who={t.actor} onDone={reload} onError={setErr} />
                   </>
                 )}
                 {t.mine && (

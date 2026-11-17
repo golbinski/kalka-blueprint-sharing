@@ -57,7 +57,29 @@ export interface WaitingItem {
   kalka_id?: string
   transfer?: string
   by?: string
+  /** A dispute: the members whose releases compete. */
+  candidates?: string[]
+  /** A transfer: copy or move, and the team it comes from. */
+  mode?: 'copy' | 'move'
+  from?: string
   message: string
+}
+
+/** A team blueprint with comments the user has not seen (GET /api/unread). */
+export interface Unread {
+  path: string
+  rel: string
+  kalka_id: string
+  title: string
+  team: string
+  owner?: string
+  mine?: boolean
+  comments: number
+  deviations: number
+  authors: string[]
+  /** Someone else's blueprint that arrived and was never opened here. */
+  never?: boolean
+  since?: string
 }
 
 // Settings are the daemon's own settings (spec 22.2).
@@ -91,6 +113,10 @@ export interface BlueprintInfo {
   parse_error?: string
   duplicate?: boolean
   modified: string
+  /** Comments and deviations by others not seen yet. */
+  new?: number
+  /** The newest entry's time, or the file's. */
+  activity?: string
 }
 
 export interface Heading {
@@ -516,6 +542,8 @@ export interface Join {
   expires: string
   state: 'pending' | 'joined' | 'failed'
   detail?: string
+  /** The error kind of a failed join. */
+  kind?: string
   tries: number
   last_try?: string
   inviter?: string
@@ -569,6 +597,11 @@ export const api = {
   deleteForTeam: (path: string, takeOver = false) => call<object>('POST', '/api/delete', { path, take_over: takeOver }),
   replicate: (team: string) => call<ReplicationStatus>('POST', `/api/teams/${enc(team)}/replicate`, {}),
   joins: () => call<Join[] | null>('GET', '/api/joins').then((l) => l ?? []),
+  forgetJoin: (id: string) => call<object>('DELETE', '/api/joins/' + enc(id)),
+  unread: () => call<Unread[] | null>('GET', '/api/unread').then((l) => l ?? []),
+  markRead: (path: string) => call<object>('POST', '/api/read', { path }),
+  /** The system's folder dialog; '' when canceled. */
+  pickFolder: (start: string) => call<{ folder: string }>('POST', '/api/pick-folder', { start }).then((r) => r.folder),
   join: (token: string) => call<Join>('POST', '/api/joins', { token }),
   joinPreview: (token: string) => call<JoinPreview>('POST', '/api/joins/preview', { token }),
   seeds: (team = '') => call<SeedRow[] | null>('GET', '/api/seeds' + scope(team)).then((l) => l ?? []),

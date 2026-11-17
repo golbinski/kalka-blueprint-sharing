@@ -32,6 +32,7 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 	"github.com/golbinski/kalka/internal/notify"
 	"github.com/golbinski/kalka/internal/peerjs"
+	"github.com/golbinski/kalka/internal/pickfolder"
 	"github.com/golbinski/kalka/internal/plugin"
 	"github.com/golbinski/kalka/internal/store"
 )
@@ -134,6 +135,7 @@ func ServeDaemon(ctx context.Context, o DaemonOptions) int {
 		openUI = o.OpenUI
 	}
 
+	daemon.PickFolder = pickfolder.Pick
 	cfg, err := config.Load()
 	if errors.Is(err, config.ErrMissing) {
 		// Setup needs the browser even in the background: nothing works

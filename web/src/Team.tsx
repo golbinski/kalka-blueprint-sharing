@@ -38,6 +38,7 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
   const [err, setErr] = useState('')
   const [removing, setRemoving] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
   const [reassigning, setReassigning] = useState<{ email: string; docs: Reassigned[] | null } | null>(null)
+  const [ownerChange, setOwnerChange] = useState<{ email: string; make: boolean } | null>(null)
   const [warn, setWarn] = useState('')
   const run = async (f: () => Promise<unknown>) => {
     setErr('')
@@ -91,7 +92,11 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
                 key={m.email}
                 m={m}
                 owner={owner}
-                onOwner={(make) => run(() => api.setOwner(t.team, m.email, make))}
+                onOwner={(make) => {
+                  setRemoving(null)
+                  setReassigning(null)
+                  setOwnerChange({ email: m.email, make })
+                }}
                 onReassign={async () => {
                   setRemoving(null)
                   setReassigning({ email: m.email, docs: null })
@@ -117,6 +122,33 @@ function TeamCard({ t, self, reload, reloadKey }: { t: Team; self: string; reloa
           </tbody>
         </table>
       </div>
+      {ownerChange && (
+        <div className="banner warn">
+          <b>
+            {ownerChange.make ? `Make ${ownerChange.email} a team owner of ${t.name}?` : `Remove ${ownerChange.email} as a team owner of ${t.name}?`}
+          </b>{' '}
+          {ownerChange.make
+            ? 'They will be able to invite and remove members and give any blueprint a new owner. This is recorded in the team’s history and cannot be erased.'
+            : 'They stay a member. What they did as a team owner stays. This is recorded in the team’s history.'}
+          <div className="row">
+            <button
+              type="button"
+              className={ownerChange.make ? 'primary' : 'danger'}
+              {...act('team.owner')}
+              onClick={() => {
+                const o = ownerChange
+                setOwnerChange(null)
+                run(() => api.setOwner(t.team, o.email, o.make))
+              }}
+            >
+              {ownerChange.make ? 'Make team owner' : 'Remove as team owner'}
+            </button>
+            <button type="button" onClick={() => setOwnerChange(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {removing && (
         <div className="banner warn">
           <b>Remove {removing.email} from {t.name}?</b>{' '}
@@ -245,16 +277,16 @@ function MemberRow({
         <td className="actions">
           {!m.you && (
             <>
-              <button type="button" className="link" {...act('team.owner')} onClick={() => onOwner(!m.owner)}>
-                {m.owner ? 'Remove as owner' : 'Make owner'}
+              <button type="button" className="link" onClick={() => onOwner(!m.owner)}>
+                {m.owner ? 'Remove as team owner…' : 'Make team owner…'}
               </button>{' '}
               ·{' '}
               <button type="button" className="link" onClick={onReassign}>
-                Reassign…
+                Give their blueprints to someone…
               </button>{' '}
               ·{' '}
               <button type="button" className="link" onClick={onRemove}>
-                Remove
+                Remove…
               </button>
             </>
           )}
@@ -339,6 +371,22 @@ function ReassignPanel({
   )
 }
 
+/** The releases page a new teammate installs kalka from. */
+export const INSTALL_URL = 'https://github.com/golbinski/kalka-blueprint-sharing/releases/latest'
+
+/** inviteMessage is what an owner pastes into a chat (spec 19.7): how to
+ * install, the link, and the code for when the link is not clickable. */
+export function inviteMessage(i: Pick<InviteResult, 'name' | 'link' | 'token' | 'email' | 'expires'>): string {
+  return [
+    `You are invited to the kalka team ${i.name}.`,
+    `1. Install kalka: ${INSTALL_URL}`,
+    `2. Open this link: ${i.link}`,
+    `If the link does not open, start kalka, choose "Join with an invite…" and paste this code:`,
+    i.token,
+    `The invite works once, for ${i.email}, until ${localTime(i.expires)}, while my kalka is running.`,
+  ].join('\n')
+}
+
 const EXPIRIES = [
   ['24h', '1 day'],
   ['72h', '3 days'],
@@ -349,7 +397,7 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
   const [email, setEmail] = useState('')
   const [expires, setExpires] = useState('72h')
   const [made, setMade] = useState<InviteResult | null>(null)
-  const [copied, setCopied] = useState<'' | 'link' | 'token'>('')
+  const [copied, setCopied] = useState<'' | 'link' | 'token' | 'message'>('')
   const [err, setErr] = useState('')
   const open = t.invites.filter((i) => i.state === 'open')
   const submit = async (e: React.FormEvent) => {
@@ -384,12 +432,23 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
       {made && (
         <div className="token-box">
           <p className="small">
-            Send the link to <b>{made.email}</b> through any channel; if their chat tool does not make it clickable, send the token. It
-            works once, only for them, until {localTime(made.expires)}, and only while your kalka is online. They open the link, or paste
-            either under “Join with link or token”.
+            Paste the invite message into a chat with <b>{made.email}</b>: it says how to install kalka, and holds the link and the code.
+            It works once, only for them, until {localTime(made.expires)}, and only while your kalka is running.
           </p>
           <textarea className="token-input mono" readOnly rows={3} value={made.link} aria-label="Invite link" onFocus={(e) => e.target.select()} />
           <div className="row">
+            <button
+              type="button"
+              className="primary"
+              onClick={() =>
+                navigator.clipboard?.writeText(inviteMessage(made)).then(
+                  () => setCopied('message'),
+                  () => setCopied(''),
+                )
+              }
+            >
+              {copied === 'message' ? 'Copied' : 'Copy invite message'}
+            </button>
             {(['link', 'token'] as const).map((k) => (
               <button
                 key={k}
@@ -401,7 +460,7 @@ function Invites({ t, run }: { t: Team; run: (f: () => Promise<unknown>) => Prom
                   )
                 }
               >
-                {copied === k ? 'Copied' : k === 'link' ? 'Copy link' : 'Copy token'}
+                {copied === k ? 'Copied' : k === 'link' ? 'Copy link' : 'Copy code'}
               </button>
             ))}
             <button type="button" className="link" onClick={() => setMade(null)}>

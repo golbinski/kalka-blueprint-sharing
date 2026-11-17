@@ -17,6 +17,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/syncproto"
 	"github.com/golbinski/kalka/internal/teamlog"
@@ -145,9 +146,18 @@ func (d *Node) joinProblem(iv teamlog.Invite) *Error {
 		return &Error{Kind: KindInviteExpired, Msg: fmt.Sprintf("the invite expired on %s: ask %s for a new one", iv.Expires.Local().Format("2 Jan 15:04"), iv.Inviter)}
 	}
 	if !peerjs.SameServer(iv.Rendezvous, d.cfg.Rendezvous) {
-		return &Error{Kind: KindRendezvousMismatch, Msg: fmt.Sprintf("this invite uses another rendezvous server (%s; this kalka uses %s), so the team owner cannot be reached", iv.Rendezvous, d.cfg.Rendezvous)}
+		return &Error{Kind: KindRendezvousMismatch, Msg: fmt.Sprintf("this invite is for a team on another kalka server (%s). This kalka is set up for %s, so it cannot reach %s: set kalka up again with their server (`kalka setup`), or ask %s for an invite on yours",
+			serverName(iv.Rendezvous), serverName(d.cfg.Rendezvous), iv.Inviter, iv.Inviter)}
 	}
 	return nil
+}
+
+// serverName is a rendezvous as a person reads it.
+func serverName(r string) string {
+	if r == config.PeerJSCloud {
+		return "the public demo server"
+	}
+	return r
 }
 
 // Join redeems an invite link or token (spec 19.7 step 2): it stores the
@@ -187,6 +197,35 @@ func (d *Node) Join(ctx context.Context, token string) (JoinView, error) {
 	d.bus.Publish(BusEvent{Type: "teams"})
 	go d.tryJoin(context.WithoutCancel(ctx), id)
 	return joinView(rec), nil
+}
+
+// ForgetJoin drops a join, named by its id or its invite, from
+// joins.yaml: a pending one stops being
+// tried, a failed or finished one leaves the lists. Joining again later
+// with the same invite starts afresh.
+func (d *Node) ForgetJoin(id string) error {
+	if p, err := PreviewInvite(id); err == nil {
+		iv, _ := teamlog.ParseToken(p.Token)
+		id = iv.ID()
+	}
+	found := false
+	err := d.teams.joins.update(func(l []joinRecord) ([]joinRecord, bool) {
+		for i := range l {
+			if l[i].ID == id {
+				found = true
+				return append(l[:i], l[i+1:]...), true
+			}
+		}
+		return l, false
+	})
+	if err != nil {
+		return err
+	}
+	if !found {
+		return &Error{Kind: KindError, Msg: "no such join here: `kalka join --list` shows them"}
+	}
+	d.bus.Publish(BusEvent{Type: "teams"})
+	return nil
 }
 
 // joinLoop retries pending joins until they finish or expire; it runs for

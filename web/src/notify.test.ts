@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Notice } from './api'
-import { notifyNotice } from './notify'
+import { noticeHref, notifyNotice } from './notify'
 
 const notice: Notice = { kind: 'comments', title: 'Parcel lockers', message: 'new comment on “Parcel lockers” from courier@parcels.example' } as Notice
 
@@ -51,5 +51,16 @@ describe('page notifications', () => {
     expect(notifyNotice(notice)).toBe(false)
     expect(FakeNotification.made).toHaveLength(0)
     FakeNotification.permission = 'granted'
+  })
+})
+
+describe('noticeHref', () => {
+  it('leads where the shell does', () => {
+    expect(noticeHref({ kind: 'comments', title: '', message: '', path: 'lending/loans.md', team: 'lending' })).toBe('#/doc/lending%2Floans.md')
+    expect(noticeHref({ kind: 'join-failed', title: '', message: '', team: 'lending' })).toBe('#/join')
+    expect(noticeHref({ kind: 'join-done', title: '', message: '', team: 'lending desk' })).toBe('#/t/lending%20desk/')
+    expect(noticeHref({ kind: 'transfer', title: '', message: '', team: 'lending' })).toBe('#/needs')
+    expect(noticeHref({ kind: 'joined', title: '', message: '', team: 'lending' })).toBe('#/t/lending/team')
+    expect(noticeHref({ kind: 'joined', title: '', message: '' })).toBe('')
   })
 })

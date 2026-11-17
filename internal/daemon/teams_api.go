@@ -236,6 +236,13 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /api/joins", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Joins()) })
 	mux.HandleFunc("POST /api/joins/preview", d.teamCall(func(_ *http.Request, q TeamRequest) (any, error) { return d.JoinPreview(q.Token) }))
+	mux.HandleFunc("DELETE /api/joins/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.ForgetJoin(r.PathValue("id")); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"forgotten": true})
+	})
 	mux.HandleFunc("POST /api/joins", d.teamCall(func(r *http.Request, q TeamRequest) (any, error) { return d.Join(r.Context(), q.Token) }))
 }
 
@@ -357,6 +364,11 @@ func (c *Client) JoinPreview(ctx context.Context, token string) (core.JoinPrevie
 }
 
 // Joins lists joins.
+// ForgetJoin drops a join by its id or its invite.
+func (c *Client) ForgetJoin(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/joins/"+url.PathEscape(id), nil, nil)
+}
+
 func (c *Client) Joins(ctx context.Context) ([]core.JoinView, error) {
 	var v []core.JoinView
 	return v, c.do(ctx, http.MethodGet, "/api/joins", nil, &v)

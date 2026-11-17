@@ -3,9 +3,13 @@ import { act } from './actions'
 import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status, type Team } from './api'
 import { PublishDialog } from './Dialogs'
 import { PERSONAL } from './scope'
+import { AUTOJOIN_KEY } from './Join'
+import { inDesktopWindow } from './shell'
 import { docHref, plural, setupFromInvite, useRoute } from './util'
 
-// Setup asks for the three required settings (spec 5).
+// Setup asks for the three required settings (spec 5). Opened from an
+// invite, the email and the server come from it and only the folder is
+// asked; "Save and join" then joins without a second click (spec 11.1).
 export function Setup({ status }: { status: Status }) {
   const [email, setEmail] = useState('')
   const [mode, setMode] = useState<'cloud' | 'server'>('cloud')
@@ -14,12 +18,10 @@ export function Setup({ status }: { status: Status }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [invite, setInvite] = useState<JoinPreview | null>(null)
+  const [changing, setChanging] = useState(false)
   const route = useRoute()
   const token = route.view === 'join' ? route.token : ''
 
-  // Opened from a join link: the email and the rendezvous come from the
-  // token, so a new teammate types only the folder; after saving, the
-  // page reloads on the join screen (spec 11.1).
   useEffect(() => {
     if (!token) return
     let live = true
@@ -39,12 +41,29 @@ export function Setup({ status }: { status: Status }) {
     }
   }, [token])
 
+  const choose = async () => {
+    setErr('')
+    try {
+      const dir = await api.pickFolder(folder)
+      if (dir) setFolder(dir)
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setErr('')
     try {
       await api.setup({ email: email.trim(), rendezvous: mode === 'cloud' ? 'peerjs-cloud' : server.trim(), folder: folder.trim() })
+      if (invite) {
+        try {
+          sessionStorage.setItem(AUTOJOIN_KEY, invite.token)
+        } catch {
+          /* then the join screen asks once more */
+        }
+      }
       // The daemon starts on the same port; wait for it.
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 500))
@@ -58,52 +77,79 @@ export function Setup({ status }: { status: Status }) {
           /* restarting */
         }
       }
-      setErr('kalka did not come back after saving. Check the terminal it runs in.')
+      setErr(
+        inDesktopWindow()
+          ? 'kalka did not start with these settings. Open it again from its icon; what went wrong is in kalka.log in its configuration folder.'
+          : 'kalka did not come back after saving. Check the terminal it runs in, or kalka.log in its configuration folder.',
+      )
     } catch (e) {
       setErr((e as Error).message)
     }
     setBusy(false)
   }
 
+  const serverName = mode === 'cloud' ? 'the public demo server' : server
+  const fixed = invite && !changing
   return (
     <div className="page narrow">
-      <h1>Set up kalka</h1>
-      <p className="muted">Three settings. They are saved in kalka's config file and can be changed there later.</p>
-      {invite && (
-        <div className="banner notice">
-          You are joining <b>{invite.name}</b>, invited by {invite.inviter}. Your email and the rendezvous server come from the invite;
-          choose the folder, then join.
-        </div>
+      <h1>{invite ? `Join ${invite.name}` : 'Set up kalka'}</h1>
+      {invite ? (
+        <p>
+          {invite.inviter} invited you to the team <b>{invite.name}</b>. Choose where kalka keeps your blueprints, and you are in as
+          soon as {invite.inviter.split('@')[0]}'s kalka is running.
+        </p>
+      ) : (
+        <p className="muted">Three settings. You can change them later with <code>kalka setup</code>.</p>
       )}
       <form className="form" onSubmit={save}>
-        <label>
-          Your email
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@library.example" autoFocus={!invite} />
-          <span className="muted small">Teammates reach you by this address. It is how they find you, not an account.</span>
-        </label>
-        <fieldset>
-          <legend>Rendezvous server</legend>
-          <label className="inline">
-            <input type="radio" checked={mode === 'server'} onChange={() => setMode('server')} /> Your team's server
-          </label>
-          {mode === 'server' && (
-            <input type="url" required value={server} onChange={(e) => setServer(e.target.value)} placeholder="wss://kalka.corp.example/" />
-          )}
-          <label className="inline">
-            <input type="radio" checked={mode === 'cloud'} onChange={() => setMode('cloud')} /> Public PeerJS cloud (demo)
-          </label>
-          {mode === 'cloud' && (
-            <span className="muted small">Community-run, no availability guarantee, not for sensitive blueprints.</span>
-          )}
-        </fieldset>
+        {fixed ? (
+          <div className="facts">
+            You join as <b>{email}</b>, through {serverName}.{' '}
+            <button type="button" className="link" onClick={() => setChanging(true)}>
+              Change
+            </button>
+          </div>
+        ) : (
+          <>
+            <label>
+              Your email
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@library.example" autoFocus={!invite} />
+              <span className="muted small">
+                {invite
+                  ? `The invite is for ${invite.email}; another address cannot use it.`
+                  : 'Teammates reach you by this address. It is how they find you, not an account.'}
+              </span>
+            </label>
+            <fieldset>
+              <legend>Your team's kalka server (rendezvous)</legend>
+              <label className="inline">
+                <input type="radio" checked={mode === 'server'} onChange={() => setMode('server')} /> Your team's server
+              </label>
+              {mode === 'server' && (
+                <input type="url" required value={server} onChange={(e) => setServer(e.target.value)} placeholder="wss://kalka.example.org/" />
+              )}
+              <label className="inline">
+                <input type="radio" checked={mode === 'cloud'} onChange={() => setMode('cloud')} /> Public demo server
+              </label>
+              {mode === 'cloud' && <span className="muted small">For trying kalka: community-run, no availability guarantee, not for confidential plans.</span>}
+            </fieldset>
+          </>
+        )}
         <label>
           Blueprint folder
-          <input type="text" required value={folder} onChange={(e) => setFolder(e.target.value)} autoFocus={!!invite} />
-          <span className="muted small">Created if it does not exist. Received blueprints are saved here.</span>
+          <span className="row">
+            <input type="text" className="grow" required value={folder} onChange={(e) => setFolder(e.target.value)} autoFocus={!!invite} />
+            {inDesktopWindow() && (
+              <button type="button" onClick={choose}>
+                Choose…
+              </button>
+            )}
+          </span>
+          <span className="muted small">Created if it does not exist. The suggested folder is fine; your blueprints and your teams' are kept here.</span>
         </label>
         {err && <div className="error-box">{err}</div>}
         <button type="submit" className="primary" {...act('setup.save')} disabled={busy}>
-          {busy ? 'Starting…' : invite ? 'Save and continue' : 'Save and start'}
+          {busy ? 'Starting…' : invite ? `Save and join ${invite.name}` : 'Save and start'}
         </button>
       </form>
     </div>

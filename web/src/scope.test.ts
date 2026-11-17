@@ -5,6 +5,7 @@ import {
   attestedText,
   findTeam,
   joiningLines,
+  teamSlug,
   joinState,
   resolveScope,
   scopeLabel,
@@ -22,7 +23,7 @@ describe('routes with a scope', () => {
   it('parses a team and its views', () => {
     expect(parseRoute('#/t/lending-desk/')).toEqual({ view: 'list', scope: 'lending-desk' })
     expect(parseRoute('#/t/lending-desk')).toEqual({ view: 'list', scope: 'lending-desk' })
-    expect(parseRoute('#/t/lending-desk/waiting')).toEqual({ view: 'waiting', scope: 'lending-desk' })
+    expect(parseRoute('#/t/lending-desk/waiting')).toEqual({ view: 'needs' })
     expect(parseRoute('#/t/personal/seeds')).toEqual({ view: 'seeds', scope: 'personal' })
     expect(parseRoute('#/t/parcels/team')).toEqual({ view: 'team', scope: 'parcels' })
     expect(parseRoute('#/t/parcels/domains')).toEqual({ view: 'domains', scope: 'parcels' })
@@ -31,15 +32,15 @@ describe('routes with a scope', () => {
     expect(parseRoute('#/t/parcels/nowhere')).toEqual({ view: 'list', scope: 'parcels' })
     expect(parseRoute('#/')).toEqual({ view: 'list', scope: '' })
     expect(parseRoute('#/team')).toEqual({ view: 'team', scope: '' })
-    expect(parseRoute('#/t/%E0%A4%A/waiting')).toEqual({ view: 'waiting', scope: '' })
+    expect(parseRoute('#/t/%E0%A4%A/seeds')).toEqual({ view: 'seeds', scope: '' })
   })
   it('opens the route the tray names', () => {
-    // core.WaitingRoute
-    expect(parseRoute('#/t/parcels/waiting')).toEqual({ view: 'waiting', scope: 'parcels' })
+    // core.NeedsRoute
+    expect(parseRoute('#/needs')).toEqual({ view: 'needs' })
   })
   it('round-trips', () => {
     for (const s of ['personal', 'lending desk', 'a/b']) {
-      expect(parseRoute(scopeHref(s, 'waiting'))).toEqual({ view: 'waiting', scope: s })
+      expect(parseRoute(scopeHref(s, 'team'))).toEqual({ view: 'team', scope: s })
       expect(parseRoute(scopeHref(s))).toEqual({ view: 'list', scope: s })
     }
   })
@@ -92,34 +93,47 @@ describe('switcher', () => {
     expect(scopeLabel('bbbb2222bbbb2222', teams)).toBe('lending')
     expect(scopeLabel('personal', teams)).toBe('Personal')
   })
-  it('lists the pending joins', () => {
+  it('lists the pending and failed joins', () => {
     const joins = [
-      { id: '1', name: 'returns', state: 'pending' },
+      { id: '1', name: 'returns', state: 'pending', inviter: 'kasia@library.example' },
       { id: '2', name: 'lending', state: 'joined' },
+      { id: '3', name: 'archive', state: 'failed' },
     ] as Join[]
-    expect(joiningLines(joins)).toEqual(['joining returns…'])
+    expect(joiningLines(joins)).toEqual([
+      { id: '1', name: 'returns', failed: false, text: 'joining, waiting for kasia' },
+      { id: '3', name: 'archive', failed: true, text: 'could not join' },
+    ])
+  })
+  it('turns a typed team name into a slug', () => {
+    expect(teamSlug('Platform Team')).toBe('platform-team')
+    expect(teamSlug('  Łódź – Zespół #2 ')).toBe('lodz-zespol-2')
+    expect(teamSlug('---')).toBe('')
+    expect(teamSlug('a'.repeat(70))).toHaveLength(63)
   })
 })
 
 describe('waiting list', () => {
   const item = (w: Partial<WaitingItem>): WaitingItem =>
-    ({ kind: 'handed', team: 'h', team_name: 'parcels', at: '2026-03-01T10:00:00Z', target: '#/t/parcels/waiting', title: 'Lockers', message: '', ...w }) as WaitingItem
+    ({ kind: 'handed', team: 'h', team_name: 'parcels', at: '2026-03-01T10:00:00Z', target: '#/needs', title: 'Lockers', message: '', ...w }) as WaitingItem
   it('gives each kind its buttons', () => {
     const rows = waitingRows([
-      item({ kind: 'transfer', transfer: 't1', by: 'olga@library.example', message: 'Renewals offered by lending' }),
+      item({ kind: 'transfer', transfer: 't1', by: 'olga@library.example', message: 'olga wants to move Renewals' }),
       item({ kind: 'handed', kalka_id: 'k1', target: '#/doc/parcels/lockers.md', path: '/f/parcels/lockers.md' }),
+      item({ kind: 'handed', kalka_id: 'k4', message: 'olga@library.example handed you “Vans”' }),
       item({ kind: 'disputed', kalka_id: 'k2', target: '#/doc/parcels/routes.md', path: '/f/parcels/routes.md' }),
       item({ kind: 'owner-gone', kalka_id: 'k3', target: '#/doc/parcels/vans.md', path: '/f/parcels/vans.md' }),
     ])
-    expect(rows.map((r) => [r.kind, r.buttons, r.href])).toEqual([
-      ['Transfer', ['accept', 'decline'], undefined],
-      ['Yours now', ['open'], '#/doc/parcels/lockers.md'],
-      ['Ownership disputed', ['open', 'reassign'], '#/doc/parcels/routes.md'],
-      ['Owner left', ['open', 'reassign'], '#/doc/parcels/vans.md'],
+    expect(rows.map((r) => [r.group, r.kind, r.buttons, r.href])).toEqual([
+      ['decide', 'Transfer', ['accept', 'decline'], undefined],
+      ['yours', 'Yours now', ['open'], '#/doc/parcels/lockers.md'],
+      ['yours', 'Yours now', [], undefined],
+      ['decide', 'Two owners', ['choose', 'open'], '#/doc/parcels/routes.md'],
+      ['decide', 'No owner', ['choose', 'open'], '#/doc/parcels/vans.md'],
     ])
-    expect(rows[0].text).toBe('Renewals offered by lending')
+    expect(rows[0].text).toBe('Olga wants to move Renewals')
     expect(rows[1].text).toBe('Lockers')
-    expect(new Set(rows.map((r) => r.key)).size).toBe(4)
+    expect(rows[2].text).toBe('olga@library.example handed you “Vans”')
+    expect(new Set(rows.map((r) => r.key)).size).toBe(5)
   })
   it('keeps the order it is given, oldest first', () => {
     const rows = waitingRows([item({ kalka_id: 'b', at: '2026-01-01T00:00:00Z' }), item({ kalka_id: 'a', at: '2026-02-01T00:00:00Z' })])
@@ -130,13 +144,13 @@ describe('waiting list', () => {
 describe('join screen', () => {
   const p = (w: Partial<JoinPreview>): JoinPreview =>
     ({ token: 'T', team: 'h', name: 'returns', inviter: 'olga@library.example', email: 'ivo@library.example', expires: '', rendezvous: '', ...w }) as JoinPreview
-  it('shows one of four states', () => {
+  it('shows one of five states', () => {
     expect(joinState(p({}))).toBe('ready')
     expect(joinState(p({ problem: 'invite-expired', message: 'expired' }))).toBe('problem')
     expect(joinState(p({ joining: { state: 'pending' } as Join }))).toBe('joining')
     expect(joinState(p({ problem: 'already-member', joining: { state: 'joined' } as Join }))).toBe('joined')
-    // A failed join may be tried again.
-    expect(joinState(p({ joining: { state: 'failed' } as Join }))).toBe('ready')
+    // A failed join shows its reason.
+    expect(joinState(p({ joining: { state: 'failed' } as Join }))).toBe('failed')
   })
 })
 

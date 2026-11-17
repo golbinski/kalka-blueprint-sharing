@@ -95,6 +95,7 @@ type Node struct {
 	repl  *replication
 
 	mu        sync.Mutex
+	readMu    sync.Mutex          // read.json
 	ep        *transport.Endpoint // on the key id
 	online    bool
 	sigErr    string
@@ -230,6 +231,9 @@ func (d *Node) Run(ctx context.Context) error {
 	d.work, d.stopping = work, ctx
 	d.refs.ctx = ctx // plugin calls end with the daemon
 	d.seedNotices()
+	d.readMu.Lock()
+	d.loadRead() // the first start reads what is held as read
+	d.readMu.Unlock()
 	d.background(func() {
 		// Decisions taken while this daemon was stopped (spec 20.7).
 		for _, t := range d.teamDirs() {

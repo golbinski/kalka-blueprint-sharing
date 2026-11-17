@@ -81,6 +81,21 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"cleared": had})
 	})
+	mux.HandleFunc("GET /api/unread", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Unread()) })
+	mux.HandleFunc("POST /api/read", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.MarkRead(q.Path); err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"read": true})
+	})
 	mux.HandleFunc("POST /api/seeds", d.apiBud)
 	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
@@ -99,6 +114,7 @@ func (d *Daemon) Handler() http.Handler {
 		fail(w, http.StatusNotFound, errors.New("no such API endpoint"))
 	})
 	mux.HandleFunc("POST /api/open-external", d.apiOpenExternal)
+	mux.HandleFunc("POST /api/pick-folder", apiPickFolder)
 	mux.HandleFunc("POST /api/ui/show", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
 			Path  string `json:"path"`

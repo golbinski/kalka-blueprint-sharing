@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { act } from './actions'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Join, type Notice, type Status, type Team } from './api'
+import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Join, type Notice, type Status, type Summary, type Team } from './api'
 import { PublishDialog, SeedDialog } from './Dialogs'
-import { notifyNotice, permission, requestPermission } from './notify'
+import { noticeHref, notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
 import { CanvasPage } from './Canvas'
 import { Review } from './Review'
@@ -11,11 +11,13 @@ import { JoinScreen } from './Join'
 import { TracePage } from './Trace'
 import { DomainsPage, TeamPage } from './Team'
 import { Switcher } from './Switcher'
-import { WaitingPage } from './Waiting'
+import { NeedsPage } from './Needs'
+import { SyncChip } from './Sync'
+import { inDesktopWindow } from './shell'
 import { findTeam, PERSONAL, rememberedScope, rememberScope, resolveScope } from './scope'
 import { canvasHref, docHref, roleText, scopeHref, traceHref, useRoute, type ScopedView } from './util'
 
-type Toast = { id: number; text: string }
+type Toast = { id: number; text: string; href: string }
 
 export function App() {
   const route = useRoute()
@@ -31,6 +33,9 @@ export function App() {
   const [teamTick, setTeamTick] = useState(0)
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [joins, setJoins] = useState<Join[]>([])
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [notices, setNotices] = useState<(Notice & { at: string })[]>([])
   const [remembered, setRemembered] = useState(rememberedScope)
   const routeScope = 'scope' in route ? route.scope : ''
   const scope = resolveScope(routeScope, remembered, teams)
@@ -54,10 +59,10 @@ export function App() {
   useEffect(() => setSeedFor(null), [docPath])
   docPathRef.current = docPath
 
-  const toast = (text: string) => {
+  const toast = (text: string, href = '') => {
     const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, text }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000)
+    setToasts((t) => [...t, { id, text, href }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 8000)
   }
 
   const loadStatus = useCallback(async () => {
@@ -76,6 +81,8 @@ export function App() {
   const loadTeams = useCallback(() => {
     api.teams().then(setTeams, () => {})
     api.joins().then(setJoins, () => {})
+    api.summary().then(setSummary, () => {})
+    api.unread().then((l) => setUnreadCount(l.length), () => {})
   }, [])
   const loadDoc = useCallback(async () => {
     const p = docPathRef.current
@@ -86,6 +93,8 @@ export function App() {
       if (docPathRef.current === p && docVersionRef.current === v) {
         setDoc(d)
         setDocErr('')
+        // What is on screen is read (Needs you, spec 11.3).
+        if (!v) api.markRead(p).catch(() => {})
       }
     } catch (e) {
       setDocErr((e as Error).message)
@@ -126,6 +135,7 @@ export function App() {
           case 'folder':
             loadList()
             loadDoc()
+            api.unread().then((l) => setUnreadCount(l.length), () => {})
             break
           case 'status':
             loadStatus()
@@ -137,7 +147,9 @@ export function App() {
             break
           case 'notice': {
             const n = data as Notice
-            if (n && !notifyNotice(n)) toast(n.message)
+            if (!n) break
+            setNotices((l) => [{ ...n, at: new Date().toISOString() }, ...l].slice(0, 10))
+            if (!notifyNotice(n)) toast(n.message, noticeHref(n))
             break
           }
           case 'teams':
@@ -173,17 +185,27 @@ export function App() {
     if (ready && docPath) loadDoc()
   }, [docPath, docVersion, ready, loadDoc])
 
+  useEffect(() => {
+    const view: Record<string, string> = { needs: 'Needs you', list: 'Blueprints', seeds: 'Seeds', team: 'Team', domains: 'Domains', settings: 'Settings', join: 'Join a team' }
+    const what = doc && (route.view === 'doc' || route.view === 'trace' || route.view === 'canvas') ? doc.title : view[route.view] ?? ''
+    document.title = what ? `${what} · kalka` : 'kalka'
+  }, [route.view, doc])
+
   if (fatal && (!status || fatal.kind === 'token')) {
     return (
       <div className="page narrow">
         <div className="brand-big">kalka</div>
         {fatal.kind === 'token' ? (
           <>
-            <h1>Open kalka from its link</h1>
-            <p>
-              This page needs the one-time link that kalka opens when it starts. Run <code>kalka open</code> in a terminal, or
-              restart <code>kalka</code>.
-            </p>
+            <h1>{inDesktopWindow() ? 'kalka restarted' : 'Open kalka from its link'}</h1>
+            {inDesktopWindow() ? (
+              <p>Close this window and open kalka again from its icon.</p>
+            ) : (
+              <p>
+                This page needs the one-time link that kalka opens when it starts. Run <code>kalka open</code> in a terminal, or open kalka
+                from its icon.
+              </p>
+            )}
           </>
         ) : (
           <>
@@ -205,7 +227,7 @@ export function App() {
       {extra}
     </a>
   )
-  const waiting = team?.waiting ?? 0
+  const needs = (summary?.waiting.total ?? 0) + unreadCount
 
   return (
     <>
@@ -219,14 +241,13 @@ export function App() {
           </>
         ) : (
           <nav className="nav">
+            <a href="#/needs" className={route.view === 'needs' ? 'active' : ''}>
+              Needs you{needs > 0 && <span className="count">{needs}</span>}
+            </a>
             {navLink('list', 'Blueprints')}
             {navLink('seeds', 'Pre-backlog')}
             {!personal && navLink('domains', 'Domains')}
             {!personal && navLink('team', 'Team')}
-            {!personal && navLink('waiting', 'Waiting', waiting > 0 && <span className="count">{waiting}</span>)}
-            <a href="#/settings" className={route.view === 'settings' ? 'active' : ''}>
-              Settings
-            </a>
           </nav>
         )}
         <span className="grow" />
@@ -266,6 +287,12 @@ export function App() {
             All blueprints
           </a>
         )}
+        <SyncChip summary={summary} teams={teams ?? []} onChange={loadTeams} />
+        {!inDoc && (
+          <a href="#/settings" className={'settings-link' + (route.view === 'settings' ? ' active' : '')}>
+            Settings
+          </a>
+        )}
       </header>
 
       <div className="banners">
@@ -281,8 +308,13 @@ export function App() {
         )}
         {!status.online && !status.paused && (
           <div className="banner danger">
-            Not connected to the rendezvous server{status.error ? `: ${status.error}` : ''}. Nothing reaches your teams until it is
-            back; kalka keeps retrying.
+            Cannot reach your team's kalka server. Nothing is sent or received until it is back; kalka keeps trying.
+            {status.error && (
+              <details className="small">
+                <summary>Details</summary>
+                {status.error}
+              </details>
+            )}
           </div>
         )}
         {notifyPerm === 'default' && !notifyAsked && (
@@ -308,7 +340,12 @@ export function App() {
             </button>
           </div>
         )}
-        {!live && <div className="banner danger">Lost the connection to kalka. Live updates resume when it is back.</div>}
+        {!live && (
+          <div className="banner danger">
+            Lost the connection to kalka. Live updates resume when it is back
+            {inDesktopWindow() ? '; if it does not come back, open kalka again from its icon.' : '.'}
+          </div>
+        )}
         {inDoc && doc?.mismatch && !doc.duplicate && (
           <div className="banner warn">
             Not shared: {doc.mismatch.replace(/^not shared: /, '')}.
@@ -345,14 +382,16 @@ export function App() {
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
         {route.view === 'seeds' && scope && <PreBacklog self={status.email} scope={scope} />}
         {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} />}
-        {route.view === 'waiting' && !personal && scope && <WaitingPage team={scope} teamName={team?.name ?? scope} reloadKey={teamTick} />}
-        {(route.view === 'team' || route.view === 'waiting' || route.view === 'domains') && personal && (
+        {route.view === 'needs' && <NeedsPage reloadKey={teamTick} notices={notices} />}
+        {(route.view === 'team' || route.view === 'domains') && personal && (
           <div className="page">
-            <div className="empty">Personal is yours alone: it has no team, domains or waiting list. Choose a team in the switcher.</div>
+            <div className="empty">Personal is only on this computer: it has no team or domains. Choose a team in the switcher.</div>
           </div>
         )}
         {route.view === 'settings' && <SettingsPage tick={teamTick} />}
-        {route.view === 'join' && <JoinScreen token={route.token} />}
+        {route.view === 'join' && (
+          <JoinScreen token={route.token} status={status} reloadKey={teamTick} onResume={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))} />
+        )}
         {route.view === 'domains' && !personal && scope && <DomainsPage team={scope} reloadKey={teamTick} list={list} />}
         {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
@@ -379,11 +418,17 @@ export function App() {
         />
       )}
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div className="toast" key={t.id}>
-            {t.text}
-          </div>
-        ))}
+        {toasts.map((t) =>
+          t.href ? (
+            <a className="toast" key={t.id} href={t.href} onClick={() => setToasts((l) => l.filter((x) => x.id !== t.id))}>
+              {t.text}
+            </a>
+          ) : (
+            <div className="toast" key={t.id}>
+              {t.text}
+            </div>
+          ),
+        )}
       </div>
     </>
   )

@@ -87,7 +87,21 @@ type Info struct {
 	// From is the source kalka_id of a copy or a move (spec 20.7), so a
 	// link to the source still resolves.
 	From string `json:"from,omitempty"`
-	hash [32]byte
+	// New is how many comments and deviations by others the user has not
+	// seen (filled in by core for the lists).
+	New int `json:"new,omitempty"`
+	// Activity is the newest entry's time, or the file's when it has none.
+	Activity time.Time `json:"activity,omitzero"`
+	// Notes are the file's entries in short, for what is new since the
+	// user last looked (core's read marks).
+	Notes []Note `json:"-"`
+	hash  [32]byte
+}
+
+// Note is one entry of a file, in short.
+type Note struct {
+	ID, Author, Kind string
+	At               time.Time
 }
 
 // Event reports a change in the folder.
@@ -225,8 +239,13 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
 		_, _, info.From = d.TransferredFrom()
 		for _, it := range d.Items() {
-			if it.Entry != nil {
+			if e := it.Entry; e != nil {
 				info.Entries++
+				at, _ := time.Parse(bp.TimeLayout, e.Timestamp)
+				info.Notes = append(info.Notes, Note{ID: e.ID, Author: e.Author, Kind: e.Kind, At: at})
+				if at.After(info.Activity) {
+					info.Activity = at
+				}
 			}
 		}
 		for _, pr := range d.Problems() {
@@ -234,6 +253,9 @@ func (s *Store) refresh(p string) (changed, external bool) {
 				info.Errors++
 			}
 		}
+	}
+	if info.Activity.IsZero() {
+		info.Activity = info.Modified
 	}
 	external = !(wasOwn && own == h)
 	s.index[p] = info
