@@ -707,6 +707,7 @@ export const api = {
   about: () => call<About>('GET', '/api/about'),
   rules: () => call<Rule[]>('GET', '/api/rules'),
   doctor: () => call<DoctorReport>('GET', '/api/doctor'),
+  samples: () => call<{ written: string[] }>('POST', '/api/samples'),
   domainImpact: (path: string) => call<Affected[]>('GET', '/api/domain-impact?path=' + enc(path)),
   /** The blueprint reference as text (spec 6.13). */
   reference: async () => {

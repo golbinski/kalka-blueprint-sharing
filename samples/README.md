@@ -76,8 +76,13 @@ hints (`H003`, `H004`, `H005` in `retry-first-release.md`, `H004` in
 
 ## Using them
 
-Copy the folder into Personal. Never point kalka at this folder itself:
-it writes to the files it holds.
+kalka has these samples built in: `kalka samples`, *Add sample
+blueprints* in Settings (or in an empty Personal), or the checkbox on the
+Windows installer's last page copies them into `personal/samples`,
+keeping any file already there.
+
+To copy this folder by hand instead, copy it into Personal. Never point
+kalka at this folder itself: it writes to the files it holds.
 
 ```sh
 cp -R samples/blueprints "<your kalka folder>/personal/samples"

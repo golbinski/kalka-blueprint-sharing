@@ -58,6 +58,7 @@ var commands = []command{
 	{"check", ClassView, plain(cmdCheck)},
 	{"invariants", ClassView, plain(cmdInvariants)},
 	{"doctor", ClassView, plain(cmdDoctor)},
+	{"samples", ClassWorkflow, plain(cmdSamples)},
 	{"comment", ClassWorkflow, func(_ string, a []string, in io.Reader, o, e io.Writer, now func() time.Time) int {
 		return cmdComment(a, in, o, e, now)
 	}},

@@ -91,6 +91,7 @@ func usage(w io.Writer) {
   %[1]s check <files or folders>... [--json] [--verbose] [--strict] [--rules v1]
           [--with-plugins] [--domain <path>] | check --explain <rule>
   %[1]s invariants <file> [--json] [--domain <path>]   the invariants matrix
+  %[1]s samples               copy the sample blueprints into Personal, to try kalka with
   %[1]s doctor [--json]       check this installation: config, key, daemon, network, clock, folder
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed

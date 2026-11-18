@@ -882,6 +882,7 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--rules v<N>] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
 | `kalka invariants <file> [--json] [--domain <path>]` | file | The invariants matrix (12.4). | Review *Invariants* |
 | `kalka doctor [--json]` | view | Check this installation (12.5). | Settings *Check setup* |
+| `kalka samples` | file | Copy the sample blueprints, built into kalka, into `personal/samples/`, keeping files already there. Before setup it asks for them to be added once kalka is set up: the daemon adds them when it first starts. | Blueprints in Personal when empty, and Settings, *Add sample blueprints* |
 | `kalka waiting [--team <t>] [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Needs you, tray |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). | Settings, tray |
 | `kalka settings [--notifications on\|off] [--keep-running on\|off]` | daemon (a view with no option) | The settings of 22.2; with no option it shows them. | Settings |
@@ -1150,6 +1151,8 @@ Decisions taken where the design left a choice, with the reason.
 16. **`G030` and `I040` at release list each blueprint once per word or invariant.** They are information for the owner and never stop the release.
 17. **Doctor has a `skip` state.** A check that cannot run because an earlier one failed says so instead of failing twice; it does not change the exit code.
 18. **No doctor check for a start-at-login setting.** kalka keeps no such setting apart from the system's entry (22.2), so doctor reports an entry it cannot read or that runs a missing program, never one that is merely off.
+19. **Samples go to `personal/samples/` and are never overwritten.** Seeding twice adds only what is missing, so a sample someone edited stays as they left it, and Personal's own files are never touched.
+20. **The installer asks for the samples, the daemon adds them.** The installer runs before setup, when there is no folder yet; `kalka samples` then leaves a request in the configuration folder that the daemon honours at its first start after setup.
 
 Future work:
 
@@ -1472,12 +1475,14 @@ On macOS, an unsigned build cannot post to the notification centre; notices show
 
 | Platform | Package | Contents |
 |---|---|---|
-| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe` |
+| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme; its last page offers *Start kalka* and *Add sample blueprints to Personal* (`kalka samples`) | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe` |
 | macOS | `Kalka.app` in `~/Applications`, or anywhere | One executable, which is the shell without arguments and the CLI with them; `kalka` on the `PATH` is a symlink to it |
 | Linux | One archive | `kalka` (static), `kalka-desktop`, a `.desktop` file and an icon, and the list of system packages the shell needs |
 | Servers | `kalka-rendezvous_<v>_<os>_<arch>` archive | `kalka-rendezvous` (9.6) |
 
 The headless archives of 15 remain for servers, containers and machines without a desktop.
+
+The Windows installer changes the user's `PATH` only when it can read the whole value and the result fits in an installer string (1024 characters): otherwise it leaves `PATH` as it is and says to add the folder by hand. A `PATH` it could not read is never written back. The uninstaller removes its folder under the same rule.
 
 ### 23.1a The `kalka` URL scheme
 

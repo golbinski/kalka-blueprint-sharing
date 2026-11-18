@@ -20,6 +20,7 @@ import (
 	"github.com/golbinski/kalka/internal/doctor"
 	"github.com/golbinski/kalka/internal/lockfile"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/samples"
 )
 
 // Options configure a daemon: the core's options plus the local API.
@@ -114,6 +115,11 @@ func New(opts Options) (*Daemon, error) {
 		return nil, err
 	}
 	opts.Options.Paused = st.Paused
+	// The samples the installer asked for before setup (spec 23.1); a
+	// failure keeps the request for the next start.
+	if c := opts.Config; c != nil {
+		_, _ = samples.SeedIfAsked(opts.ConfigDir, c.Folder)
+	}
 	n, err := core.New(opts.Options)
 	if err != nil {
 		opts.Lock.Release()

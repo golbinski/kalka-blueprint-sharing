@@ -179,7 +179,10 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
                 Put a Markdown file into <code>{status.folder}/personal</code>, or ask an agent to write one (<code>kalka reference</code>{' '}
                 tells it how).
               </p>
-              <OpenFolder rel="personal" />
+              <div className="row center">
+                <OpenFolder rel="personal" />
+                <AddSamples onAdded={reload} />
+              </div>
             </>
           ) : (
             <>
@@ -345,3 +348,29 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
 }
 
 const bpEq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+/** AddSamples copies the sample blueprints into Personal/samples (kalka
+ * samples, spec 12.1); files already there are kept. */
+export function AddSamples({ onAdded }: { onAdded?: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const add = async () => {
+    setBusy(true)
+    try {
+      const r = await api.samples()
+      setNote(r.written.length ? `Added ${plural(r.written.length, 'sample')} to Personal/samples.` : 'The samples are already in Personal/samples.')
+      onAdded?.()
+    } catch (e) {
+      setNote((e as Error).message)
+    }
+    setBusy(false)
+  }
+  return (
+    <>
+      <button type="button" onClick={add} disabled={busy} {...act('samples.add')}>
+        {busy ? 'Adding…' : 'Add sample blueprints'}
+      </button>
+      {note && <span className="muted small">{note}</span>}
+    </>
+  )
+}

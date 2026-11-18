@@ -138,7 +138,12 @@ func TestNSISScript(t *testing.T) {
 		// The kalka:// scheme, per user, and its removal (spec 23.1a).
 		`WriteRegStr HKCU "Software\Classes\kalka" "URL Protocol" ""`,
 		`WriteRegStr HKCU "Software\Classes\kalka\shell\open\command" "" '"$INSTDIR\kalka-desktop.exe" "%1"'`,
-		`DeleteRegKey HKCU "Software\Classes\kalka"`} {
+		`DeleteRegKey HKCU "Software\Classes\kalka"`,
+		// A PATH that cannot be read whole is never written back.
+		"ClearErrors\n  ReadRegStr $0 HKCU \"Environment\" \"Path\"\n  ${If} ${Errors}",
+		"${If} $3 >= ${NSIS_MAX_STRLEN}",
+		// The samples, offered on the finish page.
+		`!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples`, `nsExec::Exec '"$INSTDIR\kalka.exe" samples'`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q", want)
 		}

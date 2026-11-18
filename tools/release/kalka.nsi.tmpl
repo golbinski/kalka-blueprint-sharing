@@ -9,9 +9,11 @@ Unicode true
 !define VERSION "[[.Version]]"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\[[.AppID]]"
 !define WV2_CLIENT "Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-; NSIS strings are limited; a PATH this long is left alone and the user
-; is told, rather than risking a truncated PATH.
-!define PATH_LIMIT 900
+; An NSIS string holds at most NSIS_MAX_STRLEN characters (1024 in the
+; standard build). Reading a longer PATH fails and gives "", so every PATH
+; step checks the error flag, and a PATH that cannot be read whole or would
+; not fit is left as it is: writing back what was read could cut it short.
+!define PATH_TOO_LONG "Your PATH is too long for the installer to change safely, so it was left as it is. Add $INSTDIR to it yourself to use kalka in a terminal."
 
 Name "${PRODUCT} ${VERSION}"
 OutFile "[[.Out]]"
@@ -24,6 +26,11 @@ ShowUninstDetails show
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\kalka-desktop.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start kalka"
+; The sample blueprints, to try kalka with (spec 23.1). The checkbox
+; slot MUI calls "show readme" runs AddSamples.
+!define MUI_FINISHPAGE_SHOWREADME ""
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Add sample blueprints to Personal, to try kalka with"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -106,12 +113,55 @@ FunctionEnd
 !insertmacro STRINDEX ""
 !insertmacro STRINDEX "un."
 
+; AddSamples runs `kalka samples`: it copies them into Personal, or, before
+; setup, has them added once kalka is set up. Files already there are kept.
+Function AddSamples
+  nsExec::Exec '"$INSTDIR\kalka.exe" samples'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_OK|MB_ICONINFORMATION "The sample blueprints could not be added. Run kalka samples in a terminal, or use Add sample blueprints in kalka's Settings."
+  ${EndIf}
+FunctionEnd
+
+; HasPathValue: $1 = 1 when HKCU\Environment has a value named Path (or
+; the values cannot be listed), 0 when it has none.
+Function HasPathValue
+  StrCpy $1 0
+  StrCpy $2 0
+  loop:
+    ClearErrors
+    EnumRegValue $3 HKCU "Environment" $2
+    IfErrors unknown
+    StrCmp $3 "" done
+    StrCmp $3 "Path" found
+    IntOp $2 $2 + 1
+    Goto loop
+  unknown:
+  found:
+    StrCpy $1 1
+  done:
+FunctionEnd
+
 ; AddToPath appends the install folder to the user's PATH once.
 Function AddToPath
+  ClearErrors
   ReadRegStr $0 HKCU "Environment" "Path"
+  ${If} ${Errors}
+    ; No PATH of its own, or one that cannot be read whole.
+    Call HasPathValue
+    ${If} $1 == 1
+      MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}"
+      Return
+    ${EndIf}
+    StrCpy $0 ""
+  ${EndIf}
+  ; The search below wraps PATH in ";", and the new PATH adds ";$INSTDIR".
   StrLen $1 $0
-  ${If} $1 > ${PATH_LIMIT}
-    MessageBox MB_OK|MB_ICONINFORMATION "Your PATH is too long for the installer to change safely. Add $INSTDIR to it yourself to use kalka in a terminal."
+  StrLen $2 $INSTDIR
+  IntOp $3 $1 + $2
+  IntOp $3 $3 + 3
+  ${If} $3 >= ${NSIS_MAX_STRLEN}
+    MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}"
     Return
   ${EndIf}
   StrCpy $R0 ";$0;"
@@ -123,7 +173,12 @@ Function AddToPath
     ${Else}
       StrCpy $0 "$0;$INSTDIR"
     ${EndIf}
+    ClearErrors
     WriteRegExpandStr HKCU "Environment" "Path" "$0"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONINFORMATION "kalka could not be added to your PATH. Add $INSTDIR to it yourself to use kalka in a terminal."
+      Return
+    ${EndIf}
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${EndIf}
 FunctionEnd
@@ -151,9 +206,16 @@ SectionEnd
 
 ; un.RemoveFromPath takes the install folder out of the user's PATH.
 Function un.RemoveFromPath
+  ClearErrors
   ReadRegStr $0 HKCU "Environment" "Path"
+  ${If} ${Errors}
+    DetailPrint "PATH not changed (missing, or too long to read); remove $INSTDIR from it yourself if it is there"
+    Return
+  ${EndIf}
+  ; The search wraps PATH in ";".
   StrLen $1 $0
-  ${If} $1 > ${PATH_LIMIT}
+  IntOp $1 $1 + 2
+  ${If} $1 >= ${NSIS_MAX_STRLEN}
     DetailPrint "PATH not changed (too long); remove $INSTDIR from it yourself"
     Return
   ${EndIf}
@@ -180,6 +242,11 @@ Function un.RemoveFromPath
     StrCpy $6 $6 -1
     Goto trimback
   write:
+    ClearErrors
     WriteRegExpandStr HKCU "Environment" "Path" "$6"
+    ${If} ${Errors}
+      DetailPrint "PATH not changed (it could not be written); remove $INSTDIR from it yourself"
+      Return
+    ${EndIf}
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 FunctionEnd

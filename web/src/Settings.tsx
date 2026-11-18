@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { act } from "./actions";
 import { api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary } from "./api";
 import { localTime } from "./util";
-import { OpenFolder } from "./Views";
+import { AddSamples, OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
 
 // SettingsPage is the Settings view (spec 11, 22.2): the daemon keeps the
@@ -69,6 +69,11 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
         <dt>Folder</dt>
         <dd>
           <span className="small">{status.folder}</span> <OpenFolder />
+        </dd>
+        <dt>Samples</dt>
+        <dd className="row center">
+          <AddSamples />
+          <span className="muted small">blueprints to try kalka with, in Personal</span>
         </dd>
         <dt>Server</dt>
         <dd className="small">

@@ -17,6 +17,7 @@ import (
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/reference"
 	"github.com/golbinski/kalka/internal/rules"
+	"github.com/golbinski/kalka/samples"
 )
 
 // DaemonFile tells the CLI where the API is and holds its token (spec 13).
@@ -154,6 +155,18 @@ func (d *Daemon) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
+	})
+	// kalka samples (spec 12.1): the sample blueprints into Personal.
+	mux.HandleFunc("POST /api/samples", func(w http.ResponseWriter, r *http.Request) {
+		written, err := samples.Seed(d.opts.Config.Folder)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		if written == nil {
+			written = []string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"written": written})
 	})
 	// kalka doctor's checks, run by the daemon (spec 12.5): it answers, so
 	// the daemon and its API are ok.
