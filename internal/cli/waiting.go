@@ -20,6 +20,7 @@ import (
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/peerjs"
 	"github.com/golbinski/kalka/internal/store"
 )
 
@@ -247,6 +248,8 @@ type settingsView struct {
 	KeepRunningOnClose bool `json:"keep_running_on_close"`
 	Paused             bool `json:"paused"`
 	StartAtLogin       bool `json:"start_at_login"`
+	// Rendezvous is the server, as set in config.yaml.
+	Rendezvous string `json:"rendezvous,omitempty"`
 }
 
 // cmdSettings is `kalka settings [--notifications on|off] [--keep-running
@@ -258,8 +261,10 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	notes := fs.String("notifications", "", "on or off")
 	keep := fs.String("keep-running", "", "keep kalka running when the window closes: on or off")
+	rdv := fs.String("rendezvous", "", "switch the rendezvous server: a wss:// or https:// address, or peerjs-cloud")
+	force := fs.Bool("force", false, "with --rendezvous: switch although the server does not answer")
 	use := func() int {
-		fmt.Fprintf(stderr, "usage: %s settings [--notifications on|off] [--keep-running on|off] [--json]\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s settings [--notifications on|off] [--keep-running on|off] [--rendezvous <url|peerjs-cloud> [--force]] [--json]\n", name.Binary)
 		return exitUsage
 	}
 	pos, err := parseInterspersed(fs, args)
@@ -280,8 +285,23 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 			return use()
 		}
 	}
+	var server string
+	if *rdv != "" {
+		server = strings.TrimSpace(*rdv)
+		if _, err := peerjs.ParseRendezvous(server); err != nil {
+			fmt.Fprintln(stderr, err)
+			return use()
+		}
+	} else if *force {
+		return use()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if server != "" {
+		if code := switchRendezvous(ctx, server, *force, *asJSON, stdout, stderr); code != exitOK {
+			return code
+		}
+	}
 	change := in.Notifications != nil || in.KeepRunningOnClose != nil
 	var set daemon.Settings
 	live := true
@@ -314,7 +334,11 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 			set = st.Settings()
 		}
 	}
-	v := settingsView{Daemon: live, Notifications: isOn(set.Notifications), KeepRunningOnClose: isOn(set.KeepRunningOnClose),
+	var rendezvous string
+	if cfg, err := config.Load(); err == nil {
+		rendezvous = cfg.Rendezvous
+	}
+	v := settingsView{Rendezvous: rendezvous, Daemon: live, Notifications: isOn(set.Notifications), KeepRunningOnClose: isOn(set.KeepRunningOnClose),
 		Paused: isOn(set.Paused), StartAtLogin: isOn(set.StartAtLogin)}
 	if *asJSON {
 		writeJSON(stdout, v)
@@ -328,10 +352,57 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "notifications  %s\nkeep running   %s\npaused         %s\nstart at login %s\n",
 		word(v.Notifications), word(v.KeepRunningOnClose), word(v.Paused), word(v.StartAtLogin))
+	if rendezvous != "" {
+		fmt.Fprintf(stdout, "server         %s\n", rendezvous)
+	}
 	if !live {
 		notRunningNote(stdout)
 	}
 	return exitOK
+}
+
+// switchRendezvous moves kalka to another rendezvous server: through the
+// running daemon, which moves at once, or, with none running, in
+// config.yaml for the next start. Without force the server must answer.
+// It returns exitOK when done.
+func switchRendezvous(ctx context.Context, server string, force, asJSON bool, stdout, stderr io.Writer) int {
+	dir, err := config.Dir()
+	if err != nil {
+		return failWith(asJSON, stdout, stderr, err)
+	}
+	cfg, err := config.Load()
+	if errors.Is(err, config.ErrMissing) {
+		return report(asJSON, stdout, stderr, core.KindNotSetUp, notSetUp)
+	} else if err != nil {
+		return failWith(asJSON, stdout, stderr, err)
+	}
+	if c := answering(ctx, dir); c != nil {
+		if _, err := c.SetRendezvous(ctx, server, force); err != nil {
+			return failRendezvous(asJSON, stdout, stderr, err)
+		}
+		return exitOK
+	}
+	if peerjs.SameServer(server, cfg.Rendezvous) {
+		return exitOK
+	}
+	server, err = daemon.CheckRendezvous(ctx, server, force)
+	if err != nil {
+		return failRendezvous(asJSON, stdout, stderr, err)
+	}
+	if err := config.SetRendezvous(dir, server); err != nil {
+		return failWith(asJSON, stdout, stderr, err)
+	}
+	return exitOK
+}
+
+// failRendezvous reports a refused switch, pointing at --force when the
+// server only did not answer.
+func failRendezvous(asJSON bool, stdout, stderr io.Writer, err error) int {
+	msg := err.Error()
+	if kindOf(err) == core.KindRendezvousSilent {
+		msg += "; use --force to switch anyway"
+	}
+	return report(asJSON, stdout, stderr, kindOf(err), msg)
 }
 
 func isOn(b *bool) bool { return b != nil && *b }

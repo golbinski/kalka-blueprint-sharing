@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { act } from "./actions";
-import { api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary } from "./api";
+import { ApiError, api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary } from "./api";
 import { localTime } from "./util";
 import { AddSamples, OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
@@ -81,11 +81,12 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
             ? "The public demo server"
             : status.rendezvous}{" "}
           <span className="muted">(rendezvous)</span>
+          <ChangeServer current={status.rendezvous} />
         </dd>
       </dl>
       <p className="muted small">
-        To change these, run <code>kalka setup</code> in a terminal. A new
-        email or server means teammates have to invite you again.
+        The email and the folder are changed with <code>kalka setup</code> in a
+        terminal. A new email means teammates have to invite you again.
       </p>
       <CheckSetup />
       <h2>Sync and notifications</h2>
@@ -197,6 +198,92 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
           </p>
         </details>
       )}
+    </div>
+  );
+}
+
+// ChangeServer switches the rendezvous server while kalka runs (spec 11.1).
+// A server that does not answer is refused until the person insists.
+function ChangeServer({ current }: { current: string }) {
+  const [open, setOpen] = useState(false);
+  const [cloud, setCloud] = useState(current === "peerjs-cloud");
+  const [url, setUrl] = useState(current === "peerjs-cloud" ? "" : current);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [silent, setSilent] = useState(false);
+  const value = cloud ? "peerjs-cloud" : url.trim();
+  const apply = async (force: boolean) => {
+    setBusy(true);
+    setErr("");
+    setSilent(false);
+    try {
+      await api.setRendezvous(value, force);
+      setOpen(false);
+    } catch (e) {
+      setErr((e as Error).message);
+      setSilent(e instanceof ApiError && e.kind === "rendezvous-silent");
+    }
+    setBusy(false);
+  };
+  if (!open) {
+    return (
+      <>
+        {" "}
+        <button type="button" {...act("settings.server")} onClick={() => setOpen(true)}>
+          Change…
+        </button>
+      </>
+    );
+  }
+  return (
+    <div className="check-setup">
+      <label className="setting">
+        <input type="radio" name="server" checked={cloud} onChange={() => setCloud(true)} />
+        <span>
+          <b>The public demo server (peerjs-cloud)</b>
+        </span>
+      </label>
+      <label className="setting">
+        <input type="radio" name="server" checked={!cloud} onChange={() => setCloud(false)} />
+        <span>
+          <b>A kalka server</b>
+          <input
+            type="text"
+            value={url}
+            placeholder="wss://kalka.example.org"
+            disabled={cloud}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </span>
+      </label>
+      <ul className="small">
+        <li>
+          Teammates reach you only when they use the same server, so the team
+          moves together: each member changes it here.
+        </li>
+        <li>
+          Invites you created that are still open name the old server and stop
+          working; create new ones.
+        </li>
+        <li>
+          A join still waiting for someone on the old server will not complete
+          until they move too.
+        </li>
+      </ul>
+      {err && <div className="error-box">{err}</div>}
+      <div className="row center">
+        <button type="button" disabled={busy || !value} onClick={() => apply(false)}>
+          {busy ? "Switching…" : "Switch server"}
+        </button>
+        {silent && (
+          <button type="button" disabled={busy} onClick={() => apply(true)}>
+            Switch anyway
+          </button>
+        )}
+        <button type="button" disabled={busy} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

@@ -716,6 +716,7 @@ export const api = {
     return r.text()
   },
   status: () => call<Status>('GET', '/api/status'),
+  setRendezvous: (rendezvous: string, force = false) => call<Status>('POST', '/api/rendezvous', { rendezvous, force }),
   setup: (c: { email: string; rendezvous: string; folder: string }) => call<{ saved: boolean }>('POST', '/api/setup', c),
   blueprints: (team = '') => call<BlueprintInfo[] | null>('GET', '/api/blueprints' + scope(team)).then((l) => l ?? []),
   doc: (path: string, version?: number) =>

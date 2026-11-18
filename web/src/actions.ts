@@ -29,6 +29,7 @@ export const ACTIONS = {
   'seed.promote': 'Turn into a blueprint (kalka promote)',
   'sync.pause': 'Pause and resume sync (kalka pause, resume)',
   'settings.save': 'Notifications, keep running when closed (kalka settings)',
+  'settings.server': 'Change server… (kalka settings --rendezvous)',
   'settings.autostart': 'Start at login (kalka autostart)',
   'samples.add': 'Add sample blueprints (kalka samples)',
   'reference.export': 'Blueprint writing guide for agents: save a copy (kalka reference export)',

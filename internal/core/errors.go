@@ -43,6 +43,10 @@ const (
 	KindInviteExpired      = "invite-expired"
 	KindInviteEmail        = "invite-email"
 	KindRendezvousMismatch = "rendezvous-mismatch"
+
+	// KindRendezvousSilent: a server to switch to did not answer; forcing
+	// switches anyway.
+	KindRendezvousSilent = "rendezvous-silent"
 )
 
 // Error is a failure with a stable kind.

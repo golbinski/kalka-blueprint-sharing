@@ -145,9 +145,10 @@ func (d *Node) joinProblem(iv teamlog.Invite) *Error {
 	if !d.now().Before(iv.Expires) {
 		return &Error{Kind: KindInviteExpired, Msg: fmt.Sprintf("the invite expired on %s: ask %s for a new one", iv.Expires.Local().Format("2 Jan 15:04"), iv.Inviter)}
 	}
-	if !peerjs.SameServer(iv.Rendezvous, d.cfg.Rendezvous) {
-		return &Error{Kind: KindRendezvousMismatch, Msg: fmt.Sprintf("this invite is for a team on another kalka server (%s). This kalka is set up for %s, so it cannot reach %s: set kalka up again with their server (`kalka setup`), or ask %s for an invite on yours",
-			serverName(iv.Rendezvous), serverName(d.cfg.Rendezvous), iv.Inviter, iv.Inviter)}
+	rdv, _, _ := d.rendezvous()
+	if !peerjs.SameServer(iv.Rendezvous, rdv) {
+		return &Error{Kind: KindRendezvousMismatch, Msg: fmt.Sprintf("this invite is for a team on another kalka server (%s). This kalka is set up for %s, so it cannot reach %s: change the server in Settings (`kalka settings --rendezvous`) to theirs, or ask %s for an invite on yours",
+			serverName(iv.Rendezvous), serverName(rdv), iv.Inviter, iv.Inviter)}
 	}
 	return nil
 }

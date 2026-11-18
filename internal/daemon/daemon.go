@@ -238,7 +238,8 @@ func (d *Daemon) doctorProbes() doctor.Probes {
 	// The daemon runs with its configuration loaded.
 	if c := d.opts.Config; c != nil {
 		p.Config = func() (doctor.Config, error) {
-			return doctor.Config{Email: c.Email, Rendezvous: c.Rendezvous, Folder: c.Folder}, nil
+			st := d.State()
+			return doctor.Config{Email: c.Email, Rendezvous: st.Rendezvous, Folder: c.Folder}, nil
 		}
 	}
 	if d.opts.Autostart == nil {

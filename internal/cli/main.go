@@ -103,6 +103,7 @@ func usage(w io.Writer) {
   %[1]s team remove <email> [--dry-run] | add-owner|remove-owner <email>   (any team command: --team <name>)
   %[1]s waiting [--team <t>] [--json] | --seen <file>   what only you can move forward
   %[1]s settings [--notifications on|off] [--keep-running on|off] [--json]
+  %[1]s settings --rendezvous <url|peerjs-cloud> [--force]   switch the server (teammates must switch too)
   %[1]s join <link or token> [--wait 20s]   redeem an invite
   %[1]s join --show <link or token>         what the invite is, without joining
   %[1]s publish <file> [--team <name>] [-m <note>]   move a Personal document into a team
@@ -119,7 +120,7 @@ func usage(w io.Writer) {
 
 Commands that act through kalka (team changes, join, publish, release, handoff,
 reassign, delete, copy, move, transfer, promote, waiting --seen, settings with an
-option, pause, resume) start it in the background when it is not running;
+option (--rendezvous alone writes config.yaml when kalka is not running), pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 teams, team members|log|invites, waiting, seeds, transfers, domains, settings) never
 start it: with none running they read the local files and their JSON says

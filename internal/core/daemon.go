@@ -84,7 +84,9 @@ type Node struct {
 	opts     Options
 	self     transport.Identity
 	pub      ed25519.PublicKey
-	keyID    string // the one peer id (spec 9.2)
+	keyID    string       // the one peer id (spec 9.2)
+	rdvMu    sync.RWMutex // guards rdv, srv and cloud: the server can change while running
+	rdv      string
 	srv      peerjs.Server
 	cloud    bool
 
@@ -176,7 +178,7 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 		self:  transport.Identity{Email: cfg.Email, Key: key},
 		pub:   key.Public().(ed25519.PublicKey),
 		keyID: transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
-		srv:   srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
+		rdv:   cfg.Rendezvous, srv: srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
 		Store: st, bus: newBus(), refs: newRefCache(opts.Plugins, now),
 		teams:    newTeams(opts.ConfigDir),
 		repl:     newReplication(),
@@ -342,6 +344,38 @@ func (d *Node) SetPaused(p bool) {
 	d.bus.Publish(BusEvent{Type: "status"})
 }
 
+// rendezvous is the server in use, as written in the settings, with its
+// parsed form and whether it is the public cloud.
+func (d *Node) rendezvous() (string, peerjs.Server, bool) {
+	d.rdvMu.RLock()
+	defer d.rdvMu.RUnlock()
+	return d.rdv, d.srv, d.cloud
+}
+
+// SetRendezvous moves the node to another rendezvous server while running
+// (spec 9.1): the registration and the loops that use the network restart
+// on the new server. The value is validated first; the caller saves the
+// settings.
+func (d *Node) SetRendezvous(server string) error {
+	srv, err := peerjs.ParseRendezvous(server)
+	if err != nil {
+		return err
+	}
+	d.rdvMu.Lock()
+	d.rdv, d.srv, d.cloud = server, srv, server == config.PeerJSCloud
+	d.rdvMu.Unlock()
+	d.mu.Lock()
+	d.ice, d.iceAt = nil, time.Time{}
+	d.mu.Unlock()
+	d.pauseMu.Lock()
+	close(d.pauseCh) // the loops restart; paused stays as it is
+	d.pauseCh = make(chan struct{})
+	d.pauseMu.Unlock()
+	d.logf("rendezvous changed to %s", srv.URL)
+	d.bus.Publish(BusEvent{Type: "status"})
+	return nil
+}
+
 // isStopping reports whether Run's ctx has ended.
 func (d *Node) isStopping() bool { return d.stopping != nil && d.stopping.Err() != nil }
 
@@ -394,7 +428,8 @@ func (d *Node) iceServers() []webrtc.ICEServer {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	ice, _, _ = transport.ResolveICE(ctx, configured, d.srv, d.cloud)
+	_, srv, cloud := d.rendezvous()
+	ice, _, _ = transport.ResolveICE(ctx, configured, srv, cloud)
 	d.mu.Lock()
 	d.ice, d.iceAt = ice, time.Now()
 	d.mu.Unlock()
@@ -408,7 +443,8 @@ func (d *Node) signalLoop(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		id, proof := peerid.Proof(d.self.Key, time.Now())
-		sig, err := peerjs.DialQuery(ctx, d.srv, id, url.Values{peerid.ProofParam: {proof}})
+		_, srv, _ := d.rendezvous()
+		sig, err := peerjs.DialQuery(ctx, srv, id, url.Values{peerid.ProofParam: {proof}})
 		if err != nil {
 			d.setOnline(nil, err)
 			wait := backoff
@@ -426,7 +462,7 @@ func (d *Node) signalLoop(ctx context.Context) {
 		d.iceServers()
 		ep := transport.NewEndpoint(sig, transport.Options{ICE: d.iceServers, Loopback: d.opts.Loopback, RelayOnly: d.cfg.RelayOnly})
 		d.setOnline(ep, nil)
-		d.logf("connected to %s as %s (key id %s)", d.srv.URL, d.cfg.Email, sig.ID())
+		d.logf("connected to %s as %s (key id %s)", srv.URL, d.cfg.Email, sig.ID())
 		d.markReady()
 		for {
 			c, err := ep.Accept(ctx)
@@ -640,10 +676,11 @@ func (d *Node) State() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	paused := d.Paused()
+	rdv, _, cloud := d.rendezvous()
 	// Paused is offline at once, not when the connection loop notices.
 	s := Status{Email: d.self.Email, PeerID: d.keyID, Fingerprint: peerid.Display(peerid.Fingerprint(d.pub)),
-		Rendezvous: d.cfg.Rendezvous, Folder: d.Store.Dir(), Online: d.online && !paused, Error: d.sigErr, Paused: paused}
-	if d.cloud {
+		Rendezvous: rdv, Folder: d.Store.Dir(), Online: d.online && !paused, Error: d.sigErr, Paused: paused}
+	if cloud {
 		s.Notice = CloudNotice
 	}
 	return s

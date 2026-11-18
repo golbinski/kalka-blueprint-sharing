@@ -40,6 +40,7 @@
     { "command": "pause", "class": "workflow", "action": "sync.pause" },
     { "command": "resume", "class": "workflow", "action": "sync.pause" },
     { "command": "settings", "class": "workflow", "action": "settings.save" },
+    { "command": "settings --rendezvous", "class": "workflow", "action": "settings.server" },
     { "command": "autostart", "class": "workflow", "action": "settings.autostart" },
     { "command": "reference export", "class": "workflow", "action": "reference.export" },
     { "command": "reference version", "class": "view", "place": "Settings, version details" },

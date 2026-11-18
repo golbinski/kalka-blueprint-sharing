@@ -374,9 +374,10 @@ func (d *Node) Invite(ref, email string, ttl time.Duration) (InviteResult, error
 	if _, err := rand.Read(secret); err != nil {
 		return InviteResult{}, err
 	}
+	rdv, _, _ := d.rendezvous()
 	now := d.now()
 	iv := teamlog.Invite{TeamName: t.Name, Team: t.Team, Owner: teamlog.EncodeKey(d.pub), Inviter: d.self.Email, Email: email,
-		Secret: secret, Expires: now.Add(ttl).UTC().Truncate(time.Second), Rendezvous: d.cfg.Rendezvous}
+		Secret: secret, Expires: now.Add(ttl).UTC().Truncate(time.Second), Rendezvous: rdv}
 	rec := inviteRecord{ID: iv.ID(), Team: t.Team, Name: t.Name, Email: email, Token: iv.Token(), Created: now.UTC(), Expires: iv.Expires}
 	if err := d.teams.invites.update(func(l []inviteRecord) ([]inviteRecord, bool) { return append(l, rec), true }); err != nil {
 		return InviteResult{}, err

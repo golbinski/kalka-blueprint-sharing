@@ -118,6 +118,13 @@ func (c *Client) ApplySettings(ctx context.Context, in Settings) (Settings, erro
 	return s, c.do(ctx, http.MethodPut, "/api/settings", in, &s)
 }
 
+// SetRendezvous switches the rendezvous server of the running daemon;
+// without force a server that does not answer is refused.
+func (c *Client) SetRendezvous(ctx context.Context, server string, force bool) (core.Status, error) {
+	var s core.Status
+	return s, c.do(ctx, http.MethodPost, "/api/rendezvous", RendezvousRequest{Rendezvous: server, Force: force}, &s)
+}
+
 // SetPaused pauses or resumes sync.
 func (c *Client) SetPaused(ctx context.Context, paused bool) (Settings, error) {
 	var s Settings

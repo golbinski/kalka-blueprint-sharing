@@ -190,6 +190,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("GET /api/summary", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, d.Summary()) })
 	mux.HandleFunc("GET /api/settings", d.apiSettings)
 	mux.HandleFunc("PUT /api/settings", d.apiSettings)
+	mux.HandleFunc("POST /api/rendezvous", d.apiRendezvous)
 	mux.HandleFunc("POST /api/pause", d.apiPause(true))
 	mux.HandleFunc("POST /api/resume", d.apiPause(false))
 	return gate{token: d.token, port: d.port, noUI: d.opts.NoUI}.wrap(mux)

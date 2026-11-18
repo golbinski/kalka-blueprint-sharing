@@ -98,6 +98,11 @@ func Save(c *Config) error {
 	if err != nil {
 		return err
 	}
+	return SaveIn(dir, c)
+}
+
+// SaveIn writes the config file in dir, creating it.
+func SaveIn(dir string, c *Config) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -106,4 +111,53 @@ func Save(c *Config) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, FileName), data, 0o600)
+}
+
+// SetRendezvous changes the rendezvous in the config file in dir and
+// nothing else: comments, the order of keys and settings left out stay as
+// they are. It returns ErrMissing if there is no file.
+func SetRendezvous(dir, server string) error {
+	path := filepath.Join(dir, FileName)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrMissing
+	}
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("%s: not a mapping of settings", path)
+	}
+	m := doc.Content[0]
+	set := false
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == "rendezvous" {
+			v := m.Content[i+1]
+			v.Kind, v.Tag, v.Style, v.Value = yaml.ScalarNode, "!!str", 0, server
+			set = true
+		}
+	}
+	if !set {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "rendezvous"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+	}
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return err
+	}
+	// Written beside and renamed, so a failure never leaves half a file.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
