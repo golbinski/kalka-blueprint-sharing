@@ -2,6 +2,9 @@
    stacks instead of Inter / JetBrains Mono: no remote fonts under the CSP,
    and nothing to ship. */
 :root {
+  /* Height of the sticky bars: the top bar, and in a document also the
+     document bar (spec 11.1). Sticky panels sit below it. */
+  --bars-h: 57px;
   --ground: #f7f7f5;
   --panel: #efeee9;
   --card: #ffffff;
@@ -203,11 +206,18 @@ button:focus-visible {
   flex: 1 1 220px;
 }
 
-/* Header, as in the mockups: 56px, white, mono wordmark. */
-header.top {
+/* The top bar and, in a document, the document bar stick together. */
+.bars {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+.bars.in-doc,
+.doc-layout {
+  --bars-h: 102px;
+}
+/* Header, as in the mockups: 56px, white, mono wordmark. */
+header.top {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -993,7 +1003,7 @@ button.tnode.div:hover:not(:disabled) {
 .trace-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--trace-panel-w, 400px);
-  min-height: calc(100vh - 56px);
+  min-height: calc(100vh - var(--bars-h));
 }
 .trace-main {
   display: flex;
@@ -1093,9 +1103,9 @@ button.tnode.div:hover:not(:disabled) {
   background: var(--card);
   border-left: 1px solid var(--line);
   overflow-y: auto;
-  max-height: calc(100vh - 56px);
+  max-height: calc(100vh - var(--bars-h));
   position: sticky;
-  top: 56px;
+  top: var(--bars-h);
 }
 /* The splitter sits on the panel's left edge; the panel itself sticks. */
 .trace-side {
@@ -2273,9 +2283,9 @@ dl.facts .row {
 }
 .doc-outline {
   position: sticky;
-  top: 0;
+  top: var(--bars-h);
   align-self: start;
-  max-height: calc(100vh - 60px);
+  max-height: calc(100vh - var(--bars-h));
   overflow-y: auto;
   padding: 24px 0 24px 20px;
   font-size: 13px;
@@ -2587,4 +2597,165 @@ details.terms {
 .refpop .snippet {
   max-height: 240px;
   overflow: auto;
+}
+
+/* ---- Document bar and rail (spec 11.1) ---- */
+.docbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 24px 0 32px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.crumbs li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumbs li:first-child {
+  flex-shrink: 0;
+}
+.crumbs li + li::before {
+  content: '›';
+  margin: 0 8px;
+  color: var(--muted);
+}
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.crumbs li[aria-current='page'] {
+  font-weight: 600;
+  color: var(--text);
+}
+.docbar .tabs {
+  flex-shrink: 0;
+}
+.docbar .tabs a,
+.docbar .tabs span {
+  min-height: 43px;
+}
+.doc-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.doc-main {
+  min-width: 0;
+}
+.doc-rail {
+  position: sticky;
+  top: var(--bars-h);
+  width: 240px;
+  height: calc(100vh - var(--bars-h));
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  font-size: 13px;
+}
+.doc-rail.collapsed {
+  width: 36px;
+}
+.doc-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 4px 0 16px;
+  flex-shrink: 0;
+}
+.doc-rail.collapsed .doc-rail-head {
+  padding: 0;
+  justify-content: center;
+}
+.doc-rail-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+}
+.doc-rail-toggle {
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0;
+  font-size: 16px;
+}
+.doc-rail-list {
+  overflow-y: auto;
+  padding: 0 0 16px;
+}
+.doc-rail-list a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  color: var(--text-2);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+.doc-rail-list a:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+.doc-rail-list a.open {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.doc-rail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-rail-needs {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.doc-rail-empty {
+  padding: 6px 16px;
+}
+@media (max-width: 1000px) {
+  .docbar {
+    padding: 0 16px;
+  }
+  .doc-rail {
+    width: 200px;
+  }
+  .doc-rail.collapsed {
+    width: 36px;
+  }
+}
+/* The rail and the section outline share a mid-size window: while the
+   rail is open the outline gives way, and returns when it is collapsed. */
+@media (max-width: 1340px) {
+  .doc-layout:has(.doc-rail:not(.collapsed)) .review-wrap {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .doc-layout:has(.doc-rail:not(.collapsed)) .doc-outline {
+    display: none;
+  }
 }

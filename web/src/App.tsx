@@ -16,7 +16,10 @@ import { NeedsPage } from './Needs'
 import { SyncChip } from './Sync'
 import { inDesktopWindow } from './shell'
 import { findTeam, PERSONAL, rememberedScope, rememberScope, resolveScope } from './scope'
-import { docHref, scopeHref, traceHref, useRoute, type ScopedView } from './util'
+import { DocBar, DocRail, SectionsNav } from './DocNav'
+import type { DocView } from './rail'
+import { activeSection } from './section'
+import { useRoute } from './util'
 
 type Toast = { id: number; text: string; href: string }
 
@@ -222,63 +225,26 @@ export function App() {
 
   const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas'
   const personal = scope === PERSONAL
-  const navLink = (view: ScopedView, label: string, extra?: React.ReactNode) => (
-    <a href={scopeHref(scope, view)} className={route.view === view ? 'active' : ''}>
-      {label}
-      {extra}
-    </a>
-  )
+  // In a document, the section it belongs to stays highlighted (sectionOf).
+  const active = activeSection(route.view, doc)
+  const where = personal ? 'Personal' : team?.name ?? scope
   const needs = (summary?.waiting.total ?? 0) + unreadCount
 
   return (
     <>
-      <header className="top">
-        <Switcher teams={teams ?? []} joins={joins} scope={scope} onCreated={loadTeams} />
-        <span className="sep" />
-        {inDoc && doc ? (
-          <>
-            <a className="back" href={scopeHref(scope, doc.seed ? 'seeds' : undefined)}>
-              ‹ {doc.seed ? 'Seeds' : 'Blueprints'}
-            </a>
-            <span className="doc-title">{doc.title}</span>
-          </>
-        ) : (
-          <nav className="nav">
-            <a href="#/needs" className={route.view === 'needs' ? 'active' : ''}>
-              Needs you{needs > 0 && <span className="count">{needs}</span>}
-            </a>
-            {navLink('list', 'Blueprints')}
-            {navLink('seeds', 'Seeds')}
-            {!personal && navLink('domains', 'Domains')}
-            {!personal && navLink('team', 'Team')}
-          </nav>
-        )}
-        <span className="grow" />
-        {inDoc && doc && (
-          <>
-            <nav className="tabs" aria-label="Views">
-              <a className={route.view === 'doc' || route.view === 'canvas' ? 'active' : ''} href={docHref(doc.rel)}>
-                Document
-              </a>
-              {doc.traces.length > 0 ? (
-                <a className={route.view === 'trace' ? 'active' : ''} href={traceHref(doc.rel, route.view === 'trace' ? route.index : 0)}>
-                  Trace
-                </a>
-              ) : (
-                <span className="disabled" title="This blueprint has no trace blocks">
-                  Trace
-                </span>
-              )}
-            </nav>
-          </>
-        )}
-        <SyncChip summary={summary} teams={teams ?? []} onChange={loadTeams} />
-        {!inDoc && (
-          <a href="#/settings" className={'settings-link' + (route.view === 'settings' ? ' active' : '')}>
+      <div className={'bars' + (inDoc ? ' in-doc' : '')}>
+        <header className="top">
+          <Switcher teams={teams ?? []} joins={joins} scope={scope} onCreated={loadTeams} />
+          <span className="sep" />
+          <SectionsNav scope={scope} personal={personal} active={active} needs={needs} />
+          <span className="grow" />
+          <SyncChip summary={summary} teams={teams ?? []} onChange={loadTeams} />
+          <a href="#/settings" className={'settings-link' + (active === 'settings' ? ' active' : '')} aria-current={active === 'settings' ? 'page' : undefined}>
             Settings
           </a>
-        )}
-      </header>
+        </header>
+        {inDoc && doc && <DocBar doc={doc} scope={scope} view={route.view as DocView} traceIndex={route.view === 'trace' ? route.index : 0} />}
+      </div>
 
       <div className="banners" role="status" aria-live="polite">
         {status.notice && <div className="banner notice">{status.notice}</div>}
@@ -355,16 +321,22 @@ export function App() {
         )}
       </div>
 
-      <main>
-        {route.view === 'list' && scope && <Blueprints list={list} status={status} scope={scope} team={team} reload={loadList} />}
-        {inDoc && docErr && (
-          <div className="page">
-            <div className="error-box">{docErr}</div>
+      <main className={inDoc ? 'doc-layout' : undefined}>
+        {inDoc && doc && <DocRail doc={doc} scope={scope} where={where} list={list} view={route.view as DocView} reloadKey={teamTick} />}
+        {inDoc && (
+          <div className="doc-main">
+            {docErr && (
+              <div className="page">
+                <div className="error-box">{docErr}</div>
+              </div>
+            )}
+            {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} onPublish={() => setPublishing(true)} />}
+            {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
+            {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
           </div>
         )}
-        {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} onPublish={() => setPublishing(true)} />}
-        {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
-        {route.view === 'seeds' && scope && <PreBacklog scope={scope} />}
+        {route.view === 'list' && scope && <Blueprints list={list} status={status} scope={scope} team={team} reload={loadList} />}
+        {route.view === 'seeds' && scope && <PreBacklog scope={scope} list={list} reload={loadList} />}
         {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} list={list ?? []} />}
         {route.view === 'needs' && <NeedsPage reloadKey={teamTick} notices={notices} />}
         {(route.view === 'team' || route.view === 'domains') && personal && (
@@ -377,7 +349,6 @@ export function App() {
           <JoinScreen token={route.token} status={status} reloadKey={teamTick} onResume={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))} />
         )}
         {route.view === 'domains' && !personal && scope && <DomainsPage team={scope} reloadKey={teamTick} list={list} />}
-        {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
       </main>
 
       {publishing && doc && (

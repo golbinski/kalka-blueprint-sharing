@@ -3,6 +3,7 @@ import { act } from './actions'
 import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status, type Team } from './api'
 import { PublishDialog } from './Dialogs'
 import { PERSONAL, shortName } from './scope'
+import { blueprintRows, sectionOfRow } from './section'
 import { AUTOJOIN_KEY } from './Join'
 import { inDesktopWindow } from './shell'
 import { ago, docHref, plural, scopeHref, setupFromInvite, useRoute } from './util'
@@ -164,6 +165,33 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
   const personal = scope === PERSONAL
   const notShared = new Map((team?.not_shared ?? []).map((n) => [n.rel, n.reason]))
   const where = personal ? 'Personal' : team?.name ?? scope
+  // Seeds and domain documents have their own lists (sectionOf).
+  const sorted = blueprintRows(list, scope)
+  if (sorted.length === 0 && list.length > 0) {
+    // Only seeds or domain documents here: say where they are.
+    const seeds = list.filter((b) => sectionOfRow(b, scope) === 'seeds').length
+    const domains = list.length - seeds
+    return (
+      <div className="page">
+        <h1>Blueprints · {where}</h1>
+        <div className="empty">
+          <p>
+            <b>No blueprints in {where} yet.</b>{' '}
+            {seeds > 0 && (
+              <>
+                {plural(seeds, 'seed')} {seeds === 1 ? 'is' : 'are'} under <a href={scopeHref(scope, 'seeds')}>Seeds</a>.{' '}
+              </>
+            )}
+            {domains > 0 && (
+              <>
+                {plural(domains, 'domain document')} {domains === 1 ? 'is' : 'are'} under <a href={scopeHref(scope, 'domains')}>Domains</a>.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+    )
+  }
   if (list.length === 0) {
     return (
       <div className="page">
@@ -201,7 +229,6 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
       </div>
     )
   }
-  const sorted = [...list].sort((a, b) => (b.activity ?? b.modified).localeCompare(a.activity ?? a.modified))
   const mine = (b: BlueprintInfo) => !!b.owner && b.owner.toLowerCase() === status.email.toLowerCase()
   return (
     <div className="page">
@@ -273,10 +300,14 @@ export function OpenFolder({ rel = '', label = 'Open folder' }: { rel?: string; 
 
 // PreBacklog is Seeds (spec 6.11): every seed in the scope, with its
 // owner, where it was split off from and its last activity.
-export function PreBacklog({ scope }: { scope: string }) {
+export function PreBacklog({ scope, list, reload }: { scope: string; list: BlueprintInfo[]; reload: () => void }) {
   const [rows, setRows] = useState<SeedRow[] | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
+  const [publishing, setPublishing] = useState<SeedRow | null>(null)
+  // Seeds are listed here only (sectionOf), so a Personal one is published from here.
+  const personal = scope === PERSONAL
+  const broken = new Set(list.filter((b) => b.errors > 0 || !!b.parse_error || !!b.duplicate).map((b) => b.rel))
   const load = useCallback(() => api.seeds(scope).then(setRows, (e: Error) => setErr(e.message)), [scope])
   useEffect(() => {
     load()
@@ -336,12 +367,30 @@ export function PreBacklog({ scope }: { scope: string }) {
                         Turn into a blueprint
                       </button>
                     )}
+                    {personal && !broken.has(r.rel) && (
+                      <>
+                        {r.mine && ' · '}
+                        <button type="button" className="link" {...act('doc.publish')} onClick={() => setPublishing(r)}>
+                          Publish to team…
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {publishing && (
+        <PublishDialog
+          doc={{ rel: publishing.rel, title: publishing.title || publishing.rel }}
+          onClose={() => setPublishing(null)}
+          onDone={() => {
+            load()
+            reload()
+          }}
+        />
       )}
     </div>
   )

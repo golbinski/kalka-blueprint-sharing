@@ -84,6 +84,10 @@ type Info struct {
 	Team          string `json:"team,omitempty"`
 	Domain        string `json:"domain,omitempty"`
 	DomainVersion int64  `json:"domain_version,omitempty"`
+	// Seed: kalka_status is seed (spec 6.11); the page lists it under Seeds.
+	Seed bool `json:"seed,omitempty"`
+	// Traces is the number of trace blocks, valid or not (spec 6.10).
+	Traces int `json:"traces,omitempty"`
 	// From is the source kalka_id of a copy or a move (spec 20.7), so a
 	// link to the source still resolves.
 	From string `json:"from,omitempty"`
@@ -242,6 +246,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 	} else {
 		info.KalkaID, info.Title, info.Owner, info.Rev = d.KalkaID(), d.Title(), d.Owner(), d.Rev()
 		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
+		info.Seed, info.Traces = d.IsSeed(), len(d.Traces())
 		_, _, info.From = d.TransferredFrom()
 		for _, it := range d.Items() {
 			if e := it.Entry; e != nil {

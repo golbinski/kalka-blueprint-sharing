@@ -134,6 +134,12 @@ export interface BlueprintInfo {
   /** The team's released version, and whether this copy has edits not released. */
   version?: number
   unreleased?: boolean
+  /** A domain document's valid domain name (spec 6.12). */
+  domain?: string
+  /** kalka_status is seed (spec 6.11). */
+  seed?: boolean
+  /** How many trace blocks it has. */
+  traces?: number
 }
 
 export interface Heading {
