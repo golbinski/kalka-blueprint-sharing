@@ -41,6 +41,10 @@ describe('docState', () => {
     expect(docState(doc(undefined, { problems: [{ rule: 'F002', severity: 'error', message: 'x', blocks: true }] })).primary).toBe('')
     expect(docState(doc(undefined, { problems: [{ rule: 'T040', severity: 'error', message: 'x' }] })).primary).toBe('publish')
   })
+  it('offers Publish for a note never sent, which has no kalka_id yet', () => {
+    // The daemon gives such a note the local role; Personal is yours alone.
+    expect(docState(doc(undefined, { role: 'local', scope: 'personal' }))).toMatchObject({ head: 'Yours · only on this computer', primary: 'publish' })
+  })
   it('puts problems in place of the state', () => {
     expect(docState(doc({ disputed: true, team_owner: true }))).toMatchObject({ tone: 'warn', primary: 'choose' })
     expect(docState(doc({ disputed: true })).primary).toBe('')

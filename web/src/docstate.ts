@@ -24,7 +24,8 @@ export function docState(doc: Doc): DocState {
     return { tone: 'warn', head: `Being moved to ${doc.transfer.moving_to}`, sub: 'Comments added now will not travel with it.', primary: '' }
   }
   if (!t) {
-    if (doc.role === 'owner') {
+    // A note never sent has no kalka_id and the local role: it is yours too.
+    if (doc.role === 'owner' || doc.role === 'local') {
       return {
         tone: '',
         head: doc.scope === 'personal' ? 'Yours · only on this computer' : 'Yours · not shared yet',
