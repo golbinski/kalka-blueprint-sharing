@@ -313,6 +313,63 @@ func TestChannelBindingDetectsMITM(t *testing.T) {
 // TestTURNOverTCPRelayOnly forces both peers onto TURN over TCP, as on a
 // network that blocks UDP, with credentials fetched from /kalka/ice.
 func TestTURNOverTCPRelayOnly(t *testing.T) {
+	h, opts := relayOverTCP(t, &rendezvous.Server{})
+	alice, bob := h.node(t, "alice@corp.com", opts), h.node(t, "bob@corp.com", opts)
+	ca, cb, errA, errB := connect(t, alice, bob)
+	if errA != nil || errB != nil {
+		t.Fatalf("handshake over TURN: %v / %v", errA, errB)
+	}
+	defer ca.Close()
+	defer cb.Close()
+	pair, err := ca.pc.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
+	if err != nil || pair == nil || pair.Local.Typ != webrtc.ICECandidateTypeRelay {
+		t.Fatalf("selected pair is not relayed: %v %v", pair, err)
+	}
+}
+
+// TestCandidatesFollowOffer checks that a dialer's candidates reach the
+// signaling server after its offer: the answerer drops candidates for a
+// connection it has not heard of, and relay-only has a single candidate.
+func TestCandidatesFollowOffer(t *testing.T) {
+	var mu sync.Mutex
+	offered := map[string]bool{}
+	var early []string
+	srv := &rendezvous.Server{Intercept: func(m peerjs.Message) *peerjs.Message {
+		var p sigPayload
+		_ = json.Unmarshal(m.Payload, &p)
+		mu.Lock()
+		defer mu.Unlock()
+		switch m.Type {
+		case peerjs.Offer:
+			offered[p.ConnectionID] = true
+		case peerjs.Candidate:
+			if !offered[p.ConnectionID] && p.SDP == nil {
+				early = append(early, p.ConnectionID)
+			}
+		}
+		return &m
+	}}
+	h, opts := relayOverTCP(t, srv)
+	alice, bob := h.node(t, "alice@corp.com", opts), h.node(t, "bob@corp.com", opts)
+	for range 5 {
+		ca, cb, errA, errB := connect(t, alice, bob)
+		if errA != nil || errB != nil {
+			t.Fatalf("handshake over TURN: %v / %v", errA, errB)
+		}
+		ca.Close()
+		cb.Close()
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(early) > 0 {
+		t.Fatalf("%d candidates sent before their offer", len(early))
+	}
+}
+
+// relayOverTCP is a harness whose rendezvous hands out a TURN-over-TCP
+// server, and the options that force relayed connections through it.
+func relayOverTCP(t *testing.T, srv *rendezvous.Server) (*harness, Options) {
+	t.Helper()
 	tcp, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -324,7 +381,6 @@ func TestTURNOverTCPRelayOnly(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 	turnURL := "turn:" + tcp.Addr().String() + "?transport=tcp"
 
-	srv := &rendezvous.Server{}
 	mux := http.NewServeMux()
 	srv.Mount(mux, "/")
 	mux.Handle("/kalka/ice", rendezvous.ICEHandler("s3cret", []string{turnURL}, nil, time.Hour))
@@ -337,18 +393,7 @@ func TestTURNOverTCPRelayOnly(t *testing.T) {
 	if err != nil || src != ICEFromRendezvous || len(ice) != 1 || ice[0].Username == "" {
 		t.Fatalf("ICE from rendezvous: %v %v %+v", src, err, ice)
 	}
-	opts := Options{ICEServers: ice, RelayOnly: true}
-	alice, bob := h.node(t, "alice@corp.com", opts), h.node(t, "bob@corp.com", opts)
-	ca, cb, errA, errB := connect(t, alice, bob)
-	if errA != nil || errB != nil {
-		t.Fatalf("handshake over TURN: %v / %v", errA, errB)
-	}
-	defer ca.Close()
-	defer cb.Close()
-	pair, err := ca.pc.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
-	if err != nil || pair == nil || pair.Local.Typ != webrtc.ICECandidateTypeRelay {
-		t.Fatalf("selected pair is not relayed: %v %v", pair, err)
-	}
+	return h, Options{ICEServers: ice, RelayOnly: true}
 }
 
 func TestResolveICEFallbacks(t *testing.T) {

@@ -53,9 +53,15 @@ type session struct {
 	peer      string
 	pc        *webrtc.PeerConnection
 	remoteSet bool
-	cands     []webrtc.ICECandidateInit
-	answer    chan webrtc.SessionDescription
-	fail      chan error
+	cands     []webrtc.ICECandidateInit // the peer's, until remoteSet
+	got       int                       // the peer's candidates added
+	// offered is false while a dialer's offer is not sent yet: the peer
+	// drops candidates for a connection it has not heard of, so local
+	// ones wait in held until it is.
+	offered bool
+	held    []webrtc.ICECandidateInit
+	answer  chan webrtc.SessionDescription
+	fail    chan error
 }
 
 // sigPayload is the payload of OFFER, ANSWER and CANDIDATE, shaped like the
@@ -163,8 +169,27 @@ func (e *Endpoint) trickle(s *session) {
 			return
 		}
 		init := c.ToJSON()
+		e.mu.Lock()
+		if !s.offered {
+			s.held = append(s.held, init)
+			e.mu.Unlock()
+			return
+		}
+		e.mu.Unlock()
 		_ = e.send(peerjs.Candidate, s.peer, sigPayload{ConnectionID: s.id, Candidate: &init})
 	})
+}
+
+// sendHeld marks the offer sent and sends the candidates held until then.
+func (e *Endpoint) sendHeld(s *session) {
+	e.mu.Lock()
+	s.offered = true
+	held := s.held
+	s.held = nil
+	e.mu.Unlock()
+	for i := range held {
+		_ = e.send(peerjs.Candidate, s.peer, sigPayload{ConnectionID: s.id, Candidate: &held[i]})
+	}
 }
 
 // Dial opens a data channel to the peer with id dst. It fails with
@@ -202,6 +227,7 @@ func (e *Endpoint) Dial(ctx context.Context, dst string) (*Conn, error) {
 	if err := e.send(peerjs.Offer, dst, sigPayload{ConnectionID: s.id, SDP: &offer, Label: Label, Reliable: true, Serialization: "raw"}); err != nil {
 		return nil, err
 	}
+	e.sendHeld(s)
 
 	select {
 	case ans := <-s.answer:
@@ -228,7 +254,10 @@ func (e *Endpoint) Dial(ctx context.Context, dst string) (*Conn, error) {
 	case err := <-s.fail:
 		return nil, err
 	case <-ctx.Done():
-		return nil, fmt.Errorf("connection to peer did not open: %w", ctx.Err())
+		e.mu.Lock()
+		got := s.got
+		e.mu.Unlock()
+		return nil, fmt.Errorf("connection to peer did not open (ICE %s, %d candidates from the peer): %w", pc.ICEConnectionState(), got, ctx.Err())
 	}
 }
 
@@ -240,6 +269,7 @@ func (e *Endpoint) setRemote(s *session, d webrtc.SessionDescription) error {
 	s.remoteSet = true
 	cands := s.cands
 	s.cands = nil
+	s.got += len(cands)
 	e.mu.Unlock()
 	for _, c := range cands {
 		_ = s.pc.AddICECandidate(c)
@@ -307,6 +337,7 @@ func (e *Endpoint) dispatch() {
 					e.mu.Unlock()
 					continue
 				}
+				s.got++
 				e.mu.Unlock()
 				_ = s.pc.AddICECandidate(*p.Candidate)
 				continue
@@ -345,7 +376,7 @@ func (e *Endpoint) onOffer(m peerjs.Message) {
 	if err != nil {
 		return
 	}
-	s := &session{id: p.ConnectionID, peer: m.Src, pc: pc, fail: make(chan error, 1)}
+	s := &session{id: p.ConnectionID, peer: m.Src, pc: pc, fail: make(chan error, 1), offered: true}
 	e.add(s)
 	e.trickle(s)
 	failOnState(pc, s.fail)

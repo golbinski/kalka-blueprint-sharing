@@ -57,27 +57,31 @@ func TestRendezvousFlags(t *testing.T) {
 func TestRendezvousTLS(t *testing.T) {
 	dir := t.TempDir()
 	pool := writeCert(t, dir)
-	turnPort, tlsPort := freePort(t), freePort(t)
+	// TURN listens on its port for UDP and TCP, the TLS port is TCP, and
+	// the one allocation below takes the relay port: each is checked free
+	// for what it binds, as Windows reserves port ranges per protocol.
+	turnPort, tlsPort, relayPort := turnPortFree(t), freePort(t), udpPort(t)
+	relayPorts := strconv.Itoa(relayPort) + "-" + strconv.Itoa(relayPort)
 	t.Setenv(secretEnv, "0123456789abcdef0123")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ready := make(chan *rendezvous.Running, 1)
-	var out bytes.Buffer
+	var out, errOut bytes.Buffer
 	exit := make(chan int, 1)
 	go func() {
 		exit <- run(ctx, []string{
 			"--listen", "127.0.0.1:0", "--json",
 			"--tls-cert", filepath.Join(dir, "cert.pem"), "--tls-key", filepath.Join(dir, "key.pem"),
-			"--turn-ip", "127.0.0.1", "--turn-host", "localhost", "--relay-bind", "127.0.0.1", "--relay-ports", "40000-40100",
+			"--turn-ip", "127.0.0.1", "--turn-host", "localhost", "--relay-bind", "127.0.0.1", "--relay-ports", relayPorts,
 			"--turn-port", strconv.Itoa(turnPort), "--turn-tls-port", strconv.Itoa(tlsPort),
-		}, &out, io.Discard, func(r *rendezvous.Running) { ready <- r })
+		}, &out, &errOut, func(r *rendezvous.Running) { ready <- r })
 	}()
 	var r *rendezvous.Running
 	select {
 	case r = <-ready:
 	case code := <-exit:
-		t.Fatalf("exited %d", code)
+		t.Fatalf("exited %d: %s", code, errOut.String())
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not start")
 	}
@@ -152,7 +156,7 @@ func TestRendezvousTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("allocate over TLS: %v", err)
 	}
-	if p := relay.LocalAddr().(*net.UDPAddr).Port; p < 40000 || p > 40100 {
+	if p := relay.LocalAddr().(*net.UDPAddr).Port; p != relayPort {
 		t.Fatalf("relay port %d outside --relay-ports", p)
 	}
 	relay.Close()
@@ -180,6 +184,31 @@ func TestRendezvousTLS(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not stop")
 	}
+}
+
+// turnPortFree is a loopback port free for both TCP and UDP.
+func turnPortFree(t *testing.T) int {
+	t.Helper()
+	for range 50 {
+		p := freePort(t)
+		if u, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p))); err == nil {
+			u.Close()
+			return p
+		}
+	}
+	t.Fatal("no loopback port free for both TCP and UDP")
+	return 0
+}
+
+// udpPort is a loopback port free for UDP.
+func udpPort(t *testing.T) int {
+	t.Helper()
+	u, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	return u.LocalAddr().(*net.UDPAddr).Port
 }
 
 func freePort(t *testing.T) int {
