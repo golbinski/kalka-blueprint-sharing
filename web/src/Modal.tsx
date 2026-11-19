@@ -1,10 +1,10 @@
 // Modal is the one dialog of the page: a native <dialog> opened with
 // showModal(), so the page behind it is inert, Tab stays inside, focus
 // moves to the first field, Escape closes it (unless busy), and focus goes
-// back to what opened it.
+// back to what opened it. wide is for code and other large content.
 import { useEffect, useId, useRef } from 'react'
 
-export function Modal({ title, busy, onClose, children }: { title: string; busy?: boolean; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, busy, wide, onClose, children }: { title: string; busy?: boolean; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
   const id = useId()
   const busyRef = useRef(busy)
@@ -31,7 +31,7 @@ export function Modal({ title, busy, onClose, children }: { title: string; busy?
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={wide ? 'modal wide' : 'modal'}
       aria-labelledby={id}
       aria-modal="true"
       onCancel={(e) => {

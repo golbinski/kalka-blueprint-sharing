@@ -33,6 +33,15 @@
   --offline: #9a9993;
   --shadow: rgb(0 0 0 / 0.12);
   --shadow-strong: rgb(0 0 0 / 0.18);
+  --hl-keyword: #6b4fbb;
+  --hl-string: #2f7d4a;
+  --hl-number: #b4551a;
+  --hl-comment: #7c7b75;
+  --hl-title: #2b5fd0;
+  --hl-type: #8a5a00;
+  --hl-attr: #0f7c8a;
+  --hl-add: #1f7a45;
+  --hl-del: #c0392f;
   color-scheme: light;
 }
 
@@ -69,6 +78,15 @@
     --offline: #77766f;
     --shadow: rgb(0 0 0 / 0.45);
     --shadow-strong: rgb(0 0 0 / 0.55);
+    --hl-keyword: #b79cf0;
+    --hl-string: #7fcf9b;
+    --hl-number: #f0a868;
+    --hl-comment: #8d8c85;
+    --hl-title: #8fb0f5;
+    --hl-type: #e3c16f;
+    --hl-attr: #6fcad6;
+    --hl-add: #5cc184;
+    --hl-del: #ef7f76;
     color-scheme: dark;
   }
 }
@@ -584,6 +602,11 @@ dialog.modal {
   color: inherit;
   margin: 10vh auto auto;
 }
+dialog.modal.wide {
+  width: min(1100px, calc(100% - 32px));
+  max-height: 85vh;
+  margin-top: 6vh;
+}
 dialog.modal::backdrop {
   background: rgba(28, 28, 26, 0.35);
 }
@@ -969,7 +992,7 @@ button.tnode.div:hover:not(:disabled) {
 
 .trace-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-columns: minmax(0, 1fr) var(--trace-panel-w, 400px);
   min-height: calc(100vh - 56px);
 }
 .trace-main {
@@ -1074,9 +1097,44 @@ button.tnode.div:hover:not(:disabled) {
   position: sticky;
   top: 56px;
 }
+/* The splitter sits on the panel's left edge; the panel itself sticks. */
+.trace-side {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.trace-side > .trace-panel {
+  flex: 1;
+}
+.trace-split {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.trace-split:hover,
+.trace-split:focus-visible {
+  background: var(--accent);
+  opacity: 0.5;
+  outline: none;
+}
+.panel-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -12px -8px -8px;
+}
 @media (max-width: 1000px) {
   .trace-page {
     grid-template-columns: 1fr;
+  }
+  .trace-split,
+  .panel-bar {
+    display: none;
   }
   .trace-panel {
     position: static;
@@ -1181,6 +1239,10 @@ button.icon {
   overflow: hidden;
 }
 .refbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -1193,7 +1255,6 @@ button.icon {
   font-size: 12px;
   line-height: 18px;
   overflow-x: auto;
-  max-height: 320px;
 }
 .snippet-line {
   display: flex;
@@ -2458,4 +2519,72 @@ details.terms {
 .doctor-fix {
   margin-left: 86px;
   color: var(--muted);
+}
+
+/* Syntax colours (highlight.js classes), from the --hl-* tokens. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-meta .hljs-keyword {
+  color: var(--hl-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-template-variable,
+.hljs-meta .hljs-string {
+  color: var(--hl-string);
+}
+.hljs-number,
+.hljs-variable,
+.hljs-bullet {
+  color: var(--hl-number);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-section,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--hl-title);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: var(--hl-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-name,
+.hljs-tag,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+  color: var(--hl-attr);
+}
+.hljs-addition {
+  color: var(--hl-add);
+}
+.hljs-deletion {
+  color: var(--hl-del);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}
+.refbox-head button {
+  min-height: 26px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.refpop .snippet {
+  max-height: 240px;
+  overflow: auto;
 }

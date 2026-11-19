@@ -29,6 +29,8 @@ export default defineConfig({
     sourcemap: false,
     // No inline scripts or styles: the CSP forbids them.
     assetsInlineLimit: 0,
+    // Served from the local daemon; highlight.js's languages push the bundle past the default 500 kB.
+    chunkSizeWarningLimit: 700,
   },
   server: {
     proxy: { '/api': 'http://127.0.0.1:7717' },

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { GuardsList, Linked } from './Aids'
 import type { Divergence, Doc, Entry, RefView, Trace, TraceNode, TraceProblem } from './api'
 import { Composer, EntryCard } from './Review'
+import { clampWidth, DEFAULT_PANEL, loadWidth, saveWidth, widePreset } from './panelWidth'
 import { RefBox, RefLayer } from './refs'
 import { CARD_H, CARD_W, layout, type Layout } from './traceLayout'
 import { plural, traceHref } from './util'
@@ -539,6 +540,51 @@ const CHANGE: Record<string, string> = {
 
 const ZOOMS = [0.4, 0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5]
 
+// Splitter is the drag handle on the left edge of the side panel; arrows
+// resize it, a double click restores the default width.
+function Splitter({ width, onSize }: { width: number; onSize: (w: number) => void }) {
+  const max = Math.max(320, Math.floor(window.innerWidth * 0.75))
+  return (
+    <div
+      className="trace-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the side panel"
+      aria-valuemin={320}
+      aria-valuemax={max}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize, double-click to reset"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        const el = e.currentTarget
+        el.setPointerCapture(e.pointerId)
+        const x0 = e.clientX
+        const w0 = width
+        const move = (m: PointerEvent) => onSize(w0 + x0 - m.clientX)
+        const up = () => {
+          el.removeEventListener('pointermove', move)
+          el.removeEventListener('pointerup', up)
+          el.removeEventListener('pointercancel', up)
+        }
+        el.addEventListener('pointermove', move)
+        el.addEventListener('pointerup', up)
+        el.addEventListener('pointercancel', up)
+      }}
+      onDoubleClick={() => onSize(DEFAULT_PANEL)}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 100 : 20
+        if (e.key === 'ArrowLeft') onSize(width + step)
+        else if (e.key === 'ArrowRight') onSize(width - step)
+        else if (e.key === 'Home') onSize(320)
+        else if (e.key === 'End') onSize(max)
+        else return
+        e.preventDefault()
+      }}
+    />
+  )
+}
+
 // TracePage is the full trace view of block `index`.
 export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: number; nodeId?: string; reload: () => void }) {
   const t = doc.traces[index]
@@ -547,6 +593,18 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
   const [selected, setSelected] = useState<string | undefined>(nodeId)
   const area = useRef<HTMLDivElement>(null)
   useEffect(() => setSelected(nodeId), [nodeId, index])
+  const [pw, setPw] = useState(() => clampWidth(loadWidth(), window.innerWidth))
+  const sized = (w: number) => {
+    const c = clampWidth(w, window.innerWidth)
+    setPw(c)
+    saveWidth(c)
+  }
+  // Keep the remembered width within the window as it shrinks.
+  useEffect(() => {
+    const f = () => setPw((w) => clampWidth(w, window.innerWidth))
+    window.addEventListener('resize', f)
+    return () => window.removeEventListener('resize', f)
+  }, [])
 
   const fit = () => {
     if (!t?.nodes || !area.current) return
@@ -570,7 +628,7 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
   }
   const n = doc.traces.length
   return (
-    <div className="trace-page">
+    <div className="trace-page" style={{ '--trace-panel-w': `${pw}px` } as React.CSSProperties}>
       <h1 className="sr-only">Trace of “{doc.title}”</h1>
       <div className="trace-main">
         <div className="trace-head">
@@ -648,13 +706,21 @@ export function TracePage({ doc, index, nodeId, reload }: { doc: Doc; index: num
         )}
       </div>
       {t.nodes && (
-        <RefLayer doc={doc} className="trace-panel">
-          {selected && node(t, selected) ? (
-            <NodePanel t={t} doc={doc} id={selected} onClose={() => setSelected(undefined)} reload={reload} />
-          ) : (
-            <Summary t={t} doc={doc} onSelect={setSelected} />
-          )}
-        </RefLayer>
+        <div className="trace-side">
+          <Splitter width={pw} onSize={sized} />
+          <RefLayer doc={doc} className="trace-panel">
+            <div className="panel-bar">
+              <button type="button" className="small" aria-pressed={pw >= widePreset(window.innerWidth)} onClick={() => sized(pw >= widePreset(window.innerWidth) ? DEFAULT_PANEL : widePreset(window.innerWidth))}>
+                {pw >= widePreset(window.innerWidth) ? 'Narrow' : 'Widen'}
+              </button>
+            </div>
+            {selected && node(t, selected) ? (
+              <NodePanel t={t} doc={doc} id={selected} onClose={() => setSelected(undefined)} reload={reload} />
+            ) : (
+              <Summary t={t} doc={doc} onSelect={setSelected} />
+            )}
+          </RefLayer>
+        </div>
       )}
     </div>
   )

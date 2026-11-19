@@ -4,8 +4,16 @@
 // remote images anyway and they could be used for tracking.
 import MarkdownIt from 'markdown-it'
 import { Matcher } from './glossary'
+import { highlightFence } from './highlight'
 
-const md = new MarkdownIt({ html: false, linkify: false, typographer: false })
+// Fenced code is highlighted for the languages highlight.ts knows, never the
+// fences the page draws itself; hljs escapes what it returns.
+const md = new MarkdownIt({
+  html: false,
+  linkify: false,
+  typographer: false,
+  highlight: (code, info) => (['trace', 'mermaid', 'glossary', 'invariants'].includes(info.trim().split(/\s+/)[0]) ? '' : highlightFence(code, info)),
+})
 
 const safeLink = /^(https?:\/\/|#)/i
 

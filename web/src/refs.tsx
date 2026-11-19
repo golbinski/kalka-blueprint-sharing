@@ -1,11 +1,14 @@
 // References resolved by the reader's plugins (spec 10): shown generically
 // (title, url, status, snippet as text, warnings), never branching on the
 // plugin or scheme.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Doc, RefView } from './api'
+import { highlightLines, languageOf } from './highlight'
 import { allowedLink } from './markdown'
+import { Modal } from './Modal'
 
 export function RefBox({ info: r, raw }: { info?: RefView; raw: string }) {
+  const [big, setBig] = useState(false)
   if (!r?.ok) {
     return (
       <div className="refbox">
@@ -18,25 +21,29 @@ export function RefBox({ info: r, raw }: { info?: RefView; raw: string }) {
       </div>
     )
   }
-  const start = r.snippet?.start_line || 1
   const url = r.url && allowedLink(r.url) && !r.url.startsWith('#') ? r.url : ''
+  const snip = r.snippet?.text ? <Snippet text={r.snippet.text} start={r.snippet.start_line || 1} lang={languageOf(r.snippet.lang, r.title, r.url)} /> : null
   return (
     <div className="refbox">
       <div className="refbox-head">
         <span className="mono">{r.title || raw}</span>
+        {snip && (
+          <button type="button" className="small" onClick={() => setBig(true)}>
+            Expand
+          </button>
+        )}
       </div>
-      {r.snippet && r.snippet.text && (
-        <div className="snippet" role="figure" aria-label="Source snippet">
-          {r.snippet.text
-            .replace(/\n$/, '')
-            .split('\n')
-            .map((line, i) => (
-              <div key={i} className="snippet-line">
-                <span className="ln">{start + i}</span>
-                <span className="snippet-text">{line}</span>
-              </div>
-            ))}
-        </div>
+      {snip}
+      {big && snip && (
+        <Modal title={r.title || raw} wide onClose={() => setBig(false)}>
+          {snip}
+          <div className="row">
+            <span className="grow" />
+            <button type="button" onClick={() => setBig(false)}>
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
       {(r.warnings ?? []).map((w, i) => (
         <div key={i} className="refbox-warn">
@@ -52,6 +59,22 @@ export function RefBox({ info: r, raw }: { info?: RefView; raw: string }) {
         )}
       </div>
       {r.plugin && <div className="refbox-by muted small">Resolved on your machine by {r.plugin}</div>}
+    </div>
+  )
+}
+
+// Snippet is the code of a reference with its line numbers, highlighted when
+// its language is known.
+function Snippet({ text, start, lang }: { text: string; start: number; lang: string | null }) {
+  const lines = useMemo(() => highlightLines(text, lang), [text, lang])
+  return (
+    <div className="snippet" role="figure" aria-label="Source snippet">
+      {lines.map((html, i) => (
+        <div key={i} className="snippet-line">
+          <span className="ln">{start + i}</span>
+          <span className="snippet-text" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      ))}
     </div>
   )
 }
