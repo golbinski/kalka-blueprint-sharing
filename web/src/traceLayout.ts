@@ -7,7 +7,8 @@
 //   node realizing several stretches to the last of them (C3 in the
 //   mockup). It never moves above the node before it in its own lane.
 // - A node realizing nothing takes the row after its predecessor; a row is
-//   inserted for it in the lanes to its left, which shows as a labelled gap.
+//   inserted for it in the lanes to its left and left empty there: the
+//   flow arrow across it already joins the steps on either side.
 // - next edges have no cycles (the daemon refuses them); back edges, which
 //   return to an earlier step, take no part in the order and are drawn
 //   around the right side of the lane, outside the forward edges.
@@ -33,14 +34,6 @@ export interface Placed {
   h: number
 }
 
-export interface Gap {
-  lane: number
-  row: number
-  x: number
-  y: number
-  label: string
-}
-
 export interface Edge {
   kind: 'flow' | 'back' | 'realizes'
   from: string
@@ -56,7 +49,6 @@ export interface Layout {
   height: number
   lanes: { name: string; x: number }[]
   placed: Map<string, Placed>
-  gaps: Gap[]
   edges: Edge[]
 }
 
@@ -100,7 +92,6 @@ export function layout(t: Trace): Layout {
   const lanes = t.lanes ?? []
   const nodes = t.nodes ?? []
   const placed = new Map<string, Placed>()
-  const gapRows: { lane: number; row: number }[] = []
 
   const put = (n: TraceNode, lane: number, row: number, end: number) =>
     placed.set(n.id, { node: n, lane, row, end, x: 0, y: 0, h: 0 })
@@ -128,7 +119,6 @@ export function layout(t: Trace): Layout {
               } else if (p.end >= row) p.end++
             }
           }
-          gapRows.push({ lane: li - 1, row })
         }
       } else {
         row = Math.max(prevEnd + 1, Math.min(...targets.map((p) => p.row)))
@@ -147,14 +137,6 @@ export function layout(t: Trace): Layout {
   }
   let rows = 0
   for (const p of placed.values()) rows = Math.max(rows, p.end + 1)
-
-  // A gap is only drawn where its lane really is empty on that row.
-  const gaps: Gap[] = []
-  for (const g of gapRows) {
-    const busy = [...placed.values()].some((p) => p.lane === g.lane && p.row <= g.row && p.end >= g.row)
-    if (busy) continue
-    gaps.push({ lane: g.lane, row: g.row, x: laneX(g.lane) + PAD_X, y: HEAD_H + g.row * ROW, label: `not in the ${lanes[g.lane]} view` })
-  }
 
   const edges: Edge[] = []
   for (const p of placed.values()) {
@@ -221,7 +203,6 @@ export function layout(t: Trace): Layout {
     height: HEAD_H + Math.max(rows, 1) * ROW - (ROW - CARD_H) + 24,
     lanes: lanes.map((name, i) => ({ name, x: laneX(i) })),
     placed,
-    gaps,
     edges,
   }
 }

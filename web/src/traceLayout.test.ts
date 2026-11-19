@@ -35,7 +35,8 @@ describe('trace layout', () => {
     // B1 | C1; gap | C2; B2,B3 | C3 spanning both; B4 | C4.
     expect(rows(spec)).toEqual({ B1: 0, B2: 2, B3: 3, B4: 4, C1: 0, C2: 1, C3: '2-3', C4: 4 })
     const l = layout(spec)
-    expect(l.gaps).toEqual([expect.objectContaining({ lane: 0, row: 1, label: 'not in the business view' })])
+    // Row 1 is left empty in the business lane: nothing is drawn there.
+    expect([...l.placed.values()].filter((p) => p.lane === 0 && p.row <= 1 && p.end >= 1)).toEqual([])
     // C3 is as tall as B2 and B3 together, gap included.
     const c3 = l.placed.get('C3')!
     expect(c3.y).toBe(l.placed.get('B2')!.y)

@@ -7,7 +7,7 @@ import type { Divergence, Doc, Entry, RefView, Trace, TraceNode, TraceProblem } 
 import { Composer, EntryCard } from './Review'
 import { clampWidth, DEFAULT_PANEL, loadWidth, saveWidth, widePreset } from './panelWidth'
 import { RefBox, RefLayer } from './refs'
-import { CARD_H, CARD_W, layout, type Layout } from './traceLayout'
+import { CARD_W, layout, type Layout } from './traceLayout'
 import { plural, traceHref } from './util'
 
 const NEUTRAL = new Set(['unverified', 'stale'])
@@ -166,11 +166,6 @@ export function TraceDiagram({
               {e.label}
             </div>
           ))}
-        {l.gaps.map((g, i) => (
-          <div key={i} className="tgap" style={{ left: g.x, top: g.y, width: CARD_W, height: CARD_H }}>
-            {g.label}
-          </div>
-        ))}
         {[...l.placed.values()].map((p) => (
           <NodeCard key={p.node.id} t={t} p={p} doc={doc} selected={selected === p.node.id} onSelect={onSelect} />
         ))}
