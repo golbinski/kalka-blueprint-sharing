@@ -7,6 +7,21 @@ base_sha: 618f7edcaba5b7419069a76c039151fd26366718
 
 How an invite link becomes a member, at the level a user sees and in kalka's code. Every code node links to the lines it describes; with `gh` signed in, each shows them beside the trace.
 
+## Words
+
+This plan names no domain, so it keeps its own words: kalka links them in the text and on the trace steps.
+
+```glossary v1
+- term: "invite"
+  definition: "A signed offer to join a team, for one email address, until it expires"
+  forms: ["invites"]
+- term: "joiner"
+  definition: "The person an invite was sent to, from opening it until they are a member"
+  aliases: ["newcomer"]
+- term: "team log"
+  definition: "The signed record of a team's members and owners, which every member holds"
+```
+
 ## From invite to member
 
 ```mermaid

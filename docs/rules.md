@@ -87,7 +87,7 @@ Every diagnostic of `kalka check` and of the app has one of these ids (specifica
 | `G005` | error | **Glossary version not known.** The fence names a version of the glossary language this kalka does not read. |
 | `G006` | warning | **Glossary fence has no version.** The fence says `glossary` without a version; it is read as v1. |
 | `G007` | warning | **Unknown glossary key.** An entry has a key that is not term, definition, aliases, forms, context or see, and does not start with `x-`. |
-| `G008` | warning | **Glossary outside a domain document.** A glossary block is in a document that is not a domain document; it is shown as code and links nothing. |
+| `G008` | warning | **Glossary in a blueprint that names a domain.** A blueprint with `kalka_domain:` has a glossary block of its own; it is shown as code and links nothing. A blueprint that names no domain may keep its own glossary. |
 | `G010` | error | **Glossary entry has no term.** An entry has no `term:`. |
 | `G011` | error | **Term has no definition.** An entry has a term but no `definition:`. |
 | `G012` | error | **A word names two glossary entries.** A term, form or alias is the same (ignoring case) as a term, form or alias of another entry. |

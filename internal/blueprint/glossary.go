@@ -37,7 +37,8 @@ type Term struct {
 }
 
 // Glossary returns the terms of the document's valid glossary blocks, in
-// order; nil for a document that is not a domain document.
+// order: a domain document's, or a blueprint's own when it names no domain
+// (spec 6.16); nil for a blueprint that names one.
 func (d *Document) Glossary() []Term { return d.glossary }
 
 // buildGlossary reads the glossary blocks (spec 6.16).
@@ -50,8 +51,8 @@ func (d *Document) buildGlossary(fences []fence) {
 		}
 		n++
 		what := fmt.Sprintf("glossary %d", n)
-		if !d.IsDomain() {
-			d.problem("G008", f.line, what+": a glossary belongs in a domain document (kalka_kind: domain); here it is shown as code")
+		if !d.IsDomain() && d.get(KeyDomain) != "" {
+			d.problem("G008", f.line, what+": this blueprint is linked against the glossary of the domain its "+KeyDomain+": names; its own is shown as code")
 			continue
 		}
 		p := &blockParser{codes: glossaryCodes, base: f.line}

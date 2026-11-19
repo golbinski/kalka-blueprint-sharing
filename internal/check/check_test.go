@@ -164,6 +164,38 @@ func TestDomainInvariantsAndTerms(t *testing.T) {
 	}
 }
 
+// A blueprint that names no domain is linked and checked against its own
+// glossary, as a domain document is against its (spec 6.16).
+func TestOwnGlossary(t *testing.T) {
+	src := "# Shelving\n\n```glossary v1\n- term: \"returns cart\"\n  definition: \"The trolley returned books wait on\"\n  aliases: [\"trolley\"]\n```\n\nEach book on the Trolley is labelled.\n"
+	d, err := bp.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Document(d, Options{})
+	if r.Glossary.State != GlossaryHeld || !r.Glossary.Own || r.Glossary.Ref != "" || len(r.Glossary.Terms) != 1 {
+		t.Fatalf("glossary %+v", r.Glossary)
+	}
+	var alias *bp.Problem
+	for i, p := range r.Problems {
+		if p.Rule == "G008" {
+			t.Errorf("G008 in a blueprint with no domain: %s", p.Message)
+		}
+		if p.Rule == "G020" {
+			alias = &r.Problems[i]
+		}
+	}
+	if alias == nil || !strings.Contains(alias.Message, "this blueprint's glossary") || alias.Fix == nil || alias.Fix.Text != "Returns cart" {
+		t.Errorf("alias %+v", alias)
+	}
+	// Naming a domain, the blueprint's own block is code and links nothing.
+	d, _ = bp.Parse([]byte("---\nkalka_domain: lending/loans@v1\n---\n" + src))
+	r = Document(d, Options{Domains: lendingFolder(t)})
+	if r.Glossary.Own || !strings.Contains(ruleList(r.Problems, "G"), "G008") || strings.Contains(ruleList(r.Problems, "G"), "G020") {
+		t.Errorf("with a domain: %+v %q", r.Glossary, ruleList(r.Problems, "G"))
+	}
+}
+
 func TestMatrixAndImpact(t *testing.T) {
 	f := lendingFolder(t)
 	p := plan(t, "v1", "## Plan\n\n```invariants v1\naffects: [\"loans#I3\"]\ninvariants:\n  - id: N1\n    statement: \"A renewal is logged\"\n```\n\nThe member returns the borrowing.\n\n"+guardsTrace)

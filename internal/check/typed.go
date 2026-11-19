@@ -12,26 +12,31 @@ import (
 const (
 	GlossaryHeld    = "held"     // linked against Terms
 	GlossaryNotKept = "not-kept" // the referenced version is not here
-	GlossaryNone    = "none"     // the document names no domain and has no glossary
+	GlossaryNone    = "none"     // no glossary: none of its own, no domain named
 )
 
 // Glossary is the glossary a document is linked against.
 type Glossary struct {
 	// Ref is the domain version, such as parcels/delivery@v3; for a domain
-	// document its own name and version.
+	// document its own name and version; "" for a blueprint's own.
 	Ref   string    `json:"ref,omitempty"`
 	State string    `json:"state"`
 	Terms []bp.Term `json:"terms"`
+	// Own: the terms are the document's own blocks, at its own lines.
+	Own bool `json:"own,omitempty"`
 }
 
 // GlossaryOf is the glossary of the domain version doc references (dom,
-// from Document's Result), or for a domain document its own.
+// from Document's Result); for a domain document, or a blueprint that
+// names no domain, its own (spec 6.16).
 func GlossaryOf(doc, dom *bp.Document) Glossary {
-	if doc.IsDomain() {
+	if doc.IsDomain() || fmValue(doc, bp.KeyDomain) == "" {
 		g := Glossary{State: GlossaryNone, Terms: doc.Glossary()}
 		if len(g.Terms) > 0 {
-			g.State = GlossaryHeld
-			g.Ref = fmt.Sprintf("%s@v%d", doc.DomainName(), doc.DomainVersion())
+			g.State, g.Own = GlossaryHeld, true
+			if doc.IsDomain() {
+				g.Ref = fmt.Sprintf("%s@v%d", doc.DomainName(), doc.DomainVersion())
+			}
 		}
 		return g.norm()
 	}
@@ -72,7 +77,11 @@ func termProblems(doc *bp.Document, g Glossary) []bp.Problem {
 		case "invariant":
 			where = "invariant " + u.Node + ": "
 		}
-		p := bp.NewProblem("G020", u.Line, fmt.Sprintf("%s%q is an alias in the %s glossary; write %q", where, u.Surface, g.Ref, term))
+		in := "the " + g.Ref + " glossary"
+		if g.Ref == "" {
+			in = "this blueprint's glossary"
+		}
+		p := bp.NewProblem("G020", u.Line, fmt.Sprintf("%s%q is an alias in %s; write %q", where, u.Surface, in, term))
 		p.Node = u.Node
 		if u.Column > 0 {
 			p.Column, p.EndLine, p.EndColumn = u.Column, u.EndLine, u.EndColumn

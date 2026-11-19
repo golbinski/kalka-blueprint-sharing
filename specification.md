@@ -481,7 +481,7 @@ The block is allowed in domain documents and in blueprints, anywhere in the body
 
 ### 6.16 Glossary and linking
 
-A domain document defines its terms in typed blocks:
+A domain document defines its terms in typed blocks. So may a blueprint that names no domain (no `kalka_domain:`): a sketch or a small piece of work that has no domain document yet keeps its words beside the plan, and they work there as a domain's do in its blueprints.
 
 ````markdown
 ```glossary v1
@@ -506,9 +506,9 @@ A domain document defines its terms in typed blocks:
 | `context` | The bounded context it belongs to. |
 | `see` | Related terms of the same glossary. |
 
-The block is a list of 1 to 500 entries. Several glossary blocks in one document are read as one glossary; the same term twice, or a term, form or alias that names two entries, is an error. A glossary block outside a domain document is a warning and is shown as code.
+The block is a list of 1 to 500 entries. Several glossary blocks in one document are read as one glossary; the same term twice, or a term, form or alias that names two entries, is an error. A glossary block in a blueprint that names a domain is a warning and is shown as code: that blueprint is linked against its domain's glossary, never two at once.
 
-**Linking.** A blueprint's text is linked against the glossary of **the domain version it references**, read from that version's snapshot. When that version is not kept here the view says "glossary v3 not kept here" and nothing is linked or checked; another version is never used instead. A domain document links its own text against its own glossary.
+**Linking.** A blueprint's text is linked against the glossary of **the domain version it references**, read from that version's snapshot. When that version is not kept here the view says "glossary v3 not kept here" and nothing is linked or checked; another version is never used instead. A domain document, and a blueprint that names no domain, link their text against their own glossary.
 
 - Matching is case-insensitive (Unicode lower case), on whole words (the characters on either side are not letters or digits), against each entry's term, forms and aliases. A space in a term matches any run of white space, line breaks included.
 - Text is matched within one run of text: body paragraphs, headings, list items, table cells and link text, a trace node's `text` and an invariant's `statement`. A term interrupted by markup (`par*cel*`) does not match.

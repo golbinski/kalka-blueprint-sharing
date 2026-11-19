@@ -80,9 +80,16 @@ func TestGlossaryBlocks(t *testing.T) {
 			t.Errorf("%s: rules %q terms %d, want %q %d", c.name, got, len(d.Glossary()), c.rules, c.terms)
 		}
 	}
-	d, _ := Parse([]byte("# Plan\n\n```glossary v1\n- term: \"loan\"\n  definition: \"a\"\n```\n"))
+	// A blueprint that names no domain keeps its own glossary; one that
+	// names a domain is linked against the domain's, and its own is code.
+	block := "# Plan\n\n```glossary v1\n- term: \"loan\"\n  definition: \"a\"\n```\n"
+	d, _ := Parse([]byte(block))
+	if got := rulesOf(d, "G"); got != "" || len(d.Glossary()) != 1 {
+		t.Errorf("glossary in a blueprint with no domain: %q, %d terms", got, len(d.Glossary()))
+	}
+	d, _ = Parse([]byte("---\nkalka_domain: lending/loans@v2\n---\n" + block))
 	if got := rulesOf(d, "G"); got != "G008" || d.Glossary() != nil {
-		t.Errorf("glossary in a blueprint: %q", got)
+		t.Errorf("glossary in a blueprint that names a domain: %q", got)
 	}
 }
 

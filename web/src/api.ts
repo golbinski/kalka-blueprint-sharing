@@ -243,10 +243,12 @@ export interface Term {
 
 /** The glossary a document is linked against. */
 export interface Glossary {
-  /** The domain version, such as parcels/delivery@v3. */
+  /** The domain version, such as parcels/delivery@v3; absent for a blueprint's own. */
   ref?: string
   state: 'held' | 'not-kept' | 'none'
   terms: Term[]
+  /** The terms are the document's own blocks: a domain document's, or a blueprint's that names no domain. */
+  own?: boolean
 }
 
 /** One row of the invariants matrix (spec 6.15, 12.4). */

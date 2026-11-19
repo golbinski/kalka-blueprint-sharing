@@ -147,7 +147,7 @@ export function TermsPanel({ doc }: { doc: Doc }) {
       <summary>
         <b>Terms</b>{' '}
         <span className="muted small">
-          · {plural(used.length, 'term')} from {g.ref}
+          · {plural(used.length, 'term')} from {g.ref ?? 'this blueprint'}
           {aliases > 0 ? ` · ${plural(aliases, 'alias', 'aliases')} used` : ''}
         </span>
       </summary>
@@ -236,9 +236,9 @@ export function InvariantBlock({
   )
 }
 
-/** GlossaryBlock draws a domain document's glossary block as a list of definitions. */
+/** GlossaryBlock draws a glossary block of the document's own as a list of definitions. */
 export function GlossaryBlock({ doc, line, end, source }: { doc: Doc; line: number; end: number; source: string }) {
-  const terms = doc.domain ? doc.glossary.terms.filter((t) => t.line > line && t.line < end) : []
+  const terms = doc.glossary.own ? doc.glossary.terms.filter((t) => t.line > line && t.line < end) : []
   if (terms.length === 0) return <CodeWithNote source={source} />
   return (
     <dl className="gloss-block">
