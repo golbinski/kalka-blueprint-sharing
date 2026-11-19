@@ -66,9 +66,15 @@ The tray icon uses StatusNotifierItem. Stock GNOME shows it only with an extensi
 
 **Uninstall:** *Quit kalka* from its menu, `kalka autostart off`, then delete the files above and `~/.config/kalka`.
 
+## Updates
+
+The desktop app looks for a new release on GitHub shortly after it starts and every six hours, and *Settings > Updates* (or `kalka update --check`) looks now. A release is compatible when it has the same major version (before 1.0, the same minor version); with *Install updates automatically* on, a compatible release is downloaded and checked against `SHA256SUMS`, and the window and the tray offer *Restart to update*. Nothing restarts until you click. With the setting off, or for a new major version, they show that an update is available, with its release notes, and *Download and restart* downloads it then.
+
+kalka replaces itself only where it recognises the install: the Windows installer's folder, `Kalka.app` in a folder you can write to, or the three Linux programs side by side in a writable folder. Elsewhere (a headless install, a package manager) it only tells you about the release. `kalka update` does the same from a terminal. Builds without a release version (`dev`) never check. The Linux arm64 desktop archive is not published yet; there the release is announced only.
+
 ## How notices reach you
 
-While the window is hidden, notices show as notifications: new comments on your documents, someone joined with your invite, your join completed, a newer domain version. Clicking one opens the window on its subject. They can be turned off in *Settings*, or with `kalka daemon --no-notifications`.
+While the window is hidden, notices show as notifications: new comments on your documents, someone joined with your invite, your join completed, a newer domain version, an update ready to install. Clicking one opens the window on its subject. They can be turned off in *Settings*, or with `kalka daemon --no-notifications`.
 
 ## Notes
 

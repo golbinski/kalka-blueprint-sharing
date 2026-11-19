@@ -22,6 +22,7 @@ const (
 	NoticeJoinDone = "join-done"    // your join completed
 	NoticeJoinFail = "join-failed"  // your join failed for good
 	NoticeDomain   = "domain-newer" // a domain you reference has a newer version
+	NoticeUpdate   = "update"       // a new kalka is downloaded and waits for a restart
 )
 
 // Notice is one notification.

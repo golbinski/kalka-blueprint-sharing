@@ -116,7 +116,7 @@ type wailsUI struct {
 	menu  *application.Menu
 	notes *notifications.NotificationService
 
-	status, waiting, pause, login *application.MenuItem
+	status, waiting, update, pause, login *application.MenuItem
 
 	mu       sync.Mutex
 	url      string
@@ -199,6 +199,8 @@ func run(plan Plan, dir string, hidden bool, logw io.Writer) int {
 	ui.status = ui.menu.Add("Starting…").SetEnabled(false)
 	ui.waiting = ui.menu.Add("").SetHidden(true)
 	ui.waiting.OnClick(func(*application.Context) { go s.OpenWaiting() })
+	ui.update = ui.menu.Add("").SetHidden(true)
+	ui.update.OnClick(func(*application.Context) { go s.UpdateClicked() })
 	ui.menu.AddSeparator()
 	ui.pause = ui.menu.Add("Pause sync")
 	ui.pause.OnClick(func(*application.Context) { go s.TogglePause() })
@@ -256,6 +258,8 @@ func (u *wailsUI) SetTray(m TrayModel) {
 		u.status.SetLabel(m.Status)
 		u.waiting.SetLabel(m.Waiting)
 		u.waiting.SetHidden(m.Waiting == "")
+		u.update.SetLabel(m.Update)
+		u.update.SetHidden(m.Update == "")
 		u.pause.SetLabel(m.PauseLabel)
 		u.pause.SetEnabled(m.State != TrayStarting)
 		u.login.SetChecked(m.StartAtLogin)

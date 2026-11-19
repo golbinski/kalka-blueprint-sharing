@@ -87,9 +87,23 @@ export interface Settings {
   paused?: boolean
   notifications?: boolean
   keep_running_on_close?: boolean
+  auto_update?: boolean
   start_at_login?: boolean
   start_at_login_available?: boolean
   start_at_login_error?: string
+}
+
+/** The update state (GET /api/update, spec 24). */
+export interface UpdateStatus {
+  current: string
+  checks: boolean
+  latest?: string
+  state: 'none' | 'available' | 'downloading' | 'ready' | 'error'
+  compatible: boolean
+  notes_url?: string
+  can_install: boolean
+  checked_at?: string
+  error?: string
 }
 
 // Notice is a notification the daemon decided on (spec 22.4).
@@ -666,6 +680,9 @@ export const api = {
   summary: () => call<Summary>('GET', '/api/summary'),
   settings: () => call<Settings>('GET', '/api/settings'),
   applySettings: (s: Settings) => call<Settings>('PUT', '/api/settings', s),
+  update: () => call<UpdateStatus>('GET', '/api/update'),
+  checkUpdate: () => call<UpdateStatus>('POST', '/api/update/check', {}),
+  installUpdate: () => call<object>('POST', '/api/update/install', {}),
   setPaused: (paused: boolean) => call<Settings>('POST', paused ? '/api/pause' : '/api/resume', {}),
   teams: () => call<Team[] | null>('GET', '/api/teams').then((l) => l ?? []),
   waiting: (team = '') =>

@@ -43,6 +43,7 @@ export function noticeHref(n: Notice): string {
   const team = '#/t/' + encodeURIComponent(n.team ?? '') + '/'
   if (n.path) return '#/doc/' + encodeURIComponent(n.path)
   if (n.kind === 'join-failed') return '#/join'
+  if (n.kind === 'update') return '#/settings'
   if (!n.team) return ''
   if (n.kind === 'join-done') return team
   if (n.kind === 'transfer') return '#/needs'

@@ -53,6 +53,7 @@ var commands = []command{
 	{"pause", ClassWorkflow, plain(func(a []string, o, e io.Writer) int { return cmdPause(true, a, o, e) })},
 	{"resume", ClassWorkflow, plain(func(a []string, o, e io.Writer) int { return cmdPause(false, a, o, e) })},
 	{"settings", ClassWorkflow, plain(cmdSettings)},
+	{"update", ClassWorkflow, plain(cmdUpdate)},
 	{"autostart", ClassWorkflow, plain(cmdAutostart)},
 	{"setup", ClassWorkflow, plain(cmdSetup)},
 	{"check", ClassView, plain(cmdCheck)},

@@ -118,6 +118,21 @@ func (c *Client) ApplySettings(ctx context.Context, in Settings) (Settings, erro
 	return s, c.do(ctx, http.MethodPut, "/api/settings", in, &s)
 }
 
+// UpdateStatus fetches the update state; with check it asks GitHub first.
+func (c *Client) UpdateStatus(ctx context.Context, check bool) (UpdateStatus, error) {
+	var s UpdateStatus
+	if check {
+		return s, c.do(ctx, http.MethodPost, "/api/update/check", struct{}{}, &s)
+	}
+	return s, c.do(ctx, http.MethodGet, "/api/update", nil, &s)
+}
+
+// InstallUpdate downloads the update if need be, installs it and restarts
+// kalka; the daemon stops as it answers.
+func (c *Client) InstallUpdate(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/update/install", struct{}{}, nil)
+}
+
 // SetRendezvous switches the rendezvous server of the running daemon;
 // without force a server that does not answer is refused.
 func (c *Client) SetRendezvous(ctx context.Context, server string, force bool) (core.Status, error) {

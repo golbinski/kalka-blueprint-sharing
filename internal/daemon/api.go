@@ -191,6 +191,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", d.apiSettings)
 	mux.HandleFunc("PUT /api/settings", d.apiSettings)
 	mux.HandleFunc("POST /api/rendezvous", d.apiRendezvous)
+	d.mountUpdates(mux)
 	mux.HandleFunc("POST /api/pause", d.apiPause(true))
 	mux.HandleFunc("POST /api/resume", d.apiPause(false))
 	return gate{token: d.token, port: d.port, noUI: d.opts.NoUI}.wrap(mux)

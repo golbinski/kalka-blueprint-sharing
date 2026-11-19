@@ -44,6 +44,9 @@ type TrayModel struct {
 	WaitingHash string
 	Paused      bool
 	PauseLabel  string
+	// Update is the update item's label ("Restart to update to 0.2.0"),
+	// empty when there is nothing to offer (spec 24.4).
+	Update string
 	// StartAtLogin is the check mark; StartAtLoginEnabled whether the item
 	// can be used.
 	StartAtLogin        bool
@@ -83,6 +86,22 @@ func Tray(sum core.Summary, set daemon.Settings, loc *time.Location) TrayModel {
 		}
 	}
 	m.Tooltip = name.Product + ": " + m.Status
+	return m
+}
+
+// WithUpdate adds the update item to the tray.
+func (m TrayModel) WithUpdate(st daemon.UpdateStatus) TrayModel {
+	switch {
+	case st.Latest == "" || st.State == daemon.UpdateNone:
+	case st.State == daemon.UpdateReady:
+		m.Update = "Restart to update to " + st.Latest
+	case st.State == daemon.UpdateDownloading:
+		m.Update = "Downloading " + st.Latest + "…"
+	case st.CanInstall:
+		m.Update = "Download " + st.Latest + " and restart"
+	default:
+		m.Update = name.Product + " " + st.Latest + " is available"
+	}
 	return m
 }
 
@@ -202,6 +221,8 @@ func NoticeHash(n core.Notice) string {
 	switch {
 	case n.Path != "":
 		return DocHash(n.Path)
+	case n.Kind == core.NoticeUpdate:
+		return "#/settings"
 	case n.Kind == core.NoticeJoinFail:
 		return "#/join"
 	case n.Team == "":

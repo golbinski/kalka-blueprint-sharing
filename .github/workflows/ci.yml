@@ -128,7 +128,7 @@ jobs:
           name: ui-dist
           path: internal/ui/dist
       # NSIS for the Windows installer; GTK 4 and WebKitGTK for the Linux
-      # desktop package. Kalka.app needs a Mac and is skipped here.
+      # desktop package. Kalka.app needs a Mac: release-mac adds it below.
       - name: Packaging tools
         run: |
           sudo apt-get update
@@ -141,3 +141,33 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Kalka.app needs a Mac (cgo). It joins the release the job above made:
+  # the app zips are uploaded and SHA256SUMS gets their lines, so the
+  # updater (spec 24) can verify them like every other package.
+  release-mac:
+    needs: release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v5
+        with:
+          name: ui-dist
+          path: internal/ui/dist
+      - run: go run ./tools/release -version "${GITHUB_REF_NAME#v}" -targets darwin/arm64,darwin/amd64 -out dist-mac
+      - name: Upload the app zips and add them to SHA256SUMS
+        run: |
+          set -eu
+          gh release download "$GITHUB_REF_NAME" -p SHA256SUMS -D sums
+          grep '_darwin_.*_app\.zip$' dist-mac/SHA256SUMS >> sums/SHA256SUMS
+          LC_ALL=C sort -k2 -o sums/SHA256SUMS sums/SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" dist-mac/*_app.zip sums/SHA256SUMS --clobber

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { act } from "./actions";
-import { ApiError, api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary } from "./api";
+import { ApiError, api, referenceURL, type About, type DoctorReport, type Settings, type Status, type Summary, type UpdateStatus } from "./api";
 import { localTime } from "./util";
 import { AddSamples, OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
@@ -163,6 +163,8 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
           </label>
         )}
       </div>
+      <h2>Updates</h2>
+      <UpdatesSection s={s} busy={busy} change={change} tick={tick} />
       <h2>Blueprint writing guide for agents</h2>
       <p className="small">
         How a blueprint is written, for agents: drop it in as a skill or an
@@ -333,6 +335,94 @@ function CheckSetup() {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// UpdatesSection is the update check and install (spec 24): the checkbox
+// picks whether a compatible update downloads on its own; nothing restarts
+// without a click.
+function UpdatesSection({ s, busy, change, tick }: { s: Settings; busy: boolean; change: (p: Settings) => void; tick: number }) {
+  const [u, setU] = useState<UpdateStatus | null>(null);
+  const [working, setWorking] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.update().then(setU, () => {});
+  }, [tick]);
+  const run = async (f: () => Promise<unknown>) => {
+    setWorking(true);
+    setErr("");
+    try {
+      await f();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    api.update().then(setU, () => {});
+    setWorking(false);
+  };
+  if (!u) return null;
+  const notes = u.notes_url && (
+    <>
+      {" "}
+      <a href={u.notes_url} target="_blank" rel="noreferrer">
+        Release notes
+      </a>
+    </>
+  );
+  let line: React.ReactNode;
+  if (!u.checks) line = "This is a development build; it does not check for updates.";
+  else if (u.state === "ready") line = <>kalka {u.latest} is ready.{notes}</>;
+  else if (u.state === "downloading") line = <>Downloading kalka {u.latest}…</>;
+  else if (u.state === "available")
+    line = (
+      <>
+        kalka {u.latest} is available.{notes}
+        {!u.can_install && " This installation does not update itself; download it from the release page."}
+      </>
+    );
+  else if (u.state === "error") line = <>The last check failed: {u.error}</>;
+  else line = <>kalka {u.current} is up to date.</>;
+  return (
+    <div className="settings">
+      <label className="setting">
+        <input
+          type="checkbox"
+          checked={!!s.auto_update}
+          {...act("settings.save")}
+          disabled={busy}
+          onChange={(e) => change({ auto_update: e.target.checked })}
+        />
+        <span>
+          <b>Install updates automatically</b>
+          <span className="muted small">
+            A compatible update (same major version; before 1.0, the same minor
+            version) is downloaded and verified in the background. kalka restarts
+            only when you click Restart to update. Off, or for a new major
+            version, it shows that an update is available and downloads it when
+            you ask.
+          </span>
+        </span>
+      </label>
+      <p className="small">{line}</p>
+      {err && <div className="error-box">{err}</div>}
+      <p className="row center">
+        {u.can_install && (u.state === "ready" || u.state === "available") && (
+          <button
+            type="button"
+            {...act("update.install")}
+            disabled={working}
+            onClick={() => run(() => api.installUpdate())}
+          >
+            {u.state === "ready" ? "Restart to update" : "Download and restart"}
+          </button>
+        )}
+        {u.checks && (
+          <button type="button" disabled={working || u.state === "downloading"} onClick={() => run(() => api.checkUpdate())}>
+            Check for updates
+          </button>
+        )}
+        {u.checks && u.checked_at && <span className="muted small">Last checked {localTime(u.checked_at)}</span>}
+      </p>
     </div>
   );
 }

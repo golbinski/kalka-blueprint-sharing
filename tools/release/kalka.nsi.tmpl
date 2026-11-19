@@ -46,6 +46,25 @@ Section "kalka"
     nsExec::Exec '"$INSTDIR\kalka.exe" stop --wait 30s'
     Pop $0
   ${EndIf}
+  ; A silent install is kalka updating itself (spec 24.3): the old
+  ; kalka-desktop.exe that started it is still ending, so wait until its
+  ; file can be removed (at most 15 seconds).
+  ${If} ${Silent}
+  ${AndIf} ${FileExists} "$INSTDIR\kalka-desktop.exe"
+    StrCpy $1 0
+    waitfree:
+      ClearErrors
+      Delete "$INSTDIR\kalka-desktop.exe"
+      ${IfNot} ${FileExists} "$INSTDIR\kalka-desktop.exe"
+        Goto freed
+      ${EndIf}
+      IntOp $1 $1 + 1
+      ${If} $1 < 30
+        Sleep 500
+        Goto waitfree
+      ${EndIf}
+    freed:
+  ${EndIf}
 
   SetOutPath "$INSTDIR"
   File "[[.Src]]/kalka.exe"
@@ -74,6 +93,10 @@ Section "kalka"
 
   Call AddToPath
   Call CheckWebView2
+  ; After a silent update there is no finish page to start kalka from.
+  ${If} ${Silent}
+    Exec '"$INSTDIR\kalka-desktop.exe"'
+  ${EndIf}
 SectionEnd
 
 ; CheckWebView2 offers the runtime's download page when it is missing
@@ -86,7 +109,7 @@ Function CheckWebView2
   ${EndIf}
   ${If} $0 == ""
   ${OrIf} $0 == "0.0.0.0"
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "kalka's window needs the Microsoft Edge WebView2 runtime, which is not installed.$\r$\n$\r$\nOpen its download page now? Without it, kalka still works in your browser." IDNO +2
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "kalka's window needs the Microsoft Edge WebView2 runtime, which is not installed.$\r$\n$\r$\nOpen its download page now? Without it, kalka still works in your browser." /SD IDNO IDNO +2
     ExecShell "open" "[[.WebView2]]"
   ${EndIf}
 FunctionEnd
@@ -150,7 +173,7 @@ Function AddToPath
     ; No PATH of its own, or one that cannot be read whole.
     Call HasPathValue
     ${If} $1 == 1
-      MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}"
+      MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}" /SD IDOK
       Return
     ${EndIf}
     StrCpy $0 ""
@@ -161,7 +184,7 @@ Function AddToPath
   IntOp $3 $1 + $2
   IntOp $3 $3 + 3
   ${If} $3 >= ${NSIS_MAX_STRLEN}
-    MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}"
+    MessageBox MB_OK|MB_ICONINFORMATION "${PATH_TOO_LONG}" /SD IDOK
     Return
   ${EndIf}
   StrCpy $R0 ";$0;"
@@ -176,7 +199,7 @@ Function AddToPath
     ClearErrors
     WriteRegExpandStr HKCU "Environment" "Path" "$0"
     ${If} ${Errors}
-      MessageBox MB_OK|MB_ICONINFORMATION "kalka could not be added to your PATH. Add $INSTDIR to it yourself to use kalka in a terminal."
+      MessageBox MB_OK|MB_ICONINFORMATION "kalka could not be added to your PATH. Add $INSTDIR to it yourself to use kalka in a terminal." /SD IDOK
       Return
     ${EndIf}
     SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000

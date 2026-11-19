@@ -793,7 +793,7 @@ Every view below except Needs you shows the selected scope. In Personal the Team
 - **Seeds** — seeds held in the scope (6.11), the pre-backlog: title, owner, where it was split off from, last activity; *Turn into a blueprint* (promote).
 - **Team** — in this order: the sync in words ("Last sync 11:02 with marek, ola · piotr offline") with *Sync now*; one sentence per blueprint the last sync refused, and why; **Invite a teammate** (email, validity, *Create invite*) with *Copy invite message* (how to install kalka, the link, and the code for when the link is not clickable), *Copy link*, *Copy code*, and the open invites with *Show* and *Cancel*; the members with role, last seen (online, or when this kalka last found them online, 9.3) and how many blueprints they own, each with a ⋯ menu: *Make team owner…*, *Remove as team owner…* (each confirmed, saying what it allows), *Give their blueprints to someone…*, *Remove from team…* (with a preview of the blueprints that become yours); transfers in and out (20.7), open while one waits; then folded the team history (the log as a readable history, with discarded operations and their reasons) and the technical details (team id, folder, key fingerprints, files not shared, deleted blueprints). Wherever a member is named (hand-off, reassignment, the owner of an accepted transfer) it is picked from the team's members, not typed. *Decline* of a transfer asks once.
 - **Domains** — "your team's shared vocabulary": the team's domain documents with version and owner; *Release* for the owner, with a checklist of open comments to mark as taken up (incorporated); a version switcher over local snapshots in the document header. With none yet, the start of a domain document to copy and *Open Personal folder*.
-- **Settings** — who you are: your email, your folder with *Open folder* (`POST /api/open-folder`), and your server with *Change…* (an inline form: the public demo server or a kalka server address, with what the change means for the team above the button that applies it, and *Switch anyway* when the new server did not answer; 9.1); *Check setup*, the results of `kalka doctor` (12.5); start at login, keep running when the window is closed, notifications, pause (22); *Blueprint writing guide for agents: save a copy* (6.13); the version, with the protocol versions and your key under its details. The two window settings are hidden in a browser tab.
+- **Settings** — who you are: your email, your folder with *Open folder* (`POST /api/open-folder`), and your server with *Change…* (an inline form: the public demo server or a kalka server address, with what the change means for the team above the button that applies it, and *Switch anyway* when the new server did not answer; 9.1); *Check setup*, the results of `kalka doctor` (12.5); start at login, keep running when the window is closed, notifications, pause (22); *Updates*: install updates automatically, *Check for updates*, and *Restart to update* or *Download and restart* (24); *Blueprint writing guide for agents: save a copy* (6.13); the version, with the protocol versions and your key under its details. The two window settings are hidden in a browser tab.
 
 The UI updates live from the daemon's event stream when files change or replication delivers. A notice shown in the window (22.4) is a link to its subject. Dialogs are modal for the keyboard: focus moves in and stays in, Escape closes them, focus returns to what opened them.
 
@@ -886,7 +886,8 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka samples` | file | Copy the sample blueprints, built into kalka, into `personal/samples/`, keeping files already there. Before setup it asks for them to be added once kalka is set up: the daemon adds them when it first starts. | Blueprints in Personal when empty, and Settings, *Add sample blueprints* |
 | `kalka waiting [--team <t>] [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Needs you, tray |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). | Settings, tray |
-| `kalka settings [--notifications on\|off] [--keep-running on\|off]` | daemon (a view with no option) | The settings of 22.2; with no option it shows them. | Settings |
+| `kalka settings [--notifications on\|off] [--keep-running on\|off] [--auto-update on\|off]` | daemon (a view with no option) | The settings of 22.2; with no option it shows them. | Settings |
+| `kalka update [--check] [--json]` | daemon | Look for a new release and, unless `--check`, install it when this kalka can (24), which restarts it. | Settings, *Updates* |
 | `kalka settings --rendezvous <url\|peerjs-cloud> [--force]` | daemon, or `config.yaml` when none runs | Switch the rendezvous server (9.1). Unless `--force`, the server must answer; an invalid value exits 2, a server that does not answer exits 1 with kind `rendezvous-silent`. | Settings, *Change…* |
 | `kalka autostart on [--headless]\|off\|status` | file | Start kalka at login (22.2). | Settings *Start at login* |
 | `kalka reference export [-o <file>] [--force]` / `reference version` | file | Write or name `BLUEPRINT-REFERENCE.md` (6.13). Never overwrites without `--force`. | Settings *Blueprint writing guide for agents* |
@@ -1050,7 +1051,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - WebRTC: `pion/webrtc`; TURN: `pion/turn`.
 - File watching: `fsnotify`.
 - Frontend: TypeScript with a small framework of the implementer's choice, built to static assets and embedded.
-- Releases (`tools/release`): per target a reproducible headless archive (`kalka`, `kalka-plugin-gh`; on Windows also `kalka-desktop.exe`), a `kalka-rendezvous` archive; the Windows installer (when NSIS is installed), `Kalka.app` in a zip (built on a Mac) and a Linux desktop archive (built on Linux with GTK 4 and WebKitGTK 6.0), each skipped with a reason when the host cannot build it; `SHA256SUMS`. See 23.5 for signing.
+- Releases (`tools/release`): per target a reproducible headless archive (`kalka`, `kalka-plugin-gh`; on Windows also `kalka-desktop.exe`), a `kalka-rendezvous` archive; the Windows installer (when NSIS is installed), `Kalka.app` in a zip (built on a Mac) and a Linux desktop archive (built on Linux with GTK 4 and WebKitGTK 6.0), each skipped with a reason when the host cannot build it; `SHA256SUMS`. In CI the Linux job publishes the release and a macOS job adds the app zips and their `SHA256SUMS` lines (24). See 23.5 for signing.
 - Pin dependency versions at implementation time; do not assume the versions current when this was written.
 
 ---
@@ -1446,6 +1447,7 @@ Team replication works only while members are online at the same time, so kalka 
 | Start at login | on, set once at the shell's first start | A per-user entry, no admin rights: Windows `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, macOS a LaunchAgent in `~/Library/LaunchAgents`, Linux an XDG autostart file. The entry starts the shell with `--hidden`, or `kalka daemon --background` where no shell is installed. The system's entry is the truth; it is not copied into `state.yaml`. |
 | Keep running when closed | on | Closing the window hides it. The first time, one notification says that kalka keeps syncing and where its icon is. Off: closing the window quits the shell, and an in-process daemon stops with it. |
 | Notifications | on | One switch for the notices of 22.4. Waiting items still show in the window when it is off. |
+| Install updates automatically | on | 24.2. |
 | Pause | off | 22.3. |
 
 - `--hidden` starts the shell with no window shown; autostart passes it. Starting the shell again always shows the window.
@@ -1472,6 +1474,7 @@ The core decides; the shell or the headless daemon shows them as OS notification
 | Someone joined with your invite | The owner's side, when a join is admitted. |
 | Your join completed or failed | The joiner's side, when a join reaches a final state. Retries raise nothing. |
 | Newer domain version | A received release raises a domain to a version above the one a document owned by the local user references. One notice per domain and version. |
+| A kalka update is ready | An update was downloaded and verified (24.2). One notice per version; a click opens Settings. |
 
 On macOS, an unsigned build cannot post to the notification centre; notices show only in the window. In a browser tab the page's own browser notifications remain; in the desktop window they are not used. `kalka daemon --no-notifications` shows none.
 
@@ -1530,3 +1533,38 @@ Signing is a configuration step of the release build, and its absence is not an 
 - Windows: an Authenticode code-signing certificate (on a hardware token or a cloud signing service, as certificate authorities issue them today) and a timestamp server. The build runs a configured signing command on every executable. Unsigned builds trigger SmartScreen; `docs/install.md` explains how to run them.
 - macOS: Apple Developer Program membership, a Developer ID Application certificate, the hardened runtime, notarization and stapling. The build reads the identity and the notary profile from the environment.
 - Linux: no signing; `SHA256SUMS` as today.
+
+---
+
+## 24. Updates
+
+The desktop app updates itself from the GitHub releases of the project; nothing is installed without a verified checksum, and nothing restarts without a click.
+
+### 24.1 Looking for a release
+
+- The daemon lists the releases (`GET /repos/<owner>/<repo>/releases` on the GitHub API) 30 seconds after it starts and every 6 hours, and on *Check for updates* or `kalka update`. The answer is cached by its ETag; a failed check (no network, GitHub's rate limit) is logged and shown in Settings, never fatal.
+- A build whose version is `dev` never checks. Pre-releases (a hyphen in the version) are ignored unless the running build is itself a pre-release.
+- **Policy**, caret-style as npm's `^`: a release is *compatible* with the running version when it has the same major version from 1.0.0 on, or, below 1.0.0, the same minor version (0.1.1 to 0.1.5, not to 0.2.0). Of the releases newer than the running one the newest compatible one is offered; with none, the newest of all, marked not compatible.
+- The package is `kalka_<v>_windows_<arch>_setup.exe`, `kalka_<v>_darwin_<arch>_app.zip` or `kalka_<v>_linux_<arch>_desktop.tar.gz`. A release without the package for this system is announced and not installed.
+
+### 24.2 Download
+
+- With *Install updates automatically* on (the default, `auto_update` in `state.yaml`), a compatible update is downloaded in the background to `<config>/updates/<version>/` and verified against the `SHA256SUMS` of the same release; a release without that file, or a package that does not match, is refused and removed. It is then *ready*: Settings and the tray say *Restart to update*, and one notice per version is raised (22.4).
+- With the setting off, or for an update that is not compatible, the update is only *available*: Settings and the tray show it with a link to the release notes and a *Download and restart* button. Nothing is downloaded before the click.
+- `GET /api/update` is `{current, checks, latest, state, compatible, notes_url, can_install, checked_at, error}`; `state` is `none`, `available`, `downloading`, `ready` or `error`. `POST /api/update/check` checks now; `POST /api/update/install` downloads if need be, installs and restarts. The settings API carries `auto_update`.
+
+### 24.3 Installing
+
+Only the desktop shell installs, and only an installation it recognises; anything else (the command line or headless daemon, a package manager, a folder it cannot write) is told about the release and never written to (`can_install` is false).
+
+| System | Recognised as | Install |
+|---|---|---|
+| Windows | `kalka-desktop.exe` beside `uninstall.exe` (the installer's folder) | The downloaded setup runs with `/S`. A silent install waits until the running `kalka-desktop.exe` can be replaced, installs, and starts kalka again. |
+| macOS | The program is inside `Kalka.app`, whose folder is writable | The new `Kalka.app` is unpacked beside the old one, the old one renamed aside, the new one renamed in, the old one removed; a failed swap puts the old one back. kalka is opened again once this process has ended. |
+| Linux | `kalka-desktop` with `kalka` and `kalka-plugin-gh` beside it, in a writable folder | The three programs are written beside the old ones and renamed over them, then `kalka-desktop` starts again once this process has ended. |
+
+Installing stops the daemon the usual way: running replication rounds finish first, then the shell ends.
+
+### 24.4 Tray
+
+The tray menu has one more item while there is something to offer: *Restart to update to X* (ready), *Download X and restart*, or *kalka X is available* (opens Settings when this kalka cannot install it).

@@ -59,6 +59,8 @@ type Options struct {
 	Lock *lockfile.Lock
 	// About is the version line of Settings (GET /api/about).
 	About About
+	// Update, if set, turns on the check for new releases (spec 24).
+	Update *UpdateOptions
 }
 
 // About is what `kalka version` prints, for the page.
@@ -93,6 +95,7 @@ type Daemon struct {
 	mu       sync.Mutex
 	shutdown context.CancelFunc
 	set      settings
+	upd      *updater
 }
 
 // New takes the lock and prepares a daemon around a new core node. With
@@ -135,6 +138,9 @@ func New(opts Options) (*Daemon, error) {
 	d := &Daemon{Node: n, opts: opts, dir: opts.ConfigDir, token: token}
 	d.set.st = st
 	n.SetSeen(d.seen)
+	if opts.Update != nil {
+		d.upd = newUpdater(d, *opts.Update)
+	}
 	return d, nil
 }
 
@@ -193,6 +199,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.opts.Notify != nil {
 		events, stopW := d.Bus().Watch()
 		go d.presentNotices(pctx.Done(), events, stopW)
+	}
+	if d.upd != nil {
+		go d.upd.loop(pctx)
 	}
 	if d.Paused() {
 		go func() { // one notice for a start in the paused state (spec 22.3)

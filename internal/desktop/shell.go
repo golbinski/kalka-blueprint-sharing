@@ -387,6 +387,9 @@ func (s *Shell) refresh() {
 		return
 	}
 	m := Tray(sum, set, s.Loc)
+	if st, err := c.UpdateStatus(ctx, false); err == nil {
+		m = m.WithUpdate(st)
+	}
 	s.mu.Lock()
 	s.sum, s.set, s.tray = sum, set, m
 	s.mu.Unlock()
@@ -433,6 +436,24 @@ func (s *Shell) Attached() bool {
 
 // Open is the tray's "Open kalka".
 func (s *Shell) Open() { s.UI.ShowWindow("") }
+
+// UpdateClicked is the tray's update item: with an update this kalka can
+// install it restarts into it (the click is the consent); otherwise the
+// window shows Settings, where the release is.
+func (s *Shell) UpdateClicked() {
+	c := s.client()
+	if c == nil {
+		return
+	}
+	st, err := c.UpdateStatus(s.ctx, false)
+	if err != nil || !st.CanInstall || st.State == daemon.UpdateDownloading {
+		s.UI.ShowWindow("#/settings")
+		return
+	}
+	if err := c.InstallUpdate(s.ctx); err != nil {
+		s.UI.Info("Update", err.Error())
+	}
+}
 
 // OpenWaiting is "N waiting for you".
 func (s *Shell) OpenWaiting() { s.UI.ShowWindow(s.Tray().WaitingHash) }

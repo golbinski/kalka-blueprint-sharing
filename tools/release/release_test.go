@@ -142,6 +142,9 @@ func TestNSISScript(t *testing.T) {
 		// A PATH that cannot be read whole is never written back.
 		"ClearErrors\n  ReadRegStr $0 HKCU \"Environment\" \"Path\"\n  ${If} ${Errors}",
 		"${If} $3 >= ${NSIS_MAX_STRLEN}",
+		// A silent install is an update (spec 24.3): it waits for the old
+		// program to end and starts kalka again; no message box blocks it.
+		"${If} ${Silent}\n    Exec '\"$INSTDIR\\kalka-desktop.exe\"'", `/SD IDNO IDNO +2`,
 		// The samples, offered on the finish page.
 		`!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples`, `nsExec::Exec '"$INSTDIR\kalka.exe" samples'`} {
 		if !strings.Contains(s, want) {

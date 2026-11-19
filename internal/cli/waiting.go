@@ -246,6 +246,7 @@ type settingsView struct {
 	Daemon             bool `json:"daemon"`
 	Notifications      bool `json:"notifications"`
 	KeepRunningOnClose bool `json:"keep_running_on_close"`
+	AutoUpdate         bool `json:"auto_update"`
 	Paused             bool `json:"paused"`
 	StartAtLogin       bool `json:"start_at_login"`
 	// Rendezvous is the server, as set in config.yaml.
@@ -261,10 +262,11 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	notes := fs.String("notifications", "", "on or off")
 	keep := fs.String("keep-running", "", "keep kalka running when the window closes: on or off")
+	auto := fs.String("auto-update", "", "install updates automatically: on or off")
 	rdv := fs.String("rendezvous", "", "switch the rendezvous server: a wss:// or https:// address, or peerjs-cloud")
 	force := fs.Bool("force", false, "with --rendezvous: switch although the server does not answer")
 	use := func() int {
-		fmt.Fprintf(stderr, "usage: %s settings [--notifications on|off] [--keep-running on|off] [--rendezvous <url|peerjs-cloud> [--force]] [--json]\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s settings [--notifications on|off] [--keep-running on|off] [--auto-update on|off] [--rendezvous <url|peerjs-cloud> [--force]] [--json]\n", name.Binary)
 		return exitUsage
 	}
 	pos, err := parseInterspersed(fs, args)
@@ -275,7 +277,7 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 	for _, f := range []struct {
 		v   string
 		dst **bool
-	}{{*notes, &in.Notifications}, {*keep, &in.KeepRunningOnClose}} {
+	}{{*notes, &in.Notifications}, {*keep, &in.KeepRunningOnClose}, {*auto, &in.AutoUpdate}} {
 		switch f.v {
 		case "":
 		case "on", "off":
@@ -302,7 +304,7 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 	}
-	change := in.Notifications != nil || in.KeepRunningOnClose != nil
+	change := in.Notifications != nil || in.KeepRunningOnClose != nil || in.AutoUpdate != nil
 	var set daemon.Settings
 	live := true
 	if change {
@@ -338,7 +340,7 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 	if cfg, err := config.Load(); err == nil {
 		rendezvous = cfg.Rendezvous
 	}
-	v := settingsView{Rendezvous: rendezvous, Daemon: live, Notifications: isOn(set.Notifications), KeepRunningOnClose: isOn(set.KeepRunningOnClose),
+	v := settingsView{Rendezvous: rendezvous, Daemon: live, Notifications: isOn(set.Notifications), KeepRunningOnClose: isOn(set.KeepRunningOnClose), AutoUpdate: isOn(set.AutoUpdate),
 		Paused: isOn(set.Paused), StartAtLogin: isOn(set.StartAtLogin)}
 	if *asJSON {
 		writeJSON(stdout, v)
@@ -350,8 +352,8 @@ func cmdSettings(args []string, stdout, stderr io.Writer) int {
 		}
 		return "off"
 	}
-	fmt.Fprintf(stdout, "notifications  %s\nkeep running   %s\npaused         %s\nstart at login %s\n",
-		word(v.Notifications), word(v.KeepRunningOnClose), word(v.Paused), word(v.StartAtLogin))
+	fmt.Fprintf(stdout, "notifications  %s\nkeep running   %s\nauto update    %s\npaused         %s\nstart at login %s\n",
+		word(v.Notifications), word(v.KeepRunningOnClose), word(v.AutoUpdate), word(v.Paused), word(v.StartAtLogin))
 	if rendezvous != "" {
 		fmt.Fprintf(stdout, "server         %s\n", rendezvous)
 	}

@@ -102,7 +102,8 @@ func usage(w io.Writer) {
   %[1]s team create <name> | invite <email> [--expires 72h] | uninvite <id> | members | log | invites | sync
   %[1]s team remove <email> [--dry-run] | add-owner|remove-owner <email>   (any team command: --team <name>)
   %[1]s waiting [--team <t>] [--json] | --seen <file>   what only you can move forward
-  %[1]s settings [--notifications on|off] [--keep-running on|off] [--json]
+  %[1]s settings [--notifications on|off] [--keep-running on|off] [--auto-update on|off] [--json]
+  %[1]s update [--check] [--json]   look for a new kalka, and install it and restart (--check: only look)
   %[1]s settings --rendezvous <url|peerjs-cloud> [--force]   switch the server (teammates must switch too)
   %[1]s join <link or token> [--wait 20s]   redeem an invite
   %[1]s join --show <link or token>         what the invite is, without joining

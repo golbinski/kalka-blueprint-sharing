@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -22,11 +24,14 @@ const StateFile = "state.yaml"
 // State is state.yaml. Settings that default to on are pointers, so a
 // missing key means the default.
 type State struct {
-	Paused               bool  `yaml:"paused"`
-	Notifications        *bool `yaml:"notifications,omitempty"`
-	KeepRunningOnClose   *bool `yaml:"keep_running_on_close,omitempty"`
-	CloseNoticeShown     bool  `yaml:"close_notice_shown,omitempty"`
-	AutostartInitialized bool  `yaml:"autostart_initialized,omitempty"`
+	Paused             bool  `yaml:"paused"`
+	Notifications      *bool `yaml:"notifications,omitempty"`
+	KeepRunningOnClose *bool `yaml:"keep_running_on_close,omitempty"`
+	AutoUpdate         *bool `yaml:"auto_update,omitempty"`
+	// UpdateNoticed is the version whose "ready" notice was raised (spec 24.2).
+	UpdateNoticed        string `yaml:"update_noticed,omitempty"`
+	CloseNoticeShown     bool   `yaml:"close_notice_shown,omitempty"`
+	AutostartInitialized bool   `yaml:"autostart_initialized,omitempty"`
 	// Seen marks handed-to-you items as seen (spec 11.3): document id ->
 	// the release or reassignment it was seen at.
 	Seen map[string]string `yaml:"seen,omitempty"`
@@ -85,6 +90,7 @@ type Settings struct {
 	Paused             *bool `json:"paused,omitempty"`
 	Notifications      *bool `json:"notifications,omitempty"`
 	KeepRunningOnClose *bool `json:"keep_running_on_close,omitempty"`
+	AutoUpdate         *bool `json:"auto_update,omitempty"`
 	StartAtLogin       *bool `json:"start_at_login,omitempty"`
 	// StartAtLoginAvailable is false where this kalka cannot change the
 	// entry (tests, or a build without autostart).
@@ -116,7 +122,7 @@ func (d *Daemon) Settings() Settings {
 	st := d.set.st
 	d.set.mu.Unlock()
 	out := Settings{Paused: ptr(d.Paused()), Notifications: ptr(on(st.Notifications)),
-		KeepRunningOnClose: ptr(on(st.KeepRunningOnClose)), CloseNoticeShown: ptr(st.CloseNoticeShown),
+		KeepRunningOnClose: ptr(on(st.KeepRunningOnClose)), AutoUpdate: ptr(on(st.AutoUpdate)), CloseNoticeShown: ptr(st.CloseNoticeShown),
 		AutostartInitialized: ptr(st.AutostartInitialized)}
 	if a := d.opts.Autostart; a != nil {
 		out.StartAtLoginAvailable = true
@@ -133,7 +139,7 @@ func (d *Daemon) Settings() Settings {
 // start at login, which the system's entry decides, is left out.
 func (s State) Settings() Settings {
 	return Settings{Paused: ptr(s.Paused), Notifications: ptr(on(s.Notifications)),
-		KeepRunningOnClose: ptr(on(s.KeepRunningOnClose)), CloseNoticeShown: ptr(s.CloseNoticeShown),
+		KeepRunningOnClose: ptr(on(s.KeepRunningOnClose)), AutoUpdate: ptr(on(s.AutoUpdate)), CloseNoticeShown: ptr(s.CloseNoticeShown),
 		AutostartInitialized: ptr(s.AutostartInitialized)}
 }
 
@@ -165,6 +171,9 @@ func (d *Daemon) Apply(in Settings) (Settings, error) {
 	if in.KeepRunningOnClose != nil {
 		st.KeepRunningOnClose = ptr(*in.KeepRunningOnClose)
 	}
+	if in.AutoUpdate != nil {
+		st.AutoUpdate = ptr(*in.AutoUpdate)
+	}
 	if in.CloseNoticeShown != nil {
 		st.CloseNoticeShown = *in.CloseNoticeShown
 	}
@@ -181,6 +190,14 @@ func (d *Daemon) Apply(in Settings) (Settings, error) {
 	}
 	d.SetNotifications(on(st.Notifications))
 	d.SetPaused(st.Paused)
+	if d.upd != nil && in.AutoUpdate != nil && *in.AutoUpdate {
+		// Turned on: take what is waiting. A check is cheap (ETag).
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			_ = d.upd.check(ctx)
+		}()
+	}
 	d.Bus().Publish(core.BusEvent{Type: "settings"})
 	return d.Settings(), nil
 }
