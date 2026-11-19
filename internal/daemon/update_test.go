@@ -79,7 +79,8 @@ func updating(t *testing.T, version string, delay time.Duration, applied *[]stri
 
 func TestAutoUpdateDownloadsCompatible(t *testing.T) {
 	var applied []string
-	n, _, _ := updating(t, "0.1.1", time.Millisecond, &applied)
+	// The check waits long enough for the watch below to see its notice.
+	n, _, _ := updating(t, "0.1.1", 300*time.Millisecond, &applied)
 	events, stop := n.d.Bus().Watch()
 	defer stop()
 	waitFor(t, "ready", func() bool { return n.d.UpdateStatus().State == UpdateReady })

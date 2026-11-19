@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -249,7 +250,8 @@ func TestDetect(t *testing.T) {
 	if got := Detect("darwin", touch("elsewhere", "kalka")); got.Kind != Unknown {
 		t.Errorf("a bare binary on a Mac: %v", got)
 	}
-	if os.Getuid() != 0 {
+	// Windows has no read-only folders by mode bits (it updates by installer).
+	if runtime.GOOS != "windows" && os.Getuid() != 0 {
 		ro := filepath.Join(dir, "ro")
 		os.MkdirAll(filepath.Join(ro, "Kalka.app", "Contents", "MacOS"), 0o755)
 		os.WriteFile(filepath.Join(ro, "Kalka.app", "Contents", "MacOS", "kalka"), nil, 0o755)
@@ -303,7 +305,8 @@ func TestInstallTarball(t *testing.T) {
 	for _, p := range programs {
 		b, _ := os.ReadFile(filepath.Join(dir, p))
 		fi, _ := os.Stat(filepath.Join(dir, p))
-		if string(b) != "new "+p || fi.Mode().Perm() != 0o755 {
+		// Windows has no executable bit.
+		if string(b) != "new "+p || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755) {
 			t.Errorf("%s = %q %v", p, b, fi.Mode())
 		}
 	}
