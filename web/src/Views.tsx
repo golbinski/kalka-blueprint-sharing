@@ -273,7 +273,7 @@ export function OpenFolder({ rel = '', label = 'Open folder' }: { rel?: string; 
 
 // PreBacklog is Seeds (spec 6.11): every seed in the scope, with its
 // owner, where it was split off from and its last activity.
-export function PreBacklog({ self, scope }: { self: string; scope: string }) {
+export function PreBacklog({ scope }: { scope: string }) {
   const [rows, setRows] = useState<SeedRow[] | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
@@ -331,7 +331,7 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
                   </td>
                   <td title={r.active}>{ago(r.active)}</td>
                   <td>
-                    {r.mine && bpEq(r.owner, self) && (
+                    {r.mine && (
                       <button type="button" className="link" {...act('seed.promote')} disabled={busy === r.rel} onClick={() => promote(r.rel)}>
                         Turn into a blueprint
                       </button>
@@ -346,8 +346,6 @@ export function PreBacklog({ self, scope }: { self: string; scope: string }) {
     </div>
   )
 }
-
-const bpEq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /** AddSamples copies the sample blueprints into Personal/samples (kalka
  * samples, spec 12.1); files already there are kept. */

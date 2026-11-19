@@ -364,7 +364,7 @@ export function App() {
         )}
         {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} onPublish={() => setPublishing(true)} />}
         {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
-        {route.view === 'seeds' && scope && <PreBacklog self={status.email} scope={scope} />}
+        {route.view === 'seeds' && scope && <PreBacklog scope={scope} />}
         {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} list={list ?? []} />}
         {route.view === 'needs' && <NeedsPage reloadKey={teamTick} notices={notices} />}
         {(route.view === 'team' || route.view === 'domains') && personal && (

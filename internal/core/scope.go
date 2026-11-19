@@ -31,6 +31,16 @@ func (d *Node) teamDirAt(path string) (teamDir, bool) {
 	return teamDir{}, false
 }
 
+// ownsAt reports whether the local user owns doc at path: in Personal
+// always, whatever kalka_owner says (spec 7.1); in a team, when it names
+// them.
+func (d *Node) ownsAt(path string, doc *bp.Document) bool {
+	if _, ok := d.teamDirAt(path); !ok {
+		return true
+	}
+	return bp.SameEmail(doc.Owner(), d.self.Email)
+}
+
 // inDir reports whether path lies below dir.
 func inDir(dir, path string) bool {
 	return strings.HasPrefix(path, filepath.Clean(dir)+string(filepath.Separator))

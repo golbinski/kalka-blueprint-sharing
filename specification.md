@@ -392,7 +392,7 @@ The parent's frontmatter and body are not touched. The backlink reaches the pare
 
 **Pre-backlog.** A view, *Seeds* in the app, per team and for Personal, of every seed held there: title, owner, parent (linked when held, also after the parent was moved, through `moved-from`), and last activity: the later of `created` and the newest entry.
 
-**Promotion.** The owner changes `status` to another value, typically `draft`: *Promote* in the UI or `kalka promote`, which for a team document also releases the change. A team owner promotes someone else's seed by taking it over first (19.6). A non-owner's edit of `status` is a stray plan edit and does not travel (20.4).
+**Promotion.** The owner (in Personal, the local user, as for any document there: 7.1) changes `status` to another value, typically `draft`: *Promote* in the UI or `kalka promote`, which for a team document also releases the change. A team owner promotes someone else's seed by taking it over first (19.6). A non-owner's edit of `status` is a stray plan edit and does not travel (20.4).
 
 ### 6.12 Domain documents
 

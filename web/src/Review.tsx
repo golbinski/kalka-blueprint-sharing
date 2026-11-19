@@ -111,7 +111,8 @@ function SeedStrip({ doc, reload }: { doc: Doc; reload: () => void }) {
             <>A seed: an idea kept small until someone takes it up.</>
           )}
         </span>
-        {doc.role === 'owner' && (
+        {/* In Personal every seed is yours, sent or not (spec 7.1). */}
+        {(doc.role === 'owner' || doc.scope === 'personal') && (
           <button type="button" className="link" {...act('seed.promote')} disabled={busy} onClick={() => run(() => api.promote(doc.rel))}>
             Turn into a blueprint
           </button>

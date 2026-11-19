@@ -160,7 +160,7 @@ func (d *Node) Promote(path, status string) error {
 		if err != nil {
 			return err
 		}
-		if !bp.SameEmail(doc.Owner(), d.self.Email) {
+		if !d.ownsAt(f.Path, doc) {
 			return fmt.Errorf("only the owner (%s) can promote this seed", doc.Owner())
 		}
 		if err := bp.Promote(doc, status); err != nil {
@@ -204,7 +204,7 @@ func (d *Node) Seeds() []SeedView {
 		}
 		doc := f.Doc
 		v := SeedView{Rel: d.rel(f.Path), KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(),
-			Mine: bp.SameEmail(doc.Owner(), d.self.Email), Parent: doc.Parent()}
+			Mine: d.ownsAt(f.Path, doc), Parent: doc.Parent()}
 		if v.Parent != "" {
 			if pf, err := d.Store.Resolve(v.Parent); err == nil && pf != nil {
 				v.ParentRel, v.ParentTitle = d.rel(pf.Path), pf.Doc.Title()

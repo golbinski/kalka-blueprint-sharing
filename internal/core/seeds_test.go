@@ -117,3 +117,27 @@ func TestPromoteSeed(t *testing.T) {
 		t.Fatalf("status %q", d.Status())
 	}
 }
+
+// In Personal a seed is yours whatever kalka_owner says, also one never
+// sent, with no kalka_id and no owner (spec 7.1).
+func TestPromotePersonalSeed(t *testing.T) {
+	_, ns := teamOfN(t, "alice@parcels.example", "bob@parcels.example")
+	alice := ns[0]
+	alice.write("idea.md", "---\nkalka_status: seed\n---\n\n# Lockers by the door\n")
+	waitStored(t, alice, alice.path("idea.md"), "Lockers by the door")
+	var row *SeedView
+	for _, s := range alice.d.Seeds() {
+		if s.Rel == "idea.md" {
+			row = &s
+		}
+	}
+	if row == nil || !row.Mine {
+		t.Fatalf("seed row %+v", row)
+	}
+	if err := alice.d.Promote("idea.md", ""); err != nil {
+		t.Fatal(err)
+	}
+	if d := alice.doc("idea.md"); d.IsSeed() || d.Status() != "draft" {
+		t.Fatalf("status %q", d.Status())
+	}
+}
