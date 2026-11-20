@@ -70,6 +70,8 @@ func TestImmediateHandoff(t *testing.T) {
 
 	courier.start()
 	waitKeyOnline(t, courier)
+	// Pausing took the depot offline; resuming reconnects in the background.
+	waitKeyOnline(t, depot)
 	heard := noticesOf(t, courier)
 	depot.replicate(courier)
 	got := noticesOfKind(heard(), NoticeHandoff)
