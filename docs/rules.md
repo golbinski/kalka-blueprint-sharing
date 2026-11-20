@@ -15,6 +15,9 @@ Every diagnostic of `kalka check` and of the app has one of these ids (specifica
 | `F005` | info | **Local blueprint.** The document has no `kalka_id:` yet: it is local and gets one on first publish. |
 | `F010` | warning | **Domain name missing or malformed.** A domain document (`kalka_kind: domain`) has no valid `kalka_domain:` name: lower-case letters, digits and dashes. |
 | `F011` | warning | **Domain version is not a number.** `kalka_version:` of a domain document is not a positive number. |
+| `F020` | warning | **Issue link malformed.** `kalka_issue:` is not `<scheme>:<issue>`: a plugin scheme, a colon and the issue's key, with no spaces. |
+| `F021` | info | **Issue scheme without a shipped plugin.** `kalka_issue:` names a scheme no plugin shipped with kalka handles; a plugin installed for it may. |
+| `F022` | warning | **Archive time malformed.** `kalka_archived:` is not a UTC time; the blueprint is not treated as archived. |
 
 ## Structure and the review log (B)
 

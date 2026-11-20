@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -238,4 +239,18 @@ func (f *fakePlugins) Resolve(_ context.Context, scheme string, fm map[string]an
 		}
 	}
 	return out
+}
+
+func (f *fakePlugins) Installed() []string { return []string{"gh"} }
+
+func (f *fakePlugins) Capabilities(context.Context, string) (*plugin.Description, error) {
+	return &plugin.Description{Protocol: plugin.Protocol, Name: "github", Capabilities: plugin.Capabilities{Resolve: true}}, nil
+}
+
+func (f *fakePlugins) IssueMeta(context.Context, string, []string) ([]plugin.IssueMeta, error) {
+	return nil, errors.New("not declared")
+}
+
+func (f *fakePlugins) Export(context.Context, string, plugin.ExportRequest) (*plugin.ExportResult, error) {
+	return nil, errors.New("not declared")
 }

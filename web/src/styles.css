@@ -2749,3 +2749,128 @@ details.terms {
     display: none;
   }
 }
+
+/* The issue a blueprint addresses (spec 10.5): chip, parents, export. */
+.docbar-issue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 12px;
+}
+.issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 420px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 13px;
+}
+.issue-chip > a,
+.issue-chip > span:first-child {
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+}
+.issue-chip > a:hover .issue-title {
+  text-decoration: underline;
+}
+.issue-key {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--link);
+}
+.issue-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.issue-status {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--panel);
+  color: var(--text-2);
+}
+.issue-status.in_progress {
+  background: var(--accent-soft);
+  color: var(--link);
+}
+.issue-status.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.issue-asof {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.issue-parents {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.issue-parents li + li::before {
+  content: '›';
+  margin-right: 4px;
+}
+.docbar-export {
+  margin-right: 8px;
+}
+.badge.issue {
+  font-family: var(--mono);
+}
+
+/* Grouping and archived documents in the lists (spec 11.1). */
+.list-controls {
+  gap: 16px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.list-controls label.row {
+  gap: 6px;
+}
+.table tr.group-row th {
+  padding-top: 14px;
+  text-align: left;
+  font-weight: 600;
+  background: var(--panel);
+  color: var(--text-2);
+}
+.table tr.group-row.no-issue th,
+.table tr.group-row.unavailable th,
+.table tr.group-row.no-parent th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.table tr.archived td,
+.doc-rail-list a.archived {
+  color: var(--muted);
+}
+.doc-rail-group {
+  padding: 10px 12px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-rail-group a {
+  color: inherit;
+}

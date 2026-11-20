@@ -20,6 +20,8 @@ export const ACTIONS = {
   'doc.copy': 'Copy to another team… (kalka copy)',
   'doc.move': 'Move to another team… (kalka move)',
   'doc.delete': 'Delete for the team…, Take over and delete… (kalka delete)',
+  'doc.export': 'Export to the issue… (kalka export)',
+  'doc.archive': 'Archive, Unarchive (kalka archive)',
   'transfer.accept': 'Accept a transfer (kalka transfer accept)',
   'transfer.decline': 'Decline a transfer (kalka transfer decline)',
   'transfer.withdraw': 'Withdraw your transfer (kalka transfer withdraw)',

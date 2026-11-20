@@ -2,6 +2,8 @@
 /kalka.exe
 /kalka-plugin-gh
 /kalka-plugin-gh.exe
+/kalka-plugin-jira
+/kalka-plugin-jira.exe
 /dist/
 /web/node_modules/
 /web/dist/

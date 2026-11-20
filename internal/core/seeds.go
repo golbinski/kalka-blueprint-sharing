@@ -192,6 +192,8 @@ type SeedView struct {
 	// Active is the later of created and the newest entry; empty when the
 	// seed has no created key ("age unknown").
 	Active string `json:"active,omitempty"`
+	// Archived: lists hide it by default (spec 10.5).
+	Archived bool `json:"archived,omitempty"`
 }
 
 // Seeds lists every seed in the folder, most recently active first.
@@ -205,6 +207,7 @@ func (d *Node) Seeds() []SeedView {
 		doc := f.Doc
 		v := SeedView{Rel: d.rel(f.Path), KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(),
 			Mine: d.ownsAt(f.Path, doc), Parent: doc.Parent()}
+		_, v.Archived = doc.Archived()
 		if v.Parent != "" {
 			if pf, err := d.Store.Resolve(v.Parent); err == nil && pf != nil {
 				v.ParentRel, v.ParentTitle = d.rel(pf.Path), pf.Doc.Title()

@@ -112,6 +112,18 @@ kalka comment plan.md --anchor scope --kind deviation \
 
 *Why agents benefit:* the plan stays the agreed reference, and the log says what changed and why. The next agent, or the reviewer, sees both, instead of a plan silently rewritten to match the code.
 
+## The issue it addresses
+
+When the plan is written for an issue in the team's tracker and you know its key, put it in the frontmatter while planning:
+
+```yaml
+kalka_issue: jira:DEV-123
+```
+
+The part before the colon picks the tracker's plugin (`jira:` for Jira); the rest is the issue's key. One issue per blueprint. kalka shows each reader the issue's title and status through their own plugin and credentials, and never writes them into the file. Once a version is released, the owner can export it to that issue (`kalka export`), which attaches the file and records an `exported` entry. Do not write `exported` entries yourself. `kalka check` warns about a malformed key (`F020`).
+
+Why it helps: the issue holds the request and the discussion the plan answers. Linking it lets people find the plan from the work item, and lets kalka group plans by epic or status.
+
 ## Trace blocks
 
 A trace block shows one process at two or more levels (lanes), most abstract first, and links the levels. kalka draws it and lists where the levels differ. Write one when a plan describes a pipeline or algorithm in words and the reader needs to find it in the code.
@@ -252,6 +264,9 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 | `F005` | info | **Local blueprint.** The document has no `kalka_id:` yet: it is local and gets one on first publish. |
 | `F010` | warning | **Domain name missing or malformed.** A domain document (`kalka_kind: domain`) has no valid `kalka_domain:` name: lower-case letters, digits and dashes. |
 | `F011` | warning | **Domain version is not a number.** `kalka_version:` of a domain document is not a positive number. |
+| `F020` | warning | **Issue link malformed.** `kalka_issue:` is not `<scheme>:<issue>`: a plugin scheme, a colon and the issue's key, with no spaces. |
+| `F021` | info | **Issue scheme without a shipped plugin.** `kalka_issue:` names a scheme no plugin shipped with kalka handles; a plugin installed for it may. |
+| `F022` | warning | **Archive time malformed.** `kalka_archived:` is not a UTC time; the blueprint is not treated as archived. |
 
 #### Structure and the review log (B)
 
@@ -389,6 +404,7 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 kalka_owner: dana@example.org
 kalka_reference: kalka-blueprint@v1
 kalka_domain: parcels/delivery@v7
+kalka_issue: jira:DEV-123
 ---
 
 # Redelivery scheduling

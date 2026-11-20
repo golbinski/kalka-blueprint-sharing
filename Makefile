@@ -11,6 +11,7 @@ web:
 build:
 	go build -o kalka ./cmd/kalka
 	go build -o kalka-plugin-gh ./cmd/kalka-plugin-gh
+	go build -o kalka-plugin-jira ./cmd/kalka-plugin-jira
 
 # The rendezvous server a team hosts (docs/rendezvous.md): its own binary,
 # with nothing of the client.
@@ -36,4 +37,4 @@ release: web
 	go run ./tools/release -version $(VERSION)
 
 clean:
-	rm -rf kalka kalka-desktop kalka-plugin-gh kalka-rendezvous internal/ui/dist/assets internal/ui/dist/index.html
+	rm -rf kalka kalka-desktop kalka-plugin-gh kalka-plugin-jira kalka-rendezvous internal/ui/dist/assets internal/ui/dist/index.html

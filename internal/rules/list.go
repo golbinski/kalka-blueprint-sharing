@@ -32,6 +32,18 @@ var all = []Rule{
 		Meaning: "`kalka_version:` of a domain document is not a positive number.",
 		Why:     "Blueprints pin a domain version by number; kalka increments it on release.",
 		Wrong:   "kalka_version: first", Right: "kalka_version: 1"},
+	{ID: "F020", Severity: Warning, Title: "Issue link malformed",
+		Meaning: "`kalka_issue:` is not `<scheme>:<issue>`: a plugin scheme, a colon and the issue's key, with no spaces.",
+		Why:     "The scheme picks the plugin that knows the tracker; an issue kalka cannot read is shown as plain text and cannot be exported to.",
+		Wrong:   "kalka_issue: DEV-123", Right: "kalka_issue: jira:DEV-123"},
+	{ID: "F021", Severity: Info, Title: "Issue scheme without a shipped plugin",
+		Meaning: "`kalka_issue:` names a scheme no plugin shipped with kalka handles; a plugin installed for it may.",
+		Why:     "Says why the issue may show no title or status; kalka check does not run plugins, so it cannot tell whether one is installed.",
+		Wrong:   "kalka_issue: tracker:DEV-123 (with no kalka-plugin-tracker installed)", Right: "kalka_issue: jira:DEV-123"},
+	{ID: "F022", Severity: Warning, Title: "Archive time malformed",
+		Meaning: "`kalka_archived:` is not a UTC time; the blueprint is not treated as archived.",
+		Why:     "kalka writes the time when the owner archives a blueprint, and lists hide it by that key.",
+		Wrong:   "kalka_archived: yes", Right: "kalka_archived: 2026-11-20T10:00:00Z"},
 
 	// B: structure and the review log.
 	{ID: "B000", Severity: Error, Blocks: true, Title: "File cannot be read",

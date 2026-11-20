@@ -246,6 +246,24 @@ function VersionLine({ e }: { e: Entry }) {
   )
 }
 
+// ExportLine is an export of a released version to its issue (spec 10.5).
+function ExportLine({ e }: { e: Entry }) {
+  const x = e.exported!
+  return (
+    <div className="version-line" id={'e-' + e.id}>
+      <b>Exported v{x.version}</b> to{' '}
+      {x.url ? (
+        <a href={x.url} target="_blank" rel="noreferrer">
+          {x.issue}
+        </a>
+      ) : (
+        x.issue
+      )}{' '}
+      · {localTime(e.timestamp)} · {shortName(e.author)}
+    </div>
+  )
+}
+
 // SeedLine is a seed split off from an entry, under the entry.
 function SeedLine({ e }: { e: Entry }) {
   return (
@@ -284,6 +302,7 @@ export function EntryCard({
   const [unfolded, setUnfolded] = useState(false)
   const [why, setWhy] = useState('')
   if (e.kind === 'release') return <VersionLine e={e} />
+  if (e.kind === 'exported' && e.exported) return <ExportLine e={e} />
   if (e.kind === 'budded' && e.budded_seed) return <SeedLine e={e} />
   if (e.incorporated_in && !unfolded) {
     return (

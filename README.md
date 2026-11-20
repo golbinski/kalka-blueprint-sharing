@@ -155,6 +155,15 @@ The repository and commit come from the blueprint's frontmatter (`repo`,
 `base_sha`). A plan that spans several repositories names the others under
 `repos:` and picks one per link: `[form](gh:web:src/upload/Form.tsx#L10-L60)`.
 
+### Jira
+
+`kalka_issue: jira:DEV-123` in the frontmatter names the issue a blueprint
+addresses. With `kalka-plugin-jira login` done, the document shows the
+issue's title, status and parents, the Blueprints list groups by parent or
+status, and the released version can be exported to the issue (attachment
+and comment), after which the blueprint can be archived. Setup and limits:
+[docs/jira.md](docs/jira.md).
+
 ## Building from source
 
 You need Go (the version in `go.mod`) and Node.js 24. The desktop app also
@@ -164,7 +173,7 @@ WebKitGTK 6.0 development packages (`libgtk-4-dev`,
 
 ```sh
 make web          # build the web UI into internal/ui/dist (embedded in the binary)
-make build        # kalka and kalka-plugin-gh
+make build        # kalka and the plugins (kalka-plugin-gh, kalka-plugin-jira)
 make desktop      # kalka-desktop, the desktop shell, for this system
 make rendezvous   # kalka-rendezvous
 make test         # web tests, then go test -race ./...
@@ -189,6 +198,7 @@ Linux, macOS and Windows. A `v*` tag builds the release.
 | `cmd/kalka-desktop` | The desktop shell (Wails v3): window, tray, notifications |
 | `cmd/kalka-rendezvous` | The rendezvous server: PeerJS-compatible signaling and TURN |
 | `cmd/kalka-plugin-gh` | The GitHub reference plugin |
+| `cmd/kalka-plugin-jira` | The Jira plugin: issue metadata and export |
 | `internal/blueprint`, `internal/merge` | The file format, signed entries, releases and merging |
 | `internal/teamlog` | Team logs: operations, replay, invites |
 | `internal/core` | The node: teams, replication, ownership, transfers, seeds, domains |

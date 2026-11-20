@@ -67,6 +67,12 @@ type DocView struct {
 	// Transfer is set for a document that came by a copy or a move, or
 	// that is being moved away (spec 20.7).
 	Transfer *TransferInfo `json:"transfer,omitempty"`
+	// Issue is the issue kalka_issue names, as the reader's plugin knows
+	// it, and Export whether the reader can export to it (spec 10.5).
+	Issue  *IssueView   `json:"issue,omitempty"`
+	Export *ExportState `json:"export,omitempty"`
+	// Archived is when the document was archived (kalka_archived).
+	Archived string `json:"archived,omitempty"`
 }
 
 // SeedInfo describes a seed in the document view.
@@ -116,6 +122,8 @@ type EntryView struct {
 	// Release is a release entry as the core reads it (spec 20.4): the
 	// page never parses the release line itself.
 	Release *ReleaseView `json:"release,omitempty"`
+	// Exported is an exported entry as the core reads it (spec 10.5).
+	Exported *bp.Exported `json:"exported,omitempty"`
 }
 
 // ReleaseView is a parsed release entry.
@@ -242,6 +250,9 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 				ev.Sig = "verified" // by a key the team log binds (spec 8.2)
 			}
 		}
+		if x, ok := e.Exported(); ok {
+			ev.Exported = &x
+		}
 		if id, title, ok := e.Budded(); ok {
 			ev.BuddedSeed, ev.BuddedTitle = id, title
 			if sf, err := d.Store.Resolve(id); err == nil && sf != nil {
@@ -249,6 +260,13 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 			}
 		}
 		v.Entries = append(v.Entries, ev)
+	}
+	if snapshot == 0 {
+		v.Issue = d.issueView(doc, rel)
+		v.Export = d.exportState(path, doc, v.Issue)
+	}
+	if t, ok := doc.Archived(); ok {
+		v.Archived = t.UTC().Format(time.RFC3339)
 	}
 	if doc.IsSeed() {
 		si := &SeedInfo{Parent: doc.Parent()}

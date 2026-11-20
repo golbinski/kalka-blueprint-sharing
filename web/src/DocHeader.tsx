@@ -14,6 +14,7 @@ import { MemberSelect, useMembers } from './Members'
 import { Modal } from './Modal'
 import { attestedText } from './scope'
 import { TransferDialog } from './Transfer'
+import { archiveRole } from './Issue'
 import { docHref, plural, warningOf } from './util'
 
 type Panel = '' | 'owner' | 'delete' | 'take-release' | 'take-delete'
@@ -66,6 +67,17 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
     more.push({ label: 'Copy to another team…', sep: true, onSelect: () => setTransfer('copy') })
     more.push({ label: 'Move to another team…', onSelect: () => setTransfer('move') })
   }
+  const archiver = dm?.viewing ? '' : archiveRole(doc)
+  if (archiver) {
+    const undo = !!doc.archived
+    more.push({
+      label: (undo ? 'Unarchive' : 'Archive') + (archiver === 'take-over' ? ' (take over)' : ''),
+      sub: undo ? 'list it again' : archiver === 'take-over' ? 'you become its owner, then archive it' : 'hide it from the lists; it still replicates',
+      sep: true,
+      action: 'doc.archive',
+      onSelect: () => run(() => api.archive(doc.rel, !undo, archiver === 'take-over')),
+    })
+  }
   if (takeOver) more.push({ label: 'Take over and release…', sub: 'you become its owner, then release it', sep: true, onSelect: () => setPanel('take-release') })
   if (live && t!.can_act) more.push({ label: 'Delete for the team…', danger: true, sep: true, onSelect: () => setPanel('delete') })
   if (takeOver) more.push({ label: 'Take over and delete…', danger: true, onSelect: () => setPanel('take-delete') })
@@ -78,7 +90,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
         <div className="grow">
           <div className="doc-head-state">{st.head}</div>
           <div className="doc-head-sub">
-            {st.sub}
+            {doc.archived && <span className="badge">archived</span>} {st.sub}
             {dm?.viewing ? (
               <>
                 {' '}

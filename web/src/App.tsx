@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { act } from './actions'
-import { api, ApiError, events, type BlueprintInfo, type Doc, type Entry, type Join, type Notice, type Status, type Summary, type Team } from './api'
+import {
+  api,
+  ApiError,
+  events,
+  type BlueprintInfo,
+  type Doc,
+  type Entry,
+  type IssuesView,
+  type Join,
+  type Notice,
+  type Status,
+  type Summary,
+  type Team,
+} from './api'
 import { PublishDialog, SeedDialog } from './Dialogs'
 import { noticeHref, notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
@@ -80,13 +93,29 @@ export function App() {
   const loadList = useCallback(() => {
     const sc = scopeRef.current
     if (!sc) return
-    api.blueprints(sc).then((l) => scopeRef.current === sc && setList(l), () => {})
+    api.blueprints(sc).then(
+      (l) => scopeRef.current === sc && setList(l),
+      () => {},
+    )
+  }, [])
+  // What the reader's plugins say about the scope's issues (spec 10.5).
+  const [issues, setIssues] = useState<IssuesView | undefined>(undefined)
+  const loadIssues = useCallback(() => {
+    const sc = scopeRef.current
+    if (!sc) return
+    api.issues(sc).then(
+      (v) => scopeRef.current === sc && setIssues(v),
+      () => {},
+    )
   }, [])
   const loadTeams = useCallback(() => {
     api.teams().then(setTeams, () => {})
     api.joins().then(setJoins, () => {})
     api.summary().then(setSummary, () => {})
-    api.unread().then((l) => setUnreadCount(l.length), () => {})
+    api.unread().then(
+      (l) => setUnreadCount(l.length),
+      () => {},
+    )
   }, [])
   const loadDoc = useCallback(async () => {
     const p = docPathRef.current
@@ -129,8 +158,12 @@ export function App() {
   }, [ready, teamTick, loadTeams])
   useEffect(() => {
     setList([])
-    if (ready) loadList()
-  }, [ready, scope, loadList])
+    setIssues(undefined)
+    if (ready) {
+      loadList()
+      loadIssues()
+    }
+  }, [ready, scope, loadList, loadIssues])
   useEffect(() => {
     if (!ready) return
     const stop = events(
@@ -138,8 +171,12 @@ export function App() {
         switch (type) {
           case 'folder':
             loadList()
+            loadIssues()
             loadDoc()
-            api.unread().then((l) => setUnreadCount(l.length), () => {})
+            api.unread().then(
+              (l) => setUnreadCount(l.length),
+              () => {},
+            )
             break
           case 'status':
             loadStatus()
@@ -160,6 +197,14 @@ export function App() {
           case 'waiting':
             setTeamTick((n) => n + 1)
             break
+          case 'issues': {
+            // A plugin answered about issues: the lists and, for the open
+            // document, its chip and export state.
+            loadIssues()
+            const p = (data as { path?: string } | undefined)?.path
+            if (!p || p === docPathRef.current) loadDoc()
+            break
+          }
           case 'refs': {
             // Background resolution finished for a blueprint.
             const p = (data as { path?: string } | undefined)?.path
@@ -181,7 +226,7 @@ export function App() {
       },
     )
     return stop
-  }, [ready, loadList, loadDoc, loadStatus])
+  }, [ready, loadList, loadDoc, loadStatus, loadIssues])
 
   useEffect(() => {
     setDoc(null)
@@ -190,8 +235,16 @@ export function App() {
   }, [docPath, docVersion, ready, loadDoc])
 
   useEffect(() => {
-    const view: Record<string, string> = { needs: 'Needs you', list: 'Blueprints', seeds: 'Seeds', team: 'Team', domains: 'Domains', settings: 'Settings', join: 'Join a team' }
-    const what = doc && (route.view === 'doc' || route.view === 'trace' || route.view === 'canvas') ? doc.title : view[route.view] ?? ''
+    const view: Record<string, string> = {
+      needs: 'Needs you',
+      list: 'Blueprints',
+      seeds: 'Seeds',
+      team: 'Team',
+      domains: 'Domains',
+      settings: 'Settings',
+      join: 'Join a team',
+    }
+    const what = doc && (route.view === 'doc' || route.view === 'trace' || route.view === 'canvas') ? doc.title : (view[route.view] ?? '')
     document.title = what ? `${what} · kalka` : 'kalka'
   }, [route.view, doc])
 
@@ -206,8 +259,7 @@ export function App() {
               <p>Close this window and open kalka again from its icon.</p>
             ) : (
               <p>
-                This page needs the one-time link that kalka opens when it starts. Run <code>kalka open</code> in a terminal, or open kalka
-                from its icon.
+                This page needs the one-time link that kalka opens when it starts. Run <code>kalka open</code> in a terminal, or open kalka from its icon.
               </p>
             )}
           </>
@@ -227,7 +279,7 @@ export function App() {
   const personal = scope === PERSONAL
   // In a document, the section it belongs to stays highlighted (sectionOf).
   const active = activeSection(route.view, doc)
-  const where = personal ? 'Personal' : team?.name ?? scope
+  const where = personal ? 'Personal' : (team?.name ?? scope)
   const needs = (summary?.waiting.total ?? 0) + unreadCount
 
   return (
@@ -243,15 +295,14 @@ export function App() {
             Settings
           </a>
         </header>
-        {inDoc && doc && <DocBar doc={doc} scope={scope} view={route.view as DocView} traceIndex={route.view === 'trace' ? route.index : 0} />}
+        {inDoc && doc && <DocBar doc={doc} scope={scope} view={route.view as DocView} traceIndex={route.view === 'trace' ? route.index : 0} reload={loadDoc} />}
       </div>
 
       <div className="banners" role="status" aria-live="polite">
         {status.notice && <div className="banner notice">{status.notice}</div>}
         {status.paused && (
           <div className="banner warn">
-            Sync is paused: kalka is offline and nothing reaches your teammates until you resume. Your own work is kept and sent
-            then.{' '}
+            Sync is paused: kalka is offline and nothing reaches your teammates until you resume. Your own work is kept and sent then.{' '}
             <button type="button" className="link" {...act('sync.pause')} onClick={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))}>
               Resume sync
             </button>
@@ -297,11 +348,7 @@ export function App() {
             {inDesktopWindow() ? '; if it does not come back, open kalka again from its icon.' : '.'}
           </div>
         )}
-        {inDoc && doc?.mismatch && !doc.duplicate && (
-          <div className="banner warn">
-            Not shared: {doc.mismatch.replace(/^not shared: /, '')}.
-          </div>
-        )}
+        {inDoc && doc?.mismatch && !doc.duplicate && <div className="banner warn">Not shared: {doc.mismatch.replace(/^not shared: /, '')}.</div>}
         {inDoc && doc?.duplicate && (
           <div className="banner warn">Another file in the folder has the same kalka_id. Publishing is refused until one is removed.</div>
         )}
@@ -309,20 +356,19 @@ export function App() {
           <div className="banner warn">
             This blueprint has format errors and cannot be published:
             <ul>
-              {blocking(doc)
-                .map((p, i) => (
-                  <li key={i}>
-                    {p.line ? `line ${p.line}: ` : ''}
-                    {p.message}
-                  </li>
-                ))}
+              {blocking(doc).map((p, i) => (
+                <li key={i}>
+                  {p.line ? `line ${p.line}: ` : ''}
+                  {p.message}
+                </li>
+              ))}
             </ul>
           </div>
         )}
       </div>
 
       <main className={inDoc ? 'doc-layout' : undefined}>
-        {inDoc && doc && <DocRail doc={doc} scope={scope} where={where} list={list} view={route.view as DocView} reloadKey={teamTick} />}
+        {inDoc && doc && <DocRail doc={doc} scope={scope} where={where} list={list} view={route.view as DocView} reloadKey={teamTick} issues={issues} />}
         {inDoc && (
           <div className="doc-main">
             {docErr && (
@@ -335,7 +381,7 @@ export function App() {
             {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
           </div>
         )}
-        {route.view === 'list' && scope && <Blueprints list={list} status={status} scope={scope} team={team} reload={loadList} />}
+        {route.view === 'list' && scope && <Blueprints list={list} status={status} scope={scope} team={team} reload={loadList} issues={issues} />}
         {route.view === 'seeds' && scope && <PreBacklog scope={scope} list={list} reload={loadList} />}
         {route.view === 'team' && !personal && scope && <TeamPage self={status.email} team={scope} reloadKey={teamTick} list={list ?? []} />}
         {route.view === 'needs' && <NeedsPage reloadKey={teamTick} notices={notices} />}
@@ -346,7 +392,12 @@ export function App() {
         )}
         {route.view === 'settings' && <SettingsPage tick={teamTick} status={status} />}
         {route.view === 'join' && (
-          <JoinScreen token={route.token} status={status} reloadKey={teamTick} onResume={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))} />
+          <JoinScreen
+            token={route.token}
+            status={status}
+            reloadKey={teamTick}
+            onResume={() => api.setPaused(false).then(loadStatus, (e: Error) => toast(e.message))}
+          />
         )}
         {route.view === 'domains' && !personal && scope && <DomainsPage team={scope} reloadKey={teamTick} list={list} />}
       </main>

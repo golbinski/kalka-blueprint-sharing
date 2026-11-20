@@ -93,8 +93,11 @@ type Node struct {
 	Store *store.Store
 	bus   *Bus
 	refs  *refCache
-	teams *teams
-	repl  *replication
+	// issues caches what trackers say about the issues blueprints name
+	// (spec 10.5), in the configuration folder.
+	issues *issueCache
+	teams  *teams
+	repl   *replication
 
 	mu        sync.Mutex
 	readMu    sync.Mutex          // read.json
@@ -180,6 +183,7 @@ func newNode(opts Options, key ed25519.PrivateKey) (*Node, error) {
 		keyID: transport.KeyPeerID(key.Public().(ed25519.PublicKey)),
 		rdv:   cfg.Rendezvous, srv: srv, cloud: cfg.Rendezvous == config.PeerJSCloud,
 		Store: st, bus: newBus(), refs: newRefCache(opts.Plugins, now),
+		issues:   newIssueCache(opts.Plugins, now, opts.ConfigDir, func(f string, a ...any) { fmt.Fprintf(log, f+"\n", a...) }),
 		teams:    newTeams(opts.ConfigDir),
 		repl:     newReplication(),
 		presence: map[string]presence{},
@@ -234,6 +238,7 @@ func (d *Node) Run(ctx context.Context) error {
 	defer abort()
 	d.work, d.stopping = work, ctx
 	d.refs.ctx = ctx // plugin calls end with the daemon
+	d.issues.ctx = ctx
 	d.seedNotices()
 	d.readMu.Lock()
 	d.loadRead() // the first start reads what is held as read

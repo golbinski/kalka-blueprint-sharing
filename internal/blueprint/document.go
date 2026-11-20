@@ -284,6 +284,7 @@ func Parse(data []byte) (*Document, error) {
 	}
 	d.checkFrontmatter()
 	d.problems = append(d.problems, d.domainProblems()...)
+	d.problems = append(d.problems, d.issueProblems()...)
 	d.checkEntries()
 	return d, nil
 }

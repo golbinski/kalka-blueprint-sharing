@@ -140,6 +140,78 @@ export interface BlueprintInfo {
   seed?: boolean
   /** How many trace blocks it has. */
   traces?: number
+  /** The kalka_issue it names, such as jira:DEV-123 (spec 10.5). */
+  issue?: string
+  /** Archived: lists hide it unless asked to show archived ones. */
+  archived?: boolean
+}
+
+/** What a tracker says about an issue, through the reader's plugin (spec 10.5). */
+export interface IssueMeta {
+  issue: string
+  ok: boolean
+  error?: string
+  title?: string
+  url?: string
+  type?: string
+  status?: { name: string; category: 'todo' | 'in_progress' | 'done' }
+  assignee?: string
+  labels?: string[]
+  sprint?: string
+  /** Nearest first. */
+  parents?: { issue: string; title?: string; type?: string; url?: string }[]
+  updated?: string
+}
+
+export interface IssueCaps {
+  meta?: boolean
+  hierarchy?: boolean
+  fields?: string[]
+  export?: { attachment?: boolean; comment?: boolean }
+}
+
+/** A blueprint's issue as the reader knows it. */
+export interface IssueView {
+  issue: string
+  scheme: string
+  payload: string
+  caps?: IssueCaps
+  meta?: IssueMeta
+  as_of?: string
+  stale?: boolean
+  pending?: boolean
+  error?: string
+}
+
+/** GET /api/issues: what the installed plugins allow, and the scope's issues. */
+export interface IssuesView {
+  caps: { meta: boolean; hierarchy: boolean; export: boolean }
+  issues: Record<string, IssueView>
+}
+
+export interface Exported {
+  issue: string
+  version: number
+  url?: string
+  attachment_id?: string
+  comment_id?: string
+}
+
+export interface ExportState {
+  can: boolean
+  why?: string
+  version?: number
+  last?: Exported
+  last_at?: string
+  last_by?: string
+}
+
+export interface ExportResult {
+  path: string
+  issue: string
+  version: number
+  url?: string
+  updated?: boolean
 }
 
 export interface Heading {
@@ -185,6 +257,8 @@ export interface Entry {
   incorporated_in?: number
   /** A release entry as the daemon read it (spec 20.4). */
   release?: { version: number; plan: string; owner: string; deleted?: boolean; incorporates?: number; note?: string }
+  /** An exported entry as the daemon read it (spec 10.5). */
+  exported?: Exported
 }
 
 /** A diagnostic (spec 6.17), as kalka check reports it. */
@@ -389,6 +463,11 @@ export interface Doc {
   domain_ref?: DomainRefView
   /** A document that came by a copy or a move, or is being moved away (spec 20.7). */
   transfer?: TransferInfo
+  /** The issue kalka_issue names, and whether you can export to it (spec 10.5). */
+  issue?: IssueView
+  export?: ExportState
+  /** When it was archived. */
+  archived?: string
 }
 
 export interface TransferInfo {
@@ -524,6 +603,7 @@ export interface SeedRow {
   parent_title?: string
   created?: string
   active?: string
+  archived?: boolean
 }
 
 export interface BudResult {
@@ -724,6 +804,9 @@ export const api = {
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
+  issues: (team = '') => call<IssuesView>('GET', '/api/issues' + scope(team)).then((v) => ({ caps: v.caps, issues: v.issues ?? {} })),
+  exportDoc: (path: string) => call<ExportResult>('POST', '/api/export', { path }),
+  archive: (path: string, archived: boolean, takeOver = false) => call<{ archived: boolean }>('POST', '/api/archive', { path, archived, take_over: takeOver }),
   transfers: (team = '') => call<TransferView[] | null>('GET', '/api/transfers' + scope(team)).then((l) => l ?? []),
   startTransfer: (path: string, team: string, mode: 'copy' | 'move', takeOver = false) =>
     call<{ id: string; team: string }>('POST', '/api/transfers', { path, team, mode, take_over: takeOver }),
@@ -756,13 +839,13 @@ export const api = {
     call<{ id: string }>('POST', '/api/entries', e),
 }
 
-export type BusType = 'folder' | 'status' | 'refs' | 'teams' | 'waiting' | 'notice' | 'settings'
+export type BusType = 'folder' | 'status' | 'refs' | 'issues' | 'teams' | 'waiting' | 'notice' | 'settings'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'status', 'refs', 'teams', 'waiting', 'notice', 'settings']
+  const types: BusType[] = ['folder', 'status', 'refs', 'issues', 'teams', 'waiting', 'notice', 'settings']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown

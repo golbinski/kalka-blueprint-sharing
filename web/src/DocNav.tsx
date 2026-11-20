@@ -2,7 +2,9 @@
 // breadcrumb and the Document / Trace tabs, and the rail listing the
 // documents of the section the open one belongs to.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, type BlueprintInfo, type Doc, type DomainRow, type SeedRow, type WaitingItem } from './api'
+import { api, type BlueprintInfo, type Doc, type DomainRow, type IssuesView, type SeedRow, type WaitingItem } from './api'
+import { groupRows, levels, loadGroupBy, loadShowArchived, usable, type Group } from './groups'
+import { ExportButton, IssueChip, IssueParents } from './Issue'
 import { loadCollapsed, NARROW, railHref, saveCollapsed, type DocView } from './rail'
 import { blueprintRows, SECTION_LABEL, sectionOf, type Section } from './section'
 import { docHref, scopeHref, traceHref, type ScopedView } from './util'
@@ -27,8 +29,9 @@ export function SectionsNav({ scope, personal, active, needs }: { scope: string;
   )
 }
 
-/** DocBar is the bar under the top bar while a document is open. */
-export function DocBar({ doc, scope, view, traceIndex }: { doc: Doc; scope: string; view: DocView; traceIndex: number }) {
+/** DocBar is the bar under the top bar while a document is open: the
+ * breadcrumb, the issue it addresses (spec 10.5) and the view tabs. */
+export function DocBar({ doc, scope, view, traceIndex, reload }: { doc: Doc; scope: string; view: DocView; traceIndex: number; reload?: () => void }) {
   const section = sectionOf(doc)
   return (
     <nav className="docbar" aria-label="Document">
@@ -40,7 +43,14 @@ export function DocBar({ doc, scope, view, traceIndex }: { doc: Doc; scope: stri
           {doc.title}
         </li>
       </ol>
+      {doc.issue && (
+        <div className="docbar-issue">
+          <IssueParents issue={doc.issue} />
+          <IssueChip issue={doc.issue} />
+        </div>
+      )}
       <span className="grow" />
+      {reload && <ExportButton doc={doc} reload={reload} />}
       <div className="tabs" role="group" aria-label="Views">
         <a className={view === 'doc' || view === 'canvas' ? 'active' : ''} href={docHref(doc.rel)}>
           Document
@@ -66,6 +76,8 @@ export interface RailRow {
   traces?: number
   /** Unread comments by others, or something waiting on you. */
   needs: boolean
+  issue?: string
+  archived?: boolean
 }
 
 // railRows are a section's documents in the order of its list page, with
@@ -82,7 +94,14 @@ export function railRows(
   const waits = new Set(waiting.flatMap((w) => (w.path ? [w.path] : [])))
   const row = (rel: string, title?: string): RailRow => {
     const b = byRel.get(rel)
-    return { rel, title: title || b?.title || rel, traces: b?.traces, needs: (b?.new ?? 0) > 0 || (!!b && waits.has(b.path)) }
+    return {
+      rel,
+      title: title || b?.title || rel,
+      traces: b?.traces,
+      needs: (b?.new ?? 0) > 0 || (!!b && waits.has(b.path)),
+      issue: b?.issue,
+      archived: b?.archived,
+    }
   }
   if (section === 'seeds') return (seeds ?? []).map((s) => row(s.rel, s.title))
   if (section === 'domains') return (domains ?? []).map((d) => row(d.rel, d.title))
@@ -115,8 +134,25 @@ function useCollapsed(): [boolean, () => void] {
   return [collapsed, toggle]
 }
 
-/** DocRail lists the documents of the open document's section. */
-export function DocRail({ doc, scope, where, list, view, reloadKey }: { doc: Doc; scope: string; where: string; list: BlueprintInfo[]; view: DocView; reloadKey: number }) {
+/** DocRail lists the documents of the open document's section, grouped
+ * and filtered as the section's list is (spec 11.1). */
+export function DocRail({
+  doc,
+  scope,
+  where,
+  list,
+  view,
+  reloadKey,
+  issues,
+}: {
+  doc: Doc
+  scope: string
+  where: string
+  list: BlueprintInfo[]
+  view: DocView
+  reloadKey: number
+  issues?: IssuesView
+}) {
   const section = sectionOf(doc)
   const [collapsed, toggle] = useCollapsed()
   const [seeds, setSeeds] = useState<SeedRow[] | null>(null)
@@ -124,14 +160,31 @@ export function DocRail({ doc, scope, where, list, view, reloadKey }: { doc: Doc
   const [waiting, setWaiting] = useState<WaitingItem[]>([])
   useEffect(() => {
     let live = true
-    if (section === 'seeds') api.seeds(scope).then((l) => live && setSeeds(l), () => {})
-    if (section === 'domains') api.domains(scope).then((l) => live && setDomains(l), () => {})
-    api.waiting(scope).then((l) => live && setWaiting(l), () => {})
+    if (section === 'seeds')
+      api.seeds(scope).then(
+        (l) => live && setSeeds(l),
+        () => {},
+      )
+    if (section === 'domains')
+      api.domains(scope).then(
+        (l) => live && setDomains(l),
+        () => {},
+      )
+    api.waiting(scope).then(
+      (l) => live && setWaiting(l),
+      () => {},
+    )
     return () => {
       live = false
     }
   }, [section, scope, reloadKey, list])
-  const rows = railRows(section, scope, list, waiting, seeds, domains)
+  // Archived documents stay out unless the list shows them; the open one
+  // is always listed.
+  const showArchived = loadShowArchived(scope)
+  const rows = railRows(section, scope, list, waiting, seeds, domains).filter((r) => showArchived || !r.archived || r.rel === doc.rel)
+  const choice = section === 'list' ? usable(loadGroupBy(scope), issues?.caps) : { by: 'none' as const, level: 1 }
+  const lv = levels(issues?.issues ?? {})
+  const groups: Group<RailRow>[] = groupRows(rows, choice, issues?.issues ?? {}, lv[choice.level - 1]?.label)
   const current = useRef<HTMLAnchorElement>(null)
   // Keep the open document in sight when the list is long.
   useLayoutEffect(() => {
@@ -160,21 +213,42 @@ export function DocRail({ doc, scope, where, list, view, reloadKey }: { doc: Doc
       </div>
       {!collapsed && (
         <ul id="doc-rail-list" className="plain doc-rail-list">
-          {rows.map((r) => {
-            const open = r.rel === doc.rel
-            return (
-              <li key={r.rel}>
-                <a ref={open ? current : undefined} href={railHref(r, view)} aria-current={open ? 'page' : undefined} className={open ? 'open' : ''}>
-                  <span className="doc-rail-name">{r.title}</span>
-                  {r.needs && (
-                    <span className="doc-rail-needs" title="Needs you">
-                      <span className="sr-only">needs you</span>
-                    </span>
-                  )}
-                </a>
-              </li>
-            )
-          })}
+          {groups.flatMap((g) => [
+            ...(choice.by === 'none'
+              ? []
+              : [
+                  <li key={'g:' + g.key} className={'doc-rail-group ' + g.kind}>
+                    {g.url ? (
+                      <a href={g.url} target="_blank" rel="noreferrer" title={g.title}>
+                        {g.label}
+                      </a>
+                    ) : (
+                      g.label
+                    )}
+                  </li>,
+                ]),
+            ...g.rows.map((r) => {
+              const open = r.rel === doc.rel
+              return (
+                <li key={r.rel}>
+                  <a
+                    ref={open ? current : undefined}
+                    href={railHref(r, view)}
+                    aria-current={open ? 'page' : undefined}
+                    className={(open ? 'open' : '') + (r.archived ? ' archived' : '')}
+                  >
+                    <span className="doc-rail-name">{r.title}</span>
+                    {r.archived && <span className="sr-only"> (archived)</span>}
+                    {r.needs && (
+                      <span className="doc-rail-needs" title="Needs you">
+                        <span className="sr-only">needs you</span>
+                      </span>
+                    )}
+                  </a>
+                </li>
+              )
+            }),
+          ])}
           {rows.length === 0 && <li className="muted small doc-rail-empty">Nothing else here.</li>}
         </ul>
       )}

@@ -14,10 +14,15 @@ import (
 	"github.com/golbinski/kalka/internal/plugin"
 )
 
-// Plugins resolves references (spec 10); *plugin.Host implements it.
+// Plugins runs the installed plugins (spec 10); *plugin.Host implements
+// it. The core asks a plugin only for what Capabilities declares.
 type Plugins interface {
 	Find(scheme string) (string, error)
+	Installed() []string
+	Capabilities(ctx context.Context, scheme string) (*plugin.Description, error)
 	Resolve(ctx context.Context, scheme string, frontmatter map[string]any, refs []plugin.Ref) []plugin.Result
+	IssueMeta(ctx context.Context, scheme string, issues []string) ([]plugin.IssueMeta, error)
+	Export(ctx context.Context, scheme string, req plugin.ExportRequest) (*plugin.ExportResult, error)
 }
 
 // Cache lifetimes: spec 10.3 for results; failures are retried sooner.

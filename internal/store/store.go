@@ -88,6 +88,11 @@ type Info struct {
 	Seed bool `json:"seed,omitempty"`
 	// Traces is the number of trace blocks, valid or not (spec 6.10).
 	Traces int `json:"traces,omitempty"`
+	// Issue is a valid kalka_issue (spec 6.2), as written; what the
+	// tracker says about it is fetched by the reader (10.5).
+	Issue string `json:"issue,omitempty"`
+	// Archived: a valid kalka_archived; lists hide it by default.
+	Archived bool `json:"archived,omitempty"`
 	// From is the source kalka_id of a copy or a move (spec 20.7), so a
 	// link to the source still resolves.
 	From string `json:"from,omitempty"`
@@ -247,6 +252,10 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		info.KalkaID, info.Title, info.Owner, info.Rev = d.KalkaID(), d.Title(), d.Owner(), d.Rev()
 		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
 		info.Seed, info.Traces = d.IsSeed(), len(d.Traces())
+		if r, ok := d.Issue(); ok {
+			info.Issue = r.String()
+		}
+		_, info.Archived = d.Archived()
 		_, _, info.From = d.TransferredFrom()
 		for _, it := range d.Items() {
 			if e := it.Entry; e != nil {

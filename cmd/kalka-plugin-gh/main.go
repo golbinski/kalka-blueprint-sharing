@@ -35,7 +35,7 @@ import (
 var version = "dev"
 
 const (
-	protocol = 1
+	protocol = 2
 	// maxLines is the most lines a snippet shows.
 	maxLines = 200
 	// headLines is shown when a reference names no lines.
@@ -101,7 +101,9 @@ func run(stdin io.Reader, stdout, stderr io.Writer, newAPI func(host string) api
 	enc := json.NewEncoder(stdout)
 	switch req.Op {
 	case "describe":
-		_ = enc.Encode(map[string]any{"protocol": protocol, "name": "github", "version": version, "schemes": []string{"gh"}})
+		// References only: gh: is not an issue tracker here (spec 10.3).
+		_ = enc.Encode(map[string]any{"protocol": protocol, "name": "github", "version": version, "schemes": []string{"gh"},
+			"capabilities": map[string]any{"resolve": true}})
 		return 0
 	case "resolve":
 		_ = enc.Encode(map[string]any{"protocol": protocol, "results": resolve(req, newAPI, stderr)})

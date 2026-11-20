@@ -48,7 +48,7 @@ func newFake() *fakeGH {
 
 func call(t *testing.T, gh *fakeGH, fm map[string]any, payloads ...string) []result {
 	t.Helper()
-	req := map[string]any{"protocol": 1, "op": "resolve", "context": map[string]any{"frontmatter": fm}}
+	req := map[string]any{"protocol": 2, "op": "resolve", "context": map[string]any{"frontmatter": fm}}
 	var refs []map[string]string
 	for _, p := range payloads {
 		refs = append(refs, map[string]string{"ref": "gh:" + p, "payload": p})
@@ -68,7 +68,7 @@ func call(t *testing.T, gh *fakeGH, fm map[string]any, payloads ...string) []res
 		Protocol int
 		Results  []result
 	}
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || resp.Protocol != 1 || len(resp.Results) != len(payloads) {
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || resp.Protocol != 2 || len(resp.Results) != len(payloads) {
 		t.Fatalf("response %s %v", out.String(), err)
 	}
 	return resp.Results
@@ -194,7 +194,7 @@ func TestNamedRepos(t *testing.T) {
 	var hosts sync.Map
 	payloads := []string{"src/import/parse.py#L1", "api:cmd/x.go#L1-L2", "api:cmd/missing.go", "web:src/Form.tsx",
 		"docs:a.md", "bad:a.go", "Api:x.go", "api:../x.go"}
-	in, _ := json.Marshal(map[string]any{"protocol": 1, "op": "resolve", "context": map[string]any{"frontmatter": named},
+	in, _ := json.Marshal(map[string]any{"protocol": 2, "op": "resolve", "context": map[string]any{"frontmatter": named},
 		"refs": func() (r []map[string]string) {
 			for _, p := range payloads {
 				r = append(r, map[string]string{"ref": "gh:" + p, "payload": p})
@@ -262,7 +262,8 @@ func TestNamedRepos(t *testing.T) {
 
 func TestDescribeAndSplit(t *testing.T) {
 	var out bytes.Buffer
-	if run(strings.NewReader(`{"protocol":1,"op":"describe"}`), &out, &bytes.Buffer{}, nil) != 0 || !strings.Contains(out.String(), `"schemes":["gh"]`) {
+	if run(strings.NewReader(`{"protocol":2,"op":"describe"}`), &out, &bytes.Buffer{}, nil) != 0 || !strings.Contains(out.String(), `"schemes":["gh"]`) ||
+		!strings.Contains(out.String(), `"protocol":2`) || !strings.Contains(out.String(), `"capabilities":{"resolve":true}`) {
 		t.Fatal(out.String())
 	}
 	st, body, ok := splitResponse([]byte("HTTP/2.0 404 Not Found\nX-A: b\r\n\r\n{\"message\":\"Not Found\"}"))
@@ -280,7 +281,7 @@ func TestLiveGitHub(t *testing.T) {
 	if os.Getenv("KALKA_GH_LIVE") == "" {
 		t.Skip("set KALKA_GH_LIVE=1 to call GitHub through gh")
 	}
-	req := `{"protocol":1,"op":"resolve","context":{"frontmatter":{"repo":"cli/cli","base_sha":"` + os.Getenv("KALKA_GH_SHA") + `"}},` +
+	req := `{"protocol":2,"op":"resolve","context":{"frontmatter":{"repo":"cli/cli","base_sha":"` + os.Getenv("KALKA_GH_SHA") + `"}},` +
 		`"refs":[{"ref":"gh:README.md#L1-L5","payload":"README.md#L1-L5"},{"ref":"gh:go.mod#L1-L3","payload":"go.mod#L1-L3"},{"ref":"gh:nope.txt","payload":"nope.txt"}]}`
 	var out, errb bytes.Buffer
 	if run(strings.NewReader(req), &out, &errb, func(h string) api { return ghCLI{host: h} }) != 0 {

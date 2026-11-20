@@ -221,6 +221,49 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, struct{}{})
 	})
+	// Issues, export and archive (spec 10.5).
+	mux.HandleFunc("GET /api/issues", func(w http.ResponseWriter, r *http.Request) {
+		sc, ok := d.scope(w, r)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, d.IssuesIn(sc))
+	})
+	mux.HandleFunc("POST /api/export", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path string `json:"path"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		res, err := d.Export(r.Context(), q.Path)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("POST /api/archive", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path     string `json:"path"`
+			Archived bool   `json:"archived"`
+			TakeOver bool   `json:"take_over"` // a team owner becomes the owner first (7.4)
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		archive := d.Archive
+		if q.TakeOver {
+			archive = d.TakeOverArchive
+		}
+		if err := archive(q.Path, q.Archived); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"archived": q.Archived})
+	})
 	mux.HandleFunc("POST /api/teams/{team}/replicate", func(w http.ResponseWriter, r *http.Request) {
 		team, err := d.TeamHash(teamRef(r))
 		if err != nil {
@@ -436,6 +479,17 @@ func (c *Client) MarkSeen(ctx context.Context, path string) (bool, error) {
 // CancelInvite cancels an open invite.
 func (c *Client) CancelInvite(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/invites/"+url.PathEscape(id), nil, nil)
+}
+
+// Export exports a released blueprint to its issue (spec 10.5).
+func (c *Client) Export(ctx context.Context, path string) (core.ExportResult, error) {
+	var v core.ExportResult
+	return v, c.do(ctx, http.MethodPost, "/api/export", map[string]string{"path": path}, &v)
+}
+
+// Archive archives or unarchives a blueprint (spec 10.5).
+func (c *Client) Archive(ctx context.Context, path string, archived bool) error {
+	return c.do(ctx, http.MethodPost, "/api/archive", map[string]any{"path": path, "archived": archived}, nil)
 }
 
 // Promote turns a seed into a blueprint (spec 6.11).

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,5 +171,38 @@ func TestDoctorCommand(t *testing.T) {
 	}
 	if code, _, _ := runCLI("doctor", "extra"); code != checkUsage {
 		t.Fatalf("usage: %d", code)
+	}
+}
+
+// kalka_issue and kalka_archived are checked without plugins (spec 6.17).
+func TestCheckIssueRules(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, fm string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte("---\n"+fm+"\n---\n# Redelivery\n\n## Plan\n\nA second attempt.\n"), 0o644)
+		return p
+	}
+	cases := []struct {
+		fm   string
+		want int
+		rule string
+	}{
+		{"kalka_issue: jira:DEV-123", checkClean, ""},
+		{"kalka_issue: DEV-123", checkWarnings, "F020"},
+		{"kalka_issue: tracker:DEV-123", checkClean, "F021"},
+		{"kalka_archived: yes", checkWarnings, "F022"},
+	}
+	for i, c := range cases {
+		p := write(fmt.Sprintf("b%d.md", i), c.fm)
+		code, out, errs := runCLI("check", "--json", p)
+		if code != c.want {
+			t.Errorf("%s: exit %d, want %d (%s)", c.fm, code, c.want, errs)
+		}
+		if c.rule != "" && !strings.Contains(out, `"rule": "`+c.rule+`"`) && !strings.Contains(out, `"rule":"`+c.rule+`"`) {
+			t.Errorf("%s: no %s in %s", c.fm, c.rule, out)
+		}
+		if _, again, _ := runCLI("check", "--json", p); again != out {
+			t.Errorf("%s: two runs differ", c.fm)
+		}
 	}
 }

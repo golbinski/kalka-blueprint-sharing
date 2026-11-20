@@ -30,8 +30,14 @@ type Target struct {
 	Path string
 }
 
-// programs are what the Linux desktop archive holds beside each other.
-var programs = []string{"kalka", "kalka-desktop", "kalka-plugin-gh"}
+// programs are what the Linux desktop archive holds beside each other,
+// and what an install must have to be recognised. extras are installed
+// when the archive has them and never required, so an install that a
+// kalka without them updated is still recognised.
+var (
+	programs = []string{"kalka", "kalka-desktop", "kalka-plugin-gh"}
+	extras   = []string{"kalka-plugin-jira"}
+)
 
 // Detect recognises the install the executable exe belongs to on goos.
 // Anything it does not recognise, or cannot write to, is Unknown: kalka
@@ -113,7 +119,7 @@ func installTarball(pkg, dir string) error {
 			return err
 		}
 		base := path.Base(h.Name)
-		if h.Typeflag != tar.TypeReg || !contains(programs, base) {
+		if h.Typeflag != tar.TypeReg || (!contains(programs, base) && !contains(extras, base)) {
 			continue
 		}
 		tmp := filepath.Join(dir, "."+base+".new")
@@ -129,7 +135,10 @@ func installTarball(pkg, dir string) error {
 			return fmt.Errorf("the archive has no %s", p)
 		}
 	}
-	for _, p := range programs {
+	for _, p := range append(append([]string(nil), programs...), extras...) {
+		if staged[p] == "" {
+			continue
+		}
 		if err := os.Rename(staged[p], filepath.Join(dir, p)); err != nil {
 			cleanup()
 			return err

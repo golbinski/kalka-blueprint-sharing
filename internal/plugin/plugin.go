@@ -1,7 +1,9 @@
-// Package plugin runs reference plugins (spec 10): executables named
+// Package plugin runs plugins (spec 10): executables named
 // kalka-plugin-<scheme>, one process per request, one JSON object on
-// stdin and one on stdout. Nothing from a blueprint is ever put on the
-// command line; plugin output is data, length-capped and checked here.
+// stdin and one on stdout. A plugin says what it can do in its answer to
+// describe (its capabilities); kalka asks only for what is declared.
+// Nothing from a blueprint is ever put on the command line; plugin output
+// is data, length-capped and checked here.
 package plugin
 
 import (
@@ -18,6 +20,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -25,13 +28,18 @@ import (
 )
 
 // Protocol is the plugin protocol version (spec 10.3).
-const Protocol = 1
+const Protocol = 2
 
 // Prefix names plugin executables: Prefix + scheme.
 const Prefix = name.Binary + "-plugin-"
 
-// Timeout is how long one plugin call may take (spec 10.3).
-var Timeout = 10 * time.Second
+// Timeout is how long describe, resolve and issue_meta may take, and
+// ExportTimeout how long an export may (spec 10.3): an export uploads a
+// file and writes a comment.
+var (
+	Timeout       = 10 * time.Second
+	ExportTimeout = 60 * time.Second
+)
 
 // Output limits: a plugin is trusted to run, not to be well behaved.
 const (
@@ -76,10 +84,11 @@ type Result struct {
 
 // Description is the answer to "describe".
 type Description struct {
-	Protocol int      `json:"protocol"`
-	Name     string   `json:"name"`
-	Version  string   `json:"version"`
-	Schemes  []string `json:"schemes"`
+	Protocol     int          `json:"protocol"`
+	Name         string       `json:"name"`
+	Version      string       `json:"version"`
+	Schemes      []string     `json:"schemes"`
+	Capabilities Capabilities `json:"capabilities"`
 }
 
 type request struct {
@@ -87,6 +96,10 @@ type request struct {
 	Op       string      `json:"op"`
 	Context  *reqContext `json:"context,omitempty"`
 	Refs     []Ref       `json:"refs,omitempty"`
+	// issue_meta
+	Issues []string `json:"issues,omitempty"`
+	// export
+	*ExportRequest
 }
 
 type reqContext struct {
@@ -98,7 +111,7 @@ type response struct {
 	Results  []Result `json:"results"`
 }
 
-// Host finds and runs plugins.
+// Host finds and runs plugins. Its zero value is usable.
 type Host struct {
 	// Dir is searched first (<config>/plugins), then ExeDir, then PATH.
 	Dir string
@@ -108,6 +121,9 @@ type Host struct {
 	ExeDir string
 	// Log receives each plugin's stderr and failures.
 	Log io.Writer
+
+	descMu sync.Mutex
+	descs  map[string]descEntry
 }
 
 // ErrNotFound means no plugin is installed for a scheme.
@@ -145,12 +161,15 @@ func (h *Host) Find(scheme string) (string, error) {
 // Describe asks a plugin what it is.
 func (h *Host) Describe(ctx context.Context, path string) (*Description, error) {
 	var d Description
-	if err := h.call(ctx, path, request{Protocol: Protocol, Op: "describe"}, &d); err != nil {
+	if err := h.call(ctx, path, Timeout, request{Protocol: Protocol, Op: "describe"}, &d); err != nil {
 		return nil, err
 	}
 	if d.Protocol != Protocol {
 		return nil, fmt.Errorf("plugin speaks protocol %d, kalka speaks %d", d.Protocol, Protocol)
 	}
+	d.Name = text(d.Name, 64)
+	d.Version = text(d.Version, 64)
+	d.Capabilities = d.Capabilities.clean()
 	return &d, nil
 }
 
@@ -174,7 +193,7 @@ func (h *Host) Resolve(ctx context.Context, scheme string, frontmatter map[strin
 		frontmatter = map[string]any{}
 	}
 	var resp response
-	if err := h.call(ctx, path, request{Protocol: Protocol, Op: "resolve", Context: &reqContext{Frontmatter: frontmatter}, Refs: refs}, &resp); err != nil {
+	if err := h.call(ctx, path, Timeout, request{Protocol: Protocol, Op: "resolve", Context: &reqContext{Frontmatter: frontmatter}, Refs: refs}, &resp); err != nil {
 		h.logf("%s: %v", filepath.Base(path), err)
 		return fail(fmt.Sprintf("%s failed: %v", filepath.Base(path), err))
 	}
@@ -206,8 +225,8 @@ func (h *Host) logf(format string, a ...any) {
 
 // call runs the plugin once: no arguments, the request on stdin, a hard
 // timeout, and output read with limits.
-func (h *Host) call(ctx context.Context, path string, req request, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
+func (h *Host) call(ctx context.Context, path string, timeout time.Duration, req request, out any) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	in, err := json.Marshal(req)
 	if err != nil {
@@ -229,7 +248,7 @@ func (h *Host) call(ctx context.Context, path string, req request, out any) erro
 	}
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:
-		return fmt.Errorf("timed out after %s", Timeout)
+		return fmt.Errorf("timed out after %s", timeout)
 	case err != nil:
 		return fmt.Errorf("exited with an error (%v)", err)
 	case stdout.over:

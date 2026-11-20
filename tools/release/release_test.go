@@ -164,7 +164,7 @@ func TestNSISCompile(t *testing.T) {
 		t.Skip("no makensis")
 	}
 	src, out := t.TempDir(), t.TempDir()
-	for _, f := range []string{"kalka.exe", "kalka-desktop.exe", "kalka-plugin-gh.exe", "README.txt"} {
+	for _, f := range []string{"kalka.exe", "kalka-desktop.exe", "kalka-plugin-gh.exe", "kalka-plugin-jira.exe", "README.txt"} {
 		os.WriteFile(filepath.Join(src, f), []byte(f), 0o644)
 	}
 	setup := filepath.Join(out, "kalka_0.3.0_windows_amd64_setup.exe")

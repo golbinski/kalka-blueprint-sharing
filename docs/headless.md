@@ -6,7 +6,7 @@ The desktop app is a window and a tray icon around the kalka daemon. Everything 
 - where IT policy blocks autostart entries, tray apps or the webview;
 - for agents and scripts, which only need the command line.
 
-Use the headless archive for your system (`kalka_<v>_<os>_<arch>.tar.gz`, or the Windows `.zip`). It holds `kalka` and `kalka-plugin-gh`, plus `kalka-desktop.exe` on Windows.
+Use the headless archive for your system (`kalka_<v>_<os>_<arch>.tar.gz`, or the Windows `.zip`). It holds `kalka`, `kalka-plugin-gh` and `kalka-plugin-jira`, plus `kalka-desktop.exe` on Windows.
 
 ## Running the daemon
 

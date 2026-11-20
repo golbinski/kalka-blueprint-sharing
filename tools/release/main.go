@@ -1,7 +1,7 @@
 // Command release builds the release artifacts (spec 15, 23) into one
 // directory, with SHA256SUMS:
 //
-//   - every target: kalka and kalka-plugin-gh in a .tar.gz (.zip on
+//   - every target: kalka and the plugins in a .tar.gz (.zip on
 //     Windows), the headless archive of spec 15. On Windows it also holds
 //     kalka-desktop.exe, the shell, which with arguments is the console-less
 //     CLI (pure Go, so it builds on any host);
@@ -132,6 +132,7 @@ func (r *release) target(goos, goarch string) error {
 	bins := []build{
 		{pkg: "./cmd/kalka", bin: "kalka" + exe},
 		{pkg: "./cmd/kalka-plugin-gh", bin: "kalka-plugin-gh" + exe},
+		{pkg: "./cmd/kalka-plugin-jira", bin: "kalka-plugin-jira" + exe},
 	}
 	if goos == "windows" {
 		bins = append(bins, build{pkg: "./cmd/kalka-desktop", bin: "kalka-desktop.exe", tags: "desktop,production", ldflags: " -H=windowsgui"})

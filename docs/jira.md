@@ -1,0 +1,119 @@
+# Jira
+
+kalka links a blueprint to the Jira issue it addresses, shows that issue's
+title, status and parents beside the document, groups the Blueprints list by
+them, and exports the final version to the issue. It does this through
+`kalka-plugin-jira`, which ships beside `kalka` and `kalka-plugin-gh` in every
+archive, installer and app bundle.
+
+What Jira says about an issue is fetched by your own kalka, with your own
+credentials, and kept on your machine only. It is never written into the
+blueprint and never sent to your teammates: each of them sees the issue as
+their own Jira account does, or only its key if they have no plugin set up.
+Nothing in Jira comes back into a blueprint.
+
+## Name the issue in the blueprint
+
+Add one key to the frontmatter:
+
+```markdown
+---
+kalka_issue: jira:DEV-123
+---
+# Redelivery after a failed attempt
+```
+
+One issue per blueprint. `kalka check` warns about a value that is not
+`<scheme>:<key>` (`F020`); it needs no plugin and no network for that.
+Links in the text, such as `[the story](jira:DEV-140)`, resolve too.
+
+## Log in
+
+```
+kalka-plugin-jira login
+```
+
+It asks for:
+
+| | Jira Cloud | Jira Data Center or Server |
+|---|---|---|
+| Site | `https://example.atlassian.net` | your server's address, `https` |
+| Account | your Atlassian email | — (use `--datacenter`) |
+| Token | an API token: id.atlassian.com → Security → API tokens | a personal access token: your profile → Personal Access Tokens |
+
+The token is checked against the site before anything is stored. For
+scripts, pass the options and the token on standard input:
+
+```
+printf '%s\n' "$TOKEN" | kalka-plugin-jira login --site https://example.atlassian.net --email ewa@example.org --token-stdin
+```
+
+`kalka-plugin-jira status` shows the site and where the token is;
+`kalka-plugin-jira logout` removes both.
+
+### Where the credentials are
+
+- The token goes into the system's credential store: the macOS Keychain, the
+  Windows Credential Manager, or on Linux the Secret Service through
+  `secret-tool` (from `libsecret-tools`).
+- Where there is none, it goes into the plugin's `config.json`, readable by
+  you only (mode 0600).
+- `config.json` holds the site, the flavor and your email. It is in
+  `kalka-plugin-jira` in your configuration folder (`~/Library/Application
+  Support` on macOS, `%AppData%` on Windows, `~/.config` on Linux), or in
+  `$KALKA_PLUGIN_JIRA_DIR`.
+- Credentials are never in a blueprint and never in kalka's own
+  configuration. One site per user.
+
+## What you see
+
+- **The document bar**: the issue's key, title and status, linked to Jira,
+  and its parents (the epic, and what is above it) as a breadcrumb. When Jira
+  cannot be reached, the last answer is shown "as of" its time. Answers are
+  kept for 15 minutes.
+- **Blueprints**: *Group by* parent issue, at the level you pick (Epic, or a
+  level above it), or by status (to do, in progress, done). Blueprints with no
+  parent, whose issue you cannot read, or with no issue come last. The choice
+  is remembered per team in your browser.
+
+Levels above Epic come from your site's issue hierarchy (Jira Cloud plans,
+or Premium hierarchy levels). On Data Center, only sub-tasks have a parent.
+
+## Export the final version
+
+When a version is released, its owner or a team owner can export it:
+*Export…* in the document bar, or
+
+```
+kalka export redelivery.md
+```
+
+The plugin attaches the whole file to the issue (`redelivery-v3.md`) and
+writes a comment with the released plan, the deviations the release took up,
+and a line saying it came from kalka. kalka then adds an `exported` entry to
+the review log, which your teammates receive like any comment.
+
+Exporting again, after a later release, replaces that attachment and updates
+the same comment; a comment someone deleted in Jira is written anew. A failed
+export changes nothing in the blueprint.
+
+Only the released version goes: with edits not yet released, release first.
+
+## Archive
+
+Once the work lives in Jira, *Archive* (offered after the export, under More,
+or `kalka archive <file>`) hides the blueprint from the lists and the rail. It
+still replicates and opens from links; *Show archived* lists it again, and
+*Unarchive* (`kalka archive --undo <file>`) brings it back. Archiving is a
+change to the plan, so its owner makes it, released as the next version.
+
+## Limits and errors
+
+- Keys must look like `DEV-123` (upper-case project key). They go to Jira as
+  API parameters only.
+- Jira's rate limits are waited out (it says how long) for up to a few
+  seconds, then reported; the cached answer stays on screen.
+- "Jira rejected the credentials": the token expired or was revoked; run
+  `kalka-plugin-jira login` again.
+- "not found or no permission": the issue does not exist, or your account
+  cannot see it.

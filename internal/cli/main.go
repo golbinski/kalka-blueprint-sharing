@@ -115,12 +115,14 @@ func usage(w io.Writer) {
   %[1]s transfers [--team <t>] [--json]   the pending transfers you decide or started
   %[1]s transfer accept <id> [--owner <email>] | decline <id> | withdraw <id> [--json]
   %[1]s delete <file>         delete a published document for the team
+  %[1]s export <file> [--json]   send the released version to its kalka_issue (attachment and comment)
+  %[1]s archive <file> [--undo] [--json]   hide a blueprint from lists, or show it again
   %[1]s domains [--team <t>] [--json]   list the team domain documents held here
   %[1]s reference export [-o <file>] [--force] | reference version   the blueprint reference for agents
   %[1]s version [--json]
 
 Commands that act through kalka (team changes, join, publish, release, handoff,
-reassign, delete, copy, move, transfer, promote, waiting --seen, settings with an
+reassign, delete, copy, move, transfer, promote, export, archive, waiting --seen, settings with an
 option (--rendezvous alone writes config.yaml when kalka is not running), pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 teams, team members|log|invites, waiting, seeds, transfers, domains, settings) never

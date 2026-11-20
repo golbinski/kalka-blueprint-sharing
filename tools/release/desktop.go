@@ -89,9 +89,13 @@ func (r *release) macApp(stage, goarch string) error {
 		filepath.Join(macos, "kalka"), cgo); err != nil {
 		return err
 	}
-	plugin := filepath.Join(macos, "kalka-plugin-gh")
-	if err := copyFile(filepath.Join(stage, "kalka-plugin-gh"), plugin, 0o755); err != nil {
-		return err
+	var plugins []string
+	for _, p := range []string{"kalka-plugin-gh", "kalka-plugin-jira"} {
+		dst := filepath.Join(macos, p)
+		if err := copyFile(filepath.Join(stage, p), dst, 0o755); err != nil {
+			return err
+		}
+		plugins = append(plugins, dst)
 	}
 	icon := "kalka"
 	if err := macIcon(filepath.Join(r.tmp, "iconset-"+goarch), filepath.Join(contents, "Resources", "kalka.icns")); err != nil {
@@ -102,7 +106,7 @@ func (r *release) macApp(stage, goarch string) error {
 		return err
 	}
 	label := "Kalka.app (" + goarch + ")"
-	if err := r.sign.mac(app, label, []string{plugin}, r.log); err != nil {
+	if err := r.sign.mac(app, label, plugins, r.log); err != nil {
 		return err
 	}
 	if r.sign.macNotary != "" {
@@ -210,7 +214,7 @@ func (r *release) linuxDesktop(stage, goarch string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for _, b := range []string{"kalka", "kalka-plugin-gh"} {
+	for _, b := range []string{"kalka", "kalka-plugin-gh", "kalka-plugin-jira"} {
 		if err := copyFile(filepath.Join(stage, b), filepath.Join(dir, b), 0o755); err != nil {
 			return err
 		}
@@ -271,10 +275,11 @@ same programs, for installing by hand:
   kalka-desktop.exe    the desktop app; with arguments, the CLI with no
                        console window
   kalka-plugin-gh.exe  the GitHub reference plugin
+  kalka-plugin-jira.exe  the Jira plugin (kalka-plugin-jira login)
 
 Install by hand
   1. Unzip to a folder of your own, e.g. %LOCALAPPDATA%\Programs\kalka,
-     and add it to your PATH. Keep the three .exe files together.
+     and add it to your PATH. Keep the .exe files together.
   2. Start kalka-desktop.exe. Its window opens the setup form; after that
      kalka starts at each logon, in the notification area.
      Without the desktop app: kalka autostart on --headless, then
@@ -291,9 +296,10 @@ Kalka.app (kalka_` + version + `_darwin_*_app.zip), which holds these
 programs too.
 
 Install
-  1. Copy kalka and kalka-plugin-gh to a folder on your PATH, e.g. ~/bin.
+  1. Copy kalka, kalka-plugin-gh and kalka-plugin-jira to a folder on
+     your PATH, e.g. ~/bin.
   2. Unsigned binaries are quarantined:
-       xattr -d com.apple.quarantine ~/bin/kalka ~/bin/kalka-plugin-gh
+       xattr -d com.apple.quarantine ~/bin/kalka ~/bin/kalka-plugin-*
   3. Run kalka once: the browser opens the setup form.
   4. kalka autostart on    (a LaunchAgent; kalka starts at each login)
 
@@ -305,7 +311,8 @@ Uninstall: kalka autostart off, then delete the binaries and
 without a desktop. The desktop app is kalka_` + version + `_linux_*_desktop.tar.gz.
 
 Install
-  1. Copy kalka and kalka-plugin-gh to a folder on your PATH, e.g. ~/.local/bin.
+  1. Copy kalka, kalka-plugin-gh and kalka-plugin-jira to a folder on
+     your PATH, e.g. ~/.local/bin.
   2. Run kalka once: the browser opens the setup form.
   3. kalka autostart on    (an entry in ~/.config/autostart)
 
@@ -327,7 +334,8 @@ Install
      menu bar and starts at each login.
   3. For the command line, link the same program onto your PATH:
        ln -s /Applications/Kalka.app/Contents/MacOS/kalka ~/bin/kalka
-     kalka with arguments is the CLI; kalka-plugin-gh is found beside it.
+     kalka with arguments is the CLI; the plugins (kalka-plugin-gh,
+     kalka-plugin-jira) are found beside it.
 
 Uninstall: Quit kalka from the menu bar, kalka autostart off, then delete
 Kalka.app and ~/.config/kalka.
@@ -340,8 +348,8 @@ func linuxDesktopReadme(version string) string {
 See PACKAGES.txt for the system libraries the desktop app needs.
 
 Install
-  1. Copy kalka, kalka-desktop and kalka-plugin-gh to ~/.local/bin (on
-     your PATH).
+  1. Copy kalka, kalka-desktop, kalka-plugin-gh and kalka-plugin-jira to
+     ~/.local/bin (on your PATH).
   2. Copy kalka.desktop to ~/.local/share/applications and kalka.png to
      ~/.local/share/icons/hicolor/256x256/apps.
   3. Start "kalka" from the applications menu (or kalka-desktop). The

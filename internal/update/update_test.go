@@ -313,6 +313,15 @@ func TestInstallTarball(t *testing.T) {
 	if ents, _ := os.ReadDir(dir); len(ents) != 3 {
 		t.Errorf("extra files: %v", ents)
 	}
+	// A newer archive adds the Jira plugin beside them; an install without
+	// it is still recognised.
+	files["kalka-plugin-jira"] = "new jira"
+	if err := installTarball(tarball(t, files), dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kalka-plugin-jira")); string(b) != "new jira" {
+		t.Errorf("kalka-plugin-jira = %q", b)
+	}
 }
 
 func appZip(t *testing.T, entries map[string]string) string {

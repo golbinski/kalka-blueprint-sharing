@@ -26,6 +26,8 @@
     { "command": "transfer decline", "class": "workflow", "action": "transfer.decline" },
     { "command": "transfer withdraw", "class": "workflow", "action": "transfer.withdraw" },
     { "command": "delete", "class": "workflow", "action": "doc.delete" },
+    { "command": "export", "class": "workflow", "action": "doc.export" },
+    { "command": "archive", "class": "workflow", "action": "doc.archive" },
     { "command": "comment", "class": "workflow", "action": "entry.add" },
     { "command": "seed", "class": "workflow", "action": "seed.create" },
     { "command": "seed backlink", "class": "workflow", "action": "seed.backlink" },

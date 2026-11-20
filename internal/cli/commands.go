@@ -86,6 +86,8 @@ var commands = []command{
 	{"transfer", ClassWorkflow, plain(cmdTransfer)},
 	{"domains", ClassView, plain(cmdDomains)},
 	{"delete", ClassWorkflow, plain(cmdDelete)},
+	{"export", ClassWorkflow, plain(cmdExport)},
+	{"archive", ClassWorkflow, plain(cmdArchive)},
 }
 
 func commandByName(n string) (command, bool) {

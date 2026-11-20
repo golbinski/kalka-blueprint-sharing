@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { act } from './actions'
-import { api, type BlueprintInfo, type JoinPreview, type SeedRow, type Status, type Team } from './api'
+import { api, type BlueprintInfo, type IssuesView, type JoinPreview, type SeedRow, type Status, type Team } from './api'
+import { groupOptions, groupRows, levels, loadGroupBy, loadShowArchived, saveGroupBy, saveShowArchived, STATUS_LABEL, usable, type GroupChoice } from './groups'
 import { PublishDialog } from './Dialogs'
 import { PERSONAL, shortName } from './scope'
 import { blueprintRows, sectionOfRow } from './section'
@@ -96,11 +97,13 @@ export function Setup({ status }: { status: Status }) {
       <h1>{invite ? `Join ${invite.name}` : 'Set up kalka'}</h1>
       {invite ? (
         <p>
-          {invite.inviter} invited you to the team <b>{invite.name}</b>. Choose where kalka keeps your blueprints, and you are in as
-          soon as {invite.inviter.split('@')[0]}'s kalka is running.
+          {invite.inviter} invited you to the team <b>{invite.name}</b>. Choose where kalka keeps your blueprints, and you are in as soon as{' '}
+          {invite.inviter.split('@')[0]}'s kalka is running.
         </p>
       ) : (
-        <p className="muted">Three settings. You can change them later with <code>kalka setup</code>.</p>
+        <p className="muted">
+          Three settings. You can change them later with <code>kalka setup</code>.
+        </p>
       )}
       <form className="form" onSubmit={save}>
         {fixed ? (
@@ -160,14 +163,44 @@ export function Setup({ status }: { status: Status }) {
 /** Blueprints lists the blueprints of the scope (spec 11.1), the most
  * recently active first. In Personal each offers Publish to team…; in a
  * team folder one that is not shared says why. */
-export function Blueprints({ list, status, scope, team, reload }: { list: BlueprintInfo[]; status: Status; scope: string; team?: Team; reload: () => void }) {
+export function Blueprints({
+  list,
+  status,
+  scope,
+  team,
+  reload,
+  issues,
+}: {
+  list: BlueprintInfo[]
+  status: Status
+  scope: string
+  team?: Team
+  reload: () => void
+  issues?: IssuesView
+}) {
   const [publishing, setPublishing] = useState<BlueprintInfo | null>(null)
+  const [choice, setChoiceState] = useState<GroupChoice>(() => loadGroupBy(scope))
+  const [showArchived, setShowArchivedState] = useState(() => loadShowArchived(scope))
+  useEffect(() => {
+    setChoiceState(loadGroupBy(scope))
+    setShowArchivedState(loadShowArchived(scope))
+  }, [scope])
+  const setChoice = (c: GroupChoice) => {
+    setChoiceState(c)
+    saveGroupBy(scope, c)
+  }
+  const setShowArchived = (v: boolean) => {
+    setShowArchivedState(v)
+    saveShowArchived(scope, v)
+  }
   const personal = scope === PERSONAL
   const notShared = new Map((team?.not_shared ?? []).map((n) => [n.rel, n.reason]))
-  const where = personal ? 'Personal' : team?.name ?? scope
+  const where = personal ? 'Personal' : (team?.name ?? scope)
   // Seeds and domain documents have their own lists (sectionOf).
-  const sorted = blueprintRows(list, scope)
-  if (sorted.length === 0 && list.length > 0) {
+  const all = blueprintRows(list, scope)
+  const archivedCount = all.filter((b) => b.archived).length
+  const sorted = showArchived ? all : all.filter((b) => !b.archived)
+  if (all.length === 0 && list.length > 0) {
     // Only seeds or domain documents here: say where they are.
     const seeds = list.filter((b) => sectionOfRow(b, scope) === 'seeds').length
     const domains = list.length - seeds
@@ -200,12 +233,10 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
           {personal ? (
             <>
               <p>
-                <b>Nothing in Personal yet.</b> Personal is only on this computer: what you write here stays yours until you publish it to a
-                team.
+                <b>Nothing in Personal yet.</b> Personal is only on this computer: what you write here stays yours until you publish it to a team.
               </p>
               <p className="muted">
-                Put a Markdown file into <code>{status.folder}/personal</code>, or ask an agent to write one (<code>kalka reference</code>{' '}
-                tells it how).
+                Put a Markdown file into <code>{status.folder}/personal</code>, or ask an agent to write one (<code>kalka reference</code> tells it how).
               </p>
               <div className="row center">
                 <OpenFolder rel="personal" />
@@ -230,9 +261,43 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
     )
   }
   const mine = (b: BlueprintInfo) => !!b.owner && b.owner.toLowerCase() === status.email.toLowerCase()
+  const options = groupOptions(issues?.caps)
+  const by = usable(choice, issues?.caps)
+  const lv = levels(issues?.issues ?? {})
+  const groups = groupRows(sorted, by, issues?.issues ?? {}, lv[by.level - 1]?.label)
+  const cols = personal ? 5 : 4
   return (
     <div className="page">
       <h1>Blueprints · {where}</h1>
+      {(options.length > 1 || archivedCount > 0) && (
+        <div className="list-controls row">
+          {options.length > 1 && (
+            <label className="row">
+              Group by
+              <select aria-label="Group by" value={by.by} onChange={(e) => setChoice({ by: e.target.value as GroupChoice['by'], level: by.level })}>
+                <option value="none">nothing</option>
+                {options.includes('parent') && <option value="parent">parent issue</option>}
+                {options.includes('status') && <option value="status">issue status</option>}
+              </select>
+            </label>
+          )}
+          {by.by === 'parent' && lv.length > 1 && (
+            <select aria-label="Parent level" value={by.level} onChange={(e) => setChoice({ by: 'parent', level: Number(e.target.value) })}>
+              {lv.map((l) => (
+                <option key={l.level} value={l.level}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {archivedCount > 0 && (
+            <label className="row">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              Show archived ({archivedCount})
+            </label>
+          )}
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -245,35 +310,61 @@ export function Blueprints({ list, status, scope, team, reload }: { list: Bluepr
             </tr>
           </thead>
           <tbody>
-            {sorted.map((b) => {
-              const why = notShared.get(b.rel)
-              const broken = b.errors > 0 || !!b.parse_error || !!b.duplicate
-              return (
-                <tr key={b.path}>
-                  <td>
-                    <a href={docHref(b.rel)}>{b.title || b.rel}</a>
-                    {(b.new ?? 0) > 0 && <span className="badge new">{b.new} new</span>}
-                    {b.unreleased && <span className="badge">{mine(b) ? 'unreleased edits' : 'edited, not released'}</span>}
-                    {b.parse_error && <span className="badge warn">{b.parse_error}</span>}
-                    {b.errors > 0 && <span className="badge warn">{plural(b.errors, 'error')}</span>}
-                    {b.duplicate && <span className="badge warn">same kalka_id as another file</span>}
-                    {why && <div className="small warn-text">Not shared: {why.replace(/^not shared: /, '')}</div>}
-                  </td>
-                  <td title={b.owner}>{!b.owner ? <span className="muted">—</span> : mine(b) ? 'you' : shortName(b.owner)}</td>
-                  <td>{b.version ? `v${b.version}` : <span className="muted">{personal ? 'not shared' : '—'}</span>}</td>
-                  <td title={b.activity ?? b.modified}>{ago(b.activity ?? b.modified)}</td>
-                  {personal && (
+            {groups.flatMap((g) => [
+              ...(by.by === 'none'
+                ? []
+                : [
+                    <tr key={'g:' + g.key} className={'group-row ' + g.kind}>
+                      <th colSpan={cols} scope="colgroup">
+                        {g.url ? (
+                          <a href={g.url} target="_blank" rel="noreferrer">
+                            {g.label}
+                          </a>
+                        ) : (
+                          g.label
+                        )}
+                        <span className="muted"> · {g.rows.length}</span>
+                      </th>
+                    </tr>,
+                  ]),
+              ...g.rows.map((b) => {
+                const why = notShared.get(b.rel)
+                const broken = b.errors > 0 || !!b.parse_error || !!b.duplicate
+                const iv = b.issue ? issues?.issues[b.issue] : undefined
+                return (
+                  <tr key={b.path} className={b.archived ? 'archived' : undefined}>
                     <td>
-                      {!broken && (
-                        <button type="button" className="link" {...act('doc.publish')} onClick={() => setPublishing(b)}>
-                          Publish to team…
-                        </button>
+                      <a href={docHref(b.rel)}>{b.title || b.rel}</a>
+                      {b.archived && <span className="badge">archived</span>}
+                      {b.issue && (
+                        <span className="badge issue" title={iv?.meta?.ok ? iv.meta.title : b.issue}>
+                          {iv?.payload ?? b.issue}
+                          {iv?.meta?.ok && iv.meta.status && by.by !== 'status' ? ' · ' + (iv.meta.status.name || STATUS_LABEL[iv.meta.status.category]) : ''}
+                        </span>
                       )}
+                      {(b.new ?? 0) > 0 && <span className="badge new">{b.new} new</span>}
+                      {b.unreleased && <span className="badge">{mine(b) ? 'unreleased edits' : 'edited, not released'}</span>}
+                      {b.parse_error && <span className="badge warn">{b.parse_error}</span>}
+                      {b.errors > 0 && <span className="badge warn">{plural(b.errors, 'error')}</span>}
+                      {b.duplicate && <span className="badge warn">same kalka_id as another file</span>}
+                      {why && <div className="small warn-text">Not shared: {why.replace(/^not shared: /, '')}</div>}
                     </td>
-                  )}
-                </tr>
-              )
-            })}
+                    <td title={b.owner}>{!b.owner ? <span className="muted">—</span> : mine(b) ? 'you' : shortName(b.owner)}</td>
+                    <td>{b.version ? `v${b.version}` : <span className="muted">{personal ? 'not shared' : '—'}</span>}</td>
+                    <td title={b.activity ?? b.modified}>{ago(b.activity ?? b.modified)}</td>
+                    {personal && (
+                      <td>
+                        {!broken && (
+                          <button type="button" className="link" {...act('doc.publish')} onClick={() => setPublishing(b)}>
+                            Publish to team…
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                )
+              }),
+            ])}
           </tbody>
         </table>
       </div>
@@ -290,7 +381,15 @@ export function OpenFolder({ rel = '', label = 'Open folder' }: { rel?: string; 
   const [err, setErr] = useState('')
   return (
     <span className="row">
-      <button type="button" onClick={() => api.openFolder(rel).then(() => setErr(''), (e: Error) => setErr(e.message))}>
+      <button
+        type="button"
+        onClick={() =>
+          api.openFolder(rel).then(
+            () => setErr(''),
+            (e: Error) => setErr(e.message),
+          )
+        }
+      >
         {label}
       </button>
       {err && <span className="error-text small">{err}</span>}
@@ -305,6 +404,10 @@ export function PreBacklog({ scope, list, reload }: { scope: string; list: Bluep
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
   const [publishing, setPublishing] = useState<SeedRow | null>(null)
+  const [showArchived, setShowArchivedState] = useState(() => loadShowArchived(scope))
+  useEffect(() => setShowArchivedState(loadShowArchived(scope)), [scope])
+  const archivedCount = (rows ?? []).filter((r) => r.archived).length
+  const shown = (rows ?? []).filter((r) => showArchived || !r.archived)
   // Seeds are listed here only (sectionOf), so a Personal one is published from here.
   const personal = scope === PERSONAL
   const broken = new Set(list.filter((b) => b.errors > 0 || !!b.parse_error || !!b.duplicate).map((b) => b.rel))
@@ -326,15 +429,29 @@ export function PreBacklog({ scope, list, reload }: { scope: string; list: Bluep
     <div className="page">
       <h1>Seeds</h1>
       <p className="muted">
-        Ideas split off from growing blueprints, kept small until someone takes them up. Split one off from a blueprint (More ▾ Split
-        off a seed…) or from a deviation.
+        Ideas split off from growing blueprints, kept small until someone takes them up. Split one off from a blueprint (More ▾ Split off a seed…) or from a
+        deviation.
       </p>
       {err && <div className="error-box">{err}</div>}
+      {archivedCount > 0 && (
+        <div className="list-controls row">
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => {
+                setShowArchivedState(e.target.checked)
+                saveShowArchived(scope, e.target.checked)
+              }}
+            />
+            Show archived ({archivedCount})
+          </label>
+        </div>
+      )}
       {rows && rows.length === 0 && (
         <div className="empty">
           <p>
-            <b>No seeds yet.</b> When a review turns up an idea that does not belong in the plan, split it off as a seed instead of
-            letting the plan grow.
+            <b>No seeds yet.</b> When a review turns up an idea that does not belong in the plan, split it off as a seed instead of letting the plan grow.
           </p>
         </div>
       )}
@@ -351,14 +468,21 @@ export function PreBacklog({ scope, list, reload }: { scope: string; list: Bluep
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.kalka_id + r.rel}>
+              {shown.map((r) => (
+                <tr key={r.kalka_id + r.rel} className={r.archived ? 'archived' : undefined}>
                   <td>
                     <a href={docHref(r.rel)}>{r.title}</a>
+                    {r.archived && <span className="badge">archived</span>}
                   </td>
                   <td title={r.owner}>{r.mine ? 'you' : shortName(r.owner)}</td>
                   <td>
-                    {r.parent_rel ? <a href={docHref(r.parent_rel)}>{r.parent_title || r.parent_rel}</a> : r.parent ? <span className="muted">not in your folder</span> : '—'}
+                    {r.parent_rel ? (
+                      <a href={docHref(r.parent_rel)}>{r.parent_title || r.parent_rel}</a>
+                    ) : r.parent ? (
+                      <span className="muted">not in your folder</span>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td title={r.active}>{ago(r.active)}</td>
                   <td>
