@@ -227,3 +227,72 @@ func TestAgentContext(t *testing.T) {
 		t.Error("a sibling is in the context")
 	}
 }
+
+// A missing ancestor is P010 and its invariants are not checked against;
+// with only the files checked, a parent not among them is P011, and goal
+// coverage is not judged without the children.
+func TestPlanNotHere(t *testing.T) {
+	const rootID = "2c7e4a19-5d3b-4f80-a6e1-9b0d8c3f7a25"
+	c := plans(t, func(d string) {
+		planDoc(t, d, "epic.md", epicID, rootID, "", "Epic", goals("goal G1: x\n"))
+		planDoc(t, d, "leaf.md", leafID, epicID, "", "Hold record", goals(criterion)+invs("affects parent#R1\n"))
+	})
+	got, r := c.check(t, "leaf.md", "PI")
+	if got != "P010" || !strings.Contains(r.Problems[len(r.Problems)-1].Message, `"Epic", a plan node above`) {
+		t.Errorf("grandparent missing: %q %+v", got, r.Problems)
+	}
+
+	dir := t.TempDir()
+	planDoc(t, dir, "epic.md", epicID, "", "kalka_status: closed\n", "Holds", goals(epicGoals))
+	planDoc(t, dir, "leaf.md", leafID, epicID, "", "Hold record", goals(criterion))
+	only := func(files ...string) *Folder {
+		f := NewFolder()
+		for _, x := range files {
+			f.Add(filepath.Join(dir, x))
+		}
+		return f
+	}
+	for _, x := range []struct {
+		file  string
+		given []string
+		want  string
+	}{
+		{"epic.md", []string{"epic.md"}, "P011"},
+		{"leaf.md", []string{"leaf.md"}, "P011"},
+		{"epic.md", []string{"epic.md", "leaf.md"}, "P031 P031"},
+		{"leaf.md", []string{"leaf.md", "epic.md"}, ""},
+	} {
+		raw, _ := os.ReadFile(filepath.Join(dir, x.file))
+		d, _ := bp.Parse(raw)
+		if got := ruleList(Document(d, Options{Docs: only(x.given...)}).Problems, "P"); got != x.want {
+			t.Errorf("%s given %v: %q, want %q", x.file, x.given, got, x.want)
+		}
+	}
+}
+
+// A criterion realizing two own goals claims both; one naming an own goal
+// that does not exist is still in the tree, on its own (P020).
+func TestOwnCriteria(t *testing.T) {
+	d, _ := bp.Parse([]byte("# Plan\n\n" + goals("goal G1: x\ngoal G2: y\ncriterion AC1: z\n  realizes G1\n  realizes G2\n  then w\ncriterion AC2: v\n  realizes G9\n  then u\n")))
+	if got := states(GoalTree(d, nil)); got != "goal G1=claimed[criterion AC1=open] goal G2=claimed[criterion AC1=open] criterion AC2=open" {
+		t.Errorf("tree %s", got)
+	}
+	for _, p := range d.Problems() {
+		if p.Rule == "P020" && p.Line != 11 {
+			t.Errorf("P020 at line %d, want the realizes line 11", p.Line)
+		}
+	}
+}
+
+// A cycle above the document says where it is.
+func TestCycleAbove(t *testing.T) {
+	c := plans(t, func(d string) {
+		planDoc(t, d, "epic.md", epicID, storyID, "", "Epic", "")
+		planDoc(t, d, "story.md", storyID, epicID, "", "Story", "")
+		planDoc(t, d, "leaf.md", leafID, storyID, "", "Leaf", "")
+	})
+	got, r := c.check(t, "leaf.md", "P")
+	if got != "P012" || !strings.Contains(r.Problems[len(r.Problems)-1].Message, "above this document") {
+		t.Errorf("%q %+v", got, r.Problems)
+	}
+}

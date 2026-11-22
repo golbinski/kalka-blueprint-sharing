@@ -168,9 +168,9 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(),
 		Entries: []EntryView{},
 	}
-	res := check.Document(doc, check.Options{Domains: storeDomains{d}, Docs: storeDocs{d}})
+	res := check.Document(doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(path)})
 	v.Problems, v.Glossary = res.Problems, res.Glossary
-	v.Invariants = check.Matrix(doc, res.Context, storeDocs{d})
+	v.Invariants = check.Matrix(doc, res.Context, d.docsAt(path))
 	if doc.IsDomain() && len(v.Invariants) > 0 {
 		check.ReferencedBy(v.Invariants, doc, d.blueprintsOf(doc))
 	}
@@ -275,7 +275,7 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		v.Archived = t.UTC().Format(time.RFC3339)
 	}
 	if snapshot == 0 {
-		v.Plan = d.planView(doc)
+		v.Plan = d.planView(path, doc)
 	}
 	if r, ok := doc.Issue(); ok {
 		v.IssueKey = r.Payload

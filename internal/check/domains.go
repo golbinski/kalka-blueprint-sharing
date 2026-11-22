@@ -24,6 +24,9 @@ type Folder struct {
 	byID     map[string]*bp.Document
 	children map[string][]*bp.Document
 	seen     map[string]bool
+	// searched: a folder or document was read beyond the files checked,
+	// so a plan node missing here is missing, not merely not given.
+	searched bool
 }
 
 type found struct {
@@ -42,6 +45,7 @@ func NewFolder(paths ...string) *Folder {
 		if err != nil {
 			continue
 		}
+		f.searched = true
 		if !st.IsDir() {
 			f.add(p)
 			continue
@@ -156,6 +160,10 @@ func (f *Folder) Latest(team, domain string) int64 {
 
 // ByID implements Docs.
 func (f *Folder) ByID(id string) *bp.Document { return f.byID[strings.ToLower(id)] }
+
+// Searched implements Searcher: whether documents beyond the files
+// checked were read.
+func (f *Folder) Searched() bool { return f.searched }
 
 // Children implements Docs.
 func (f *Folder) Children(id string) []*bp.Document { return f.children[strings.ToLower(id)] }

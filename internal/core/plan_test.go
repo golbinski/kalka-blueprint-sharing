@@ -62,3 +62,70 @@ func TestPlanViewAndClose(t *testing.T) {
 		t.Fatalf("lone plan %+v", v.Plan)
 	}
 }
+
+// Closing a team document releases it, so it is refused, as archiving
+// is, to anyone but the owner and over edits not released (spec 6.18,
+// 10.5); a domain document is not closed at all.
+func TestCloseRefused(t *testing.T) {
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	depot, courier := ns[0], ns[1]
+	courier.write("redelivery.md", issueDoc)
+	waitIndexed(t, courier, 1)
+	id := courier.share("redelivery.md", depot)
+	path := courier.path("redelivery.md")
+
+	if err := depot.d.Close(func() string { f, _ := depot.teamFile(id); return f }(), false); KindOf(err) != KindNotOwner {
+		t.Fatalf("a member closed: %v", err)
+	}
+	orig := courier.read("redelivery.md")
+	courier.write("redelivery.md", strings.Replace(orig, "the next day", "the same evening", 1))
+	if err := courier.d.Close(path, false); err == nil || !strings.Contains(err.Error(), "not released") {
+		t.Fatalf("closed over unreleased edits: %v", err)
+	}
+	courier.write("redelivery.md", orig)
+	if err := courier.d.Close(path, false); err != nil {
+		t.Fatal(err)
+	}
+	if d := courier.doc("redelivery.md"); !d.IsClosed() {
+		t.Fatalf("status %q", d.Status())
+	}
+	if ts := courier.d.teamDocState(path, courier.doc("redelivery.md")); ts == nil || ts.Unrel {
+		t.Fatalf("the close was not released: %+v", ts)
+	}
+
+	courier.write("lockers-domain.md", "---\nkalka_kind: domain\nkalka_domain: lockers\nkalka_team: parcels\nkalka_version: 1\n---\n# Lockers\n")
+	if err := courier.d.Close("lockers-domain.md", false); err == nil || !strings.Contains(err.Error(), "domain") {
+		t.Fatalf("closed a domain document: %v", err)
+	}
+}
+
+// The plan graph stays in a scope (spec 14): a Personal draft under a team
+// epic finds its parent, and does not claim the team epic's goals.
+func TestPlanGraphScope(t *testing.T) {
+	_, ns := teamOfN(t, "depot@parcels.example", "courier@parcels.example")
+	courier := ns[1]
+	own := func(s string) string {
+		return strings.ReplaceAll(s, "alice@library.example", "courier@parcels.example")
+	}
+	courier.write("epic.md", own(planEpic))
+	waitIndexed(t, courier, 1)
+	courier.share("epic.md")
+	courier.write("draft.md", own(planLeaf))
+	waitIndexed(t, courier, 2)
+	ctx := context.Background()
+
+	draft, err := courier.d.Document(ctx, courier.path("draft.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := draft.Plan; p == nil || len(p.Path) != 1 || p.Path[0].Title != "Holds" {
+		t.Fatalf("draft plan %+v", draft.Plan)
+	}
+	epic, err := courier.d.Document(ctx, courier.path("epic.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := epic.Plan; p == nil || len(p.Children) != 0 || p.Goals[0].State != "unclaimed" {
+		t.Fatalf("team epic plan %+v", epic.Plan)
+	}
+}

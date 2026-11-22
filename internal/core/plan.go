@@ -7,10 +7,13 @@ package core
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/check"
 	"github.com/golbinski/kalka/internal/fsutil"
+	"github.com/golbinski/kalka/internal/store"
 )
 
 // Crumb is one plan node on the way to a document, or one of its children.
@@ -38,12 +41,45 @@ type PlanView struct {
 }
 
 // storeDocs serves the plan graph to the checker from the documents held
-// here.
-type storeDocs struct{ d *Node }
+// here, in one scope (spec 14): a parent is looked up there first, then
+// anywhere (a Personal draft may sit under a team epic), but children only
+// count in the scope, so a draft does not change a team plan's states.
+// A copy's former id (kalka_from) is not followed.
+type storeDocs struct {
+	d     *Node
+	scope string
+}
+
+// docsAt is the plan graph seen from the document at path.
+func (d *Node) docsAt(path string) storeDocs {
+	rel, _ := filepath.Rel(d.Store.Dir(), path)
+	return storeDocs{d, store.ScopeOf(rel)}
+}
 
 func (s storeDocs) ByID(id string) *bp.Document {
-	f, err := s.d.Store.Resolve(id)
-	if err != nil || f == nil {
+	var here, elsewhere []string
+	for _, in := range s.d.Store.List() {
+		if !strings.EqualFold(in.KalkaID, id) || in.ParseError != "" {
+			continue
+		}
+		if in.Scope == s.scope {
+			if in.Duplicate {
+				return nil
+			}
+			here = append(here, in.Path)
+		} else {
+			elsewhere = append(elsewhere, in.Path)
+		}
+	}
+	paths := here
+	if len(paths) == 0 {
+		paths = elsewhere
+	}
+	if len(paths) != 1 {
+		return nil
+	}
+	f, err := s.d.Store.Load(paths[0])
+	if err != nil {
 		return nil
 	}
 	return f.Doc
@@ -52,7 +88,7 @@ func (s storeDocs) ByID(id string) *bp.Document {
 func (s storeDocs) Children(id string) []*bp.Document {
 	var out []*bp.Document
 	for _, in := range s.d.Store.List() {
-		if in.Parent != id || in.Duplicate || in.ParseError != "" {
+		if !strings.EqualFold(in.Parent, id) || in.Scope != s.scope || in.Duplicate || in.ParseError != "" {
 			continue
 		}
 		if f, err := s.d.Store.Load(in.Path); err == nil {
@@ -67,16 +103,19 @@ func (d *Node) crumb(doc *bp.Document) Crumb {
 	if r, ok := doc.Issue(); ok {
 		c.Issue = r.String()
 	}
-	if f, err := d.Store.Resolve(doc.KalkaID()); err == nil && f != nil {
-		c.Rel = d.rel(f.Path)
+	for _, in := range d.Store.List() {
+		if in.KalkaID != "" && strings.EqualFold(in.KalkaID, doc.KalkaID()) && !in.Duplicate {
+			c.Rel = in.Rel
+			break
+		}
 	}
 	return c
 }
 
 // planView is the plan graph around doc, nil for a document outside it:
 // no parent, no goals and no children.
-func (d *Node) planView(doc *bp.Document) *PlanView {
-	docs := storeDocs{d}
+func (d *Node) planView(at string, doc *bp.Document) *PlanView {
+	docs := d.docsAt(at)
 	var kids []*bp.Document
 	if id := doc.KalkaID(); id != "" {
 		kids = docs.Children(id)
@@ -99,7 +138,7 @@ func (d *Node) planView(doc *bp.Document) *PlanView {
 
 // Close records that the owner confirms the document delivered
 // (kalka_status: closed), or reopens it; a team document is released at
-// once, as a promotion is (spec 6.18).
+// once, as an archive is (spec 6.18, 10.5).
 func (d *Node) Close(path string, reopen bool) error {
 	for attempt := 0; ; attempt++ {
 		f, err := d.Store.Load(d.resolve(path))
@@ -110,8 +149,21 @@ func (d *Node) Close(path string, reopen bool) error {
 		if err != nil {
 			return err
 		}
+		if doc.IsDomain() {
+			return errors.New("a domain document is not closed: it is a version of the domain, not a piece of the plan")
+		}
 		if !d.ownsAt(f.Path, doc) {
-			return fmt.Errorf("only the owner (%s) can close this document", doc.Owner())
+			return &Error{Kind: KindNotOwner, Msg: fmt.Sprintf("only the owner (%s) can close this document", doc.Owner())}
+		}
+		// Closing releases the file: other edits must not ride along.
+		team := false
+		if doc.KalkaID() != "" {
+			if _, ok := d.teamDirAt(f.Path); ok {
+				team = true
+				if ts := d.teamDocState(f.Path, doc); ts != nil && ts.Held && ts.Unrel {
+					return errors.New("the plan has edits that are not released: release them first, then close")
+				}
+			}
 		}
 		if err := bp.Close(doc, reopen); err != nil {
 			return err
@@ -120,15 +172,17 @@ func (d *Node) Close(path string, reopen bool) error {
 		if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
 			continue
 		}
-		if err == nil {
-			what := "closed"
-			if reopen {
-				what = "reopened"
-			}
-			d.logf("%s %s", what, f.Path)
-			d.releaseOwn(f.Path, what)
+		if err != nil {
+			return err
 		}
-		return err
+		what := map[bool]string{false: "closed", true: "reopened"}[reopen]
+		d.logf("%s %s", what, f.Path)
+		if team {
+			if _, err := d.Release(f.Path, what, nil); err != nil {
+				return fmt.Errorf("%s, but the release failed: %v", what, err)
+			}
+		}
+		return nil
 	}
 }
 
@@ -138,5 +192,5 @@ func (d *Node) AgentContext(path string) (check.AgentContext, error) {
 	if err != nil {
 		return check.AgentContext{}, err
 	}
-	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: storeDocs{d}}), nil
+	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path)}), nil
 }

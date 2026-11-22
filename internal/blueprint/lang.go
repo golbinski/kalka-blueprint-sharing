@@ -188,6 +188,17 @@ func (it *langItem) one(kw string) string {
 	return ""
 }
 
+// lines is the line of each value of kw, the first when one repeats.
+func (it *langItem) lines(kw string) map[string]int {
+	out := map[string]int{}
+	for _, a := range it.Attrs {
+		if _, ok := out[a.Value]; a.Keyword == kw && !ok {
+			out[a.Value] = a.Line
+		}
+	}
+	return out
+}
+
 func (it *langItem) values(kw string) []string {
 	var out []string
 	for _, a := range it.Attrs {
@@ -221,10 +232,19 @@ func (p *langParser) warn(code, node string, line int, format string, a ...any) 
 }
 
 // fix records an error with a suggested replacement of the whole line.
+// fix reports an error whose fix replaces the whole line with repl. A line
+// gets one fix: each repl is built on the line as the fixes before it left
+// it, so the last one carries them all, over the span of the line as
+// written, and the earlier ones lose theirs.
 func (p *langParser) fix(code string, line int, raw, repl string, format string, a ...any) {
-	n := utf8.RuneCountInString(raw)
-	p.errors = append(p.errors, TraceError{Code: code, Line: line, Message: fmt.Sprintf(format, a...),
-		Fix: &Fix{Text: repl, Line: line, Column: 1, EndLine: line, EndColumn: n + 1}})
+	f := &Fix{Text: repl, Line: line, Column: 1, EndLine: line, EndColumn: utf8.RuneCountInString(raw) + 1}
+	for i := len(p.errors) - 1; i >= 0 && p.errors[i].Line == line; i-- {
+		if prev := p.errors[i].Fix; prev != nil {
+			f.EndColumn = prev.EndColumn
+			p.errors[i].Fix = nil
+		}
+	}
+	p.errors = append(p.errors, TraceError{Code: code, Line: line, Message: fmt.Sprintf(format, a...), Fix: f})
 }
 
 // version reads the fence: true when the block is read as v2.
@@ -420,6 +440,13 @@ func (p *langParser) drift(line int, raw, format string, a ...any) {
 func (p *langParser) gherkin(line int, raw, kw, rest string, cur *langItem) bool {
 	lower := strings.ToLower(kw)
 	switch lower {
+	case "given", "when", "then", "and", "but":
+		if p.lang.info != GoalsInfo && (kw != lower || lower == "and" || lower == "but") {
+			p.drift(line, raw, "%s is Gherkin; given, when and then are written under a criterion of a goals block", kw)
+			return true
+		}
+	}
+	switch lower {
 	case "given", "when", "then":
 		if kw == lower {
 			return false // the v2 attribute, or one misplaced (S008)
@@ -429,8 +456,13 @@ func (p *langParser) gherkin(line int, raw, kw, rest string, cur *langItem) bool
 		return true
 	case "and", "but":
 		prev := "then"
-		if cur != nil && len(cur.Attrs) > 0 {
-			prev = cur.Attrs[len(cur.Attrs)-1].Keyword
+		if cur != nil {
+			for _, a := range slices.Backward(cur.Attrs) {
+				if _, ok := stepOrder[a.Keyword]; ok {
+					prev = a.Keyword
+					break
+				}
+			}
 		}
 		repl := "  " + prev + " " + strings.TrimSpace(rest)
 		p.fix("S010", line, raw, repl, "there is no %s; repeat the keyword: %s", lower, strings.TrimSpace(repl))
@@ -517,6 +549,9 @@ func (p *langParser) attrLine(it *langItem, k *keyword, line int, rest string) {
 	case kwLabel:
 		ref, label, hasLabel := strings.Cut(rest, ": ")
 		ref, label = strings.TrimSpace(ref), strings.TrimSpace(label)
+		if !hasLabel && strings.HasSuffix(ref, ":") {
+			ref, hasLabel = strings.TrimSuffix(ref, ":"), true
+		}
 		if strings.Contains(ref, " ") || ref == "" {
 			p.fail("S009", it.Name, line, "%s names one id with no spaces, optionally followed by \": \" and a label: %s C3: queue empty", k.name, k.name)
 			return

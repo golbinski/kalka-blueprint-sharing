@@ -12,6 +12,10 @@ import (
 // kalka_parent; goals are claimed by child goals and acceptance criteria,
 // and their states are computed, never written.
 
+// Searcher is a Docs that may hold only the files checked: Searched is
+// false then, and a plan node not found was not given rather than missing.
+type Searcher interface{ Searched() bool }
+
 // Docs finds documents of the plan graph by kalka_id.
 type Docs interface {
 	// ByID is the document with this kalka_id, nil when none is here.
@@ -93,17 +97,22 @@ func GoalTree(doc *bp.Document, docs Docs) []GoalNode {
 		}
 	}
 	for _, g := range doc.Goals() {
-		if g.Kind == bp.KindCriterion && !realizesOwn(g) {
+		if g.Kind == bp.KindCriterion && !realizesOwn(doc, g) {
 			out = append(out, criterionNode(doc, g, true))
 		}
 	}
 	return out
 }
 
-func realizesOwn(g bp.Goal) bool {
+// realizesOwn reports whether a criterion realizes a goal of its own
+// document, so that it is drawn under that goal; one naming an own goal
+// that does not exist (P020) is drawn on its own.
+func realizesOwn(doc *bp.Document, g bp.Goal) bool {
 	for _, r := range g.Realizes {
 		if ref, ok := bp.ParseInvRef(r); ok && ref.Domain == "" {
-			return true
+			if o := doc.Goal(ref.ID); o != nil && o.Kind == bp.KindGoal {
+				return true
+			}
 		}
 	}
 	return false
@@ -192,15 +201,22 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 	parentLine := fm.KeyLine(bp.KeyParent)
 	path, missing, cycle := PlanPath(doc, docs)
 	hasParent := doc.PlanParent() != ""
-	checked := docs != nil
+	// searched: plan nodes were looked up beyond the files checked, so one
+	// not found is missing (P010) rather than not given (P011).
+	searched := docs != nil
+	if s, ok := docs.(Searcher); ok && !s.Searched() {
+		searched = false
+	}
 	switch {
 	case !hasParent:
 	case cycle:
-		out = append(out, bp.NewProblem("P012", parentLine, "following kalka_parent leads back to this document; the plan is a tree, so its root has no kalka_parent"))
-	case !checked:
-		out = append(out, bp.NewProblem("P011", parentLine, "the parent plan node was not looked up, so the rules that need it were not run"))
+		out = append(out, bp.NewProblem("P012", parentLine, cycleMessage(doc, path)))
+	case missing != "" && !searched:
+		out = append(out, bp.NewProblem("P011", parentLine, "the plan nodes above were not looked up, only the files checked, so the rules that need them were not run; check with --domain <folder>"))
 	case missing != "" && len(path) == 0:
 		out = append(out, bp.NewProblem("P010", parentLine, fmt.Sprintf("kalka_parent names %s, which is not here; check the document together with its parent, or fix the id", missing)))
+	case missing != "":
+		out = append(out, bp.NewProblem("P010", parentLine, fmt.Sprintf("%q, a plan node above, names its parent %s, which is not here; the invariants inherited from above it were not checked", path[0].Title(), missing)))
 	}
 	var parent *bp.Document
 	if len(path) > 0 && !cycle && path[len(path)-1].KalkaID() == doc.PlanParent() {
@@ -226,7 +242,7 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 						break
 					}
 				}
-				p := bp.NewProblem("P020", g.Line, msg)
+				p := bp.NewProblem("P020", g.RealizesLine(r), msg)
 				p.Node = g.ID
 				out = append(out, p)
 			}
@@ -253,7 +269,7 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 				out = append(out, p)
 			}
 		}
-		if parent != nil {
+		if parent != nil && missing == "" {
 			for _, a := range doc.ParentRefs() {
 				if _, ok := inherited[a.Ref.ID]; !ok {
 					p := bp.NewProblem("I020", a.Line, fmt.Sprintf("%s: %q and the plan nodes above it have no invariant %s", a.Text, parent.Title(), a.Ref.ID))
@@ -265,7 +281,10 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 	}
 	// Goal coverage: unclaimed is a warning while open, an error once
 	// closed; with an adopted breakdown, a finding to decide.
-	if !checked && len(doc.Goals()) > 0 && doc.KalkaID() != "" {
+	if !searched && doc.KalkaID() != "" && (docs == nil || len(docs.Children(doc.KalkaID())) == 0) {
+		if hasGoal(doc) && (missing == "" || !hasParent) {
+			out = append(out, bp.NewProblem("P011", 1, "the plan nodes below were not looked up, only the files checked, so goal coverage was not checked; check with --domain <folder>"))
+		}
 		return out
 	}
 	adopted := doc.Breakdown() == bp.BreakdownAdopted
@@ -293,6 +312,31 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 		out = append(out, p)
 	}
 	return out
+}
+
+func hasGoal(doc *bp.Document) bool {
+	for _, g := range doc.Goals() {
+		if g.Kind == bp.KindGoal {
+			return true
+		}
+	}
+	return false
+}
+
+// cycleMessage says where following kalka_parent loops: back to doc, or
+// among the nodes above it.
+func cycleMessage(doc *bp.Document, path []*bp.Document) string {
+	if len(path) > 0 && path[0].PlanParent() != "" && !strings.EqualFold(path[0].PlanParent(), doc.KalkaID()) {
+		for _, p := range path {
+			if strings.EqualFold(p.KalkaID(), path[0].PlanParent()) {
+				return fmt.Sprintf("following kalka_parent loops between %q and %q, above this document; the plan is a tree, so its root has no kalka_parent", path[0].Title(), p.Title())
+			}
+		}
+		if len(path) >= maxDepth {
+			return fmt.Sprintf("following kalka_parent goes deeper than %d levels; the plan is a tree, so its root has no kalka_parent", maxDepth)
+		}
+	}
+	return "following kalka_parent leads back to this document; the plan is a tree, so its root has no kalka_parent"
 }
 
 // undelivered names a goal's claimants that are not delivered.

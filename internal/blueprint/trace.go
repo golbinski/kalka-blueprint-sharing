@@ -92,6 +92,8 @@ type TraceNode struct {
 	Covers []string `json:"covers,omitempty"`
 	// Line is the file line where the node starts.
 	Line int `json:"line"`
+	// coversAt is the line of each covers, for diagnostics.
+	coversAt map[string]int
 }
 
 // Live reports whether the step exists after the plan.
@@ -253,10 +255,7 @@ func (d *Document) buildTraces(fences []fence) {
 		}
 	}
 	for _, t := range d.traces {
-		where := fmt.Sprintf("trace %d", t.Index+1)
-		if t.Title != "" {
-			where += " (" + t.Title + ")"
-		}
+		where := t.where()
 		for _, e := range append(append([]TraceError(nil), t.Errors...), t.Warnings...) {
 			d.problems = append(d.problems, e.problem(where, "step "))
 		}
@@ -347,6 +346,7 @@ func parseTrace(src string, fenceLine int, info string) Trace {
 			}
 			n.Realizes = p.ids(it, "realizes")
 			n.Covers = p.ids(it, "covers")
+			n.coversAt = it.lines("covers")
 			for _, g := range p.ids(it, "guards") {
 				if _, ok := ParseInvRef(g); !ok {
 					p.fail("S009", n.ID, it.Line, "guards names an invariant by id (I1), as parent#<id> or as <domain>#<id> (library#L1), not %q", g)
@@ -554,4 +554,13 @@ func countLabels(es []TraceEdge) int {
 		}
 	}
 	return n
+}
+
+// where names the trace in messages: its number, and the heading above it.
+func (t *Trace) where() string {
+	s := fmt.Sprintf("trace %d", t.Index+1)
+	if t.Title != "" {
+		s += " (" + t.Title + ")"
+	}
+	return s
 }

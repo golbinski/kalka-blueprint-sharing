@@ -29,6 +29,16 @@ type Goal struct {
 	// anchor is §<section>#<id>.
 	Section string `json:"section,omitempty"`
 	Line    int    `json:"line"`
+	// realizesAt is the line of each realizes, for diagnostics.
+	realizesAt map[string]int
+}
+
+// RealizesLine is the line of g's realizes r, or g's own line.
+func (g Goal) RealizesLine(r string) int {
+	if l, ok := g.realizesAt[r]; ok {
+		return l
+	}
+	return g.Line
 }
 
 // GoalStep is one given, when or then line of a criterion.
@@ -84,7 +94,7 @@ func (d *Document) buildGoals(fences []fence) {
 				p.fail("S031", "", f.line, "the block is empty; write goal G1: <the outcome>, or criterion AC1: <what is accepted>")
 			}
 			for _, it := range items {
-				g := Goal{Kind: it.Keyword, ID: it.Name, Text: it.Text, Line: it.Line, Section: section, Realizes: it.values("realizes")}
+				g := Goal{Kind: it.Keyword, ID: it.Name, Text: it.Text, Line: it.Line, Section: section, Realizes: it.values("realizes"), realizesAt: it.lines("realizes")}
 				last := 0
 				for _, a := range it.Attrs {
 					o, ok := stepOrder[a.Keyword]
@@ -104,10 +114,14 @@ func (d *Document) buildGoals(fences []fence) {
 					ref, ok := ParseInvRef(r)
 					switch {
 					case !ok || (ref.Domain != "" && !ref.IsParent()):
-						p.fail("P004", g.ID, g.Line, "realizes names a goal as parent#<id> (a goal of the parent plan node), not %q", r)
+						p.fail("P004", g.ID, g.RealizesLine(r), "realizes names a goal as parent#<id> (a goal of the parent plan node), not %q", r)
 					case g.Kind == KindGoal && ref.Domain == "":
-						p.fail("P004", g.ID, g.Line, "a goal realizes a goal of the parent plan node: write realizes parent#%s", r)
+						p.fail("P004", g.ID, g.RealizesLine(r), "a goal realizes a goal of the parent plan node: write realizes parent#%s", r)
 					}
+				}
+				if i := slices.IndexFunc(d.invariants, func(v Invariant) bool { return v.ID == g.ID }); i >= 0 {
+					p.fail("P001", g.ID, g.Line, "the id is used by an invariant (line %d); goals, criteria and invariants share one set of ids, so give this %s a new id", d.invariants[i].Line, g.Kind)
+					continue
 				}
 				if first, dup := byID[g.ID]; dup {
 					p.fail("P001", g.ID, g.Line, "the id is used twice (first at line %d); give this %s a new id", first, g.Kind)
@@ -127,7 +141,7 @@ func (d *Document) buildGoals(fences []fence) {
 				continue
 			}
 			if o := d.Goal(ref.ID); o == nil || o.Kind != KindGoal {
-				p := NewProblem("P020", g.Line, fmt.Sprintf("%s %s: realizes %s, which is not a goal of this document; a goal of the parent is parent#%s", g.Kind, g.ID, r, r))
+				p := NewProblem("P020", g.RealizesLine(r), fmt.Sprintf("%s %s: realizes %s, which is not a goal of this document; a goal of the parent is parent#%s", g.Kind, g.ID, r, r))
 				p.Node = g.ID
 				d.problems = append(d.problems, p)
 			}
@@ -138,7 +152,11 @@ func (d *Document) buildGoals(fences []fence) {
 		for _, s := range t.Nodes {
 			for _, c := range s.Covers {
 				if g := d.Goal(c); g == nil || g.Kind != KindCriterion {
-					p := NewProblem("P022", s.Line, fmt.Sprintf("trace %d, step %s: covers %s, which is not a criterion of this document", t.Index+1, s.ID, c))
+					line := s.Line
+					if l, ok := s.coversAt[c]; ok {
+						line = l
+					}
+					p := NewProblem("P022", line, fmt.Sprintf("%s, step %s: covers %s, which is not a criterion of this document", t.where(), s.ID, c))
 					p.Node = s.ID
 					d.problems = append(d.problems, p)
 				}

@@ -31,6 +31,29 @@ func TestLanguageLexis(t *testing.T) {
 	if p := d.Problems()[0]; p.Fix == nil || p.Fix.Text != "goal G1: x" {
 		t.Errorf("fix %+v", p)
 	}
+	// One fix per line, carrying every fix of it.
+	d, _ = Parse([]byte(g("Goal: G1: x\n")))
+	var fixes []string
+	for _, p := range d.Problems() {
+		if p.Fix != nil {
+			fixes = append(fixes, p.Rule+"="+p.Fix.Text)
+		}
+	}
+	if strings.Join(fixes, " ") != "S003=goal G1: x" {
+		t.Errorf("fixes %v", fixes)
+	}
+	// and repeats the last step keyword, not any attribute.
+	d, _ = Parse([]byte(g("criterion AC1: x\n  given a\n  realizes G1\n  And b\n")))
+	for _, p := range d.Problems() {
+		if p.Rule == "S010" && (p.Fix == nil || p.Fix.Text != "  given b") {
+			t.Errorf("and fix %+v", p.Fix)
+		}
+	}
+	// A labelled reference with no label.
+	d, _ = Parse([]byte("# Plan\n\n```trace v2\nlane a\nstep B1: x\n  next B2:\nstep B2: y\nlane b\n```\n"))
+	if got := rulesOf(d, "S"); got != "S007" {
+		t.Errorf("next B2: %q", got)
+	}
 	d, _ = Parse([]byte(g("criterion AC1: x\n  Given a copy\n")))
 	for _, p := range d.Problems() {
 		if p.Rule == "S010" && !strings.Contains(p.Message, "given") {

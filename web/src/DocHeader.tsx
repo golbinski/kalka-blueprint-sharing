@@ -15,6 +15,7 @@ import { Modal } from './Modal'
 import { attestedText } from './scope'
 import { TransferDialog } from './Transfer'
 import { archiveRole } from './Issue'
+import { ownNodes } from './Goals'
 import { docHref, plural, warningOf } from './util'
 
 type Panel = '' | 'owner' | 'delete' | 'take-release' | 'take-delete'
@@ -268,7 +269,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
 function planLine(doc: Doc): string {
   const p = doc.plan!
   const goals = p.goals.filter((g) => g.kind === 'goal')
-  const criteria = p.goals.filter((g) => g.kind === 'criterion')
+  const criteria = ownNodes(doc).filter((g) => g.kind === 'criterion')
   const parts: string[] = []
   if (goals.length > 0) {
     const n = (s: string) => goals.filter((g) => g.state === s).length

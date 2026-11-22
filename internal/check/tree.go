@@ -200,12 +200,18 @@ func refined(terms []bp.Term, nodes []*bp.Document) []bp.Term {
 func treeProblems(doc *bp.Document, c DomainContext, ds Domains) []bp.Problem {
 	var out []bp.Problem
 	fm := doc.Frontmatter()
+	// A domain node's path starts at its parent pin; a blueprint's at the
+	// domains it names.
+	pin := fm.KeyLine(bp.KeyDomain)
+	if doc.IsDomain() {
+		pin = fm.KeyLine(bp.KeyParent)
+	}
 	for _, p := range c.Paths {
 		switch {
 		case p.Cycle:
-			out = append(out, bp.NewProblem("D003", fm.KeyLine(bp.KeyParent), fmt.Sprintf("the domain pins lead back to %s: %s; a domain tree has one root", p.Ref.Domain, p.String())))
+			out = append(out, bp.NewProblem("D003", pin, fmt.Sprintf("the domain pins lead back to %s: %s; a domain tree has one root", p.Ref.Domain, p.String())))
 		case p.Missing != nil && len(p.Nodes) > 0:
-			out = append(out, bp.NewProblem("D002", fm.KeyLine(bp.KeyDomain), fmt.Sprintf("%s, on the path of %s to the root, is not kept here, so the rules that need it were not run", p.Missing, p.Ref)))
+			out = append(out, bp.NewProblem("D002", pin, fmt.Sprintf("%s, on the path of %s to the root, is not kept here, so the rules that need it were not run", p.Missing, p.Ref)))
 		}
 	}
 	if doc.IsDomain() {
@@ -378,6 +384,10 @@ func qualifyProblems(doc *bp.Document, c DomainContext, g Glossary) []bp.Problem
 			names = append(names, d+"#"+u.Surface)
 		}
 		slices.Sort(names)
+		// Two versions of one domain differ (D021): not a word to qualify.
+		if names = slices.Compact(names); len(names) < 2 {
+			continue
+		}
 		p := bp.NewProblem("D020", u.Line, fmt.Sprintf("%q means different things in the named domains; write %s", u.Surface, strings.Join(names, " or ")))
 		p.Node = u.Node
 		if u.Column > 0 {

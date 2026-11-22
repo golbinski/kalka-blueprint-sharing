@@ -124,12 +124,12 @@ Every diagnostic of `kalka check` and of the app has one of these ids (specifica
 
 | Rule | Severity | What it means |
 |---|---|---|
-| `P001` | error | **Goal id used twice.** Two goals or criteria of the document have the same id. |
+| `P001` | error | **Goal id used twice.** Two goals or criteria of the document have the same id, or a goal or criterion has the id of an invariant of the document. |
 | `P002` | error | **Criterion steps out of order.** A criterion's `given`, `when` and `then` lines are not in that order. |
 | `P003` | warning | **Criterion without then.** A criterion has no `then` line. |
 | `P004` | error | **realizes is not parent#<id>.** A goal's `realizes` does not name a goal of the parent plan node as `parent#<id>`, or a criterion's names neither that nor a goal of its own document. |
-| `P010` | error | **Parent plan node not found.** `kalka_parent:` names a document that is not here. |
-| `P011` | info | **Plan graph not checked.** The document names a parent, and no documents were given to look it up in, so the rules that need the parent were not run. |
+| `P010` | error | **Parent plan node not found.** `kalka_parent:` names a document that is not here, or a plan node further up names one that is not. |
+| `P011` | info | **Plan graph not checked.** Only the files checked were read, with no folder to look plan nodes up in, and a parent, an ancestor or the children the rules need are not among them, so those rules were not run. |
 | `P012` | error | **Parent cycle.** Following `kalka_parent:` from the document leads back to it. |
 | `P020` | error | **realizes names no such goal.** `realizes parent#<id>` names no goal of the direct parent (a goal of a node further up is named through the levels between), or a criterion's `realizes <id>` names no goal of its own document. The parent must be here. |
 | `P021` | error | **parent# with no parent.** The document writes `parent#<id>` and has no `kalka_parent:`. |

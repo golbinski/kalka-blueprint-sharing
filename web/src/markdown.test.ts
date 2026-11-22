@@ -134,4 +134,19 @@ describe('ownNodes', () => {
     } as unknown as import('./api').Doc
     expect(ownNodes(doc).map((n) => n.id)).toEqual(['G1', 'AC1'])
   })
+  it('lists a criterion realizing two own goals once', async () => {
+    const { ownNodes } = await import('./Goals')
+    const ac = { kind: 'criterion', id: 'AC1', text: 'b', state: 'open', own: true }
+    const doc = {
+      plan: {
+        path: [],
+        children: [],
+        goals: [
+          { kind: 'goal', id: 'G1', text: 'a', state: 'claimed', own: true, claimants: [ac] },
+          { kind: 'goal', id: 'G2', text: 'c', state: 'claimed', own: true, claimants: [ac] },
+        ],
+      },
+    } as unknown as import('./api').Doc
+    expect(ownNodes(doc).map((n) => n.id)).toEqual(['G1', 'AC1', 'G2'])
+  })
 })

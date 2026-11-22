@@ -98,7 +98,7 @@ text      = any characters, not empty ;
 
 ## 6. Ids and anchors
 
-An id starts with a letter and uses letters, digits, `-` and `_`, at most 32 characters (S030). Goal, criterion and invariant ids are unique across the document (P001, I011); step ids are unique within their trace block (T031), and should be unique under one heading (T120). Ids are permanent: reviewers' comments are anchored to `§<heading slug>#<id>`, so keep an id when its text changes, and never give a removed item's id to another.
+An id starts with a letter and uses letters, digits, `-` and `_`, at most 32 characters (S030). Goal, criterion and invariant ids are unique across the document: two goals or criteria, or a goal and an invariant, with one id are P001, two invariants I011; step ids are unique within their trace block (T031), and should be unique under one heading (T120). Ids are permanent: reviewers' comments are anchored to `§<heading slug>#<id>`, so keep an id when its text changes, and never give a removed item's id to another.
 
 ## 7. The blocks
 

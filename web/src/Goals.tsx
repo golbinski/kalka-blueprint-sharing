@@ -23,12 +23,15 @@ export function StateBadge({ state }: { state: GoalState }) {
 }
 
 /** ownNodes are the document's own goals and criteria in the plan view's
- * tree, at the top level and under its own goals. */
+ * tree, at the top level and under its own goals, each once: a criterion
+ * realizing two own goals is under both. */
 export function ownNodes(doc: Doc): GoalNode[] {
   const out: GoalNode[] = []
+  const seen = new Set<string>()
   const walk = (ns: GoalNode[]) => {
     for (const n of ns) {
-      if (!n.own) continue
+      if (!n.own || seen.has(n.kind + ' ' + n.id)) continue
+      seen.add(n.kind + ' ' + n.id)
       out.push(n)
       walk(n.claimants ?? [])
     }
@@ -63,7 +66,7 @@ function Claimants({ doc, nodes }: { doc: Doc; nodes: GoalNode[] }) {
 }
 
 /** GoalsBlock draws a goals block of the body: each goal and criterion a
- * comment anchor, with its state; a block with errors stays code. */
+ * comment anchor, with its state; a block with no items read stays code. */
 export function GoalsBlock({
   doc,
   line,

@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
@@ -69,7 +70,7 @@ func Context(file string, doc *bp.Document, o Options) AgentContext {
 	c.Plan = append(c.Plan, level(doc, true))
 
 	dc := domainContext(doc, o.Domains)
-	seen := map[string]bool{}
+	seen := map[string]int{} // domain@version → index in c.Domains
 	for _, p := range dc.Paths {
 		if p.Missing != nil {
 			c.Missing = append(c.Missing, "domain "+p.Missing.String())
@@ -80,10 +81,13 @@ func Context(file string, doc *bp.Document, o Options) AgentContext {
 		terms := termsOf(p)
 		for _, n := range p.Nodes {
 			k := fmt.Sprintf("%s@v%d", n.DomainName(), n.DomainVersion())
-			if seen[k] {
+			if i, ok := seen[k]; ok {
+				// An ancestor shared by two paths: keep the narrowings of
+				// its terms by nodes on this path too.
+				mergeRefined(c.Domains[i].Terms, terms)
 				continue
 			}
-			seen[k] = true
+			seen[k] = len(c.Domains)
 			l := DomainLevel{Domain: n.DomainName(), Version: n.DomainVersion(), Terms: []bp.Term{}, Invariants: n.Invariants()}
 			for _, t := range terms {
 				if t.Domain == n.DomainName() {
@@ -97,6 +101,22 @@ func Context(file string, doc *bp.Document, o Options) AgentContext {
 		}
 	}
 	return c
+}
+
+// mergeRefined adds to terms the narrowings the same terms carry in more.
+func mergeRefined(terms []bp.Term, more []bp.Term) {
+	for i := range terms {
+		for _, m := range more {
+			if m.Domain != terms[i].Domain || m.Term != terms[i].Term {
+				continue
+			}
+			for _, r := range m.Refined {
+				if !slices.ContainsFunc(terms[i].Refined, func(x bp.Refinement) bool { return x.ID == r.ID && x.Domain == r.Domain }) {
+					terms[i].Refined = append(terms[i].Refined, r)
+				}
+			}
+		}
+	}
 }
 
 // Markdown is the context as text an agent reads.

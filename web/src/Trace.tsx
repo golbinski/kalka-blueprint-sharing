@@ -24,7 +24,7 @@ function laneAt(t: Trace, id: string): string {
 }
 
 // badgeText is a divergence on a node, in words a reader knows (spec
-// 6.10): the class names stay in the YAML, the spec and --json.
+// 6.10): the class names stay in the spec and --json.
 export function badgeText(d: Divergence, t?: Trace): string {
   const lanes = t?.lanes ?? []
   const lane = t ? laneAt(t, d.node) : ''
