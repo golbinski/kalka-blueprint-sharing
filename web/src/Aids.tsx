@@ -3,7 +3,7 @@
 // drawn in the body, and what a domain release would mean for held
 // blueprints.
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { api, type Affected, type Doc, type Entry, type InvariantRow } from './api'
+import { api, type Affected, type Doc, type Entry, type InvariantRow, type Term } from './api'
 import { Matcher } from './glossary'
 import { linkPlain, termCounts, type Linker } from './markdown'
 import { plural } from './util'
@@ -59,7 +59,7 @@ function Gaps({ r }: { r: InvariantRow }) {
         </span>
       )}
       {r.gaps.includes('unverified') && (
-        <span className="tbadge div" title="It has no verified_by (I031)">
+        <span className="tbadge div" title="It has no verified-by (I031)">
           not verified
         </span>
       )}
@@ -105,6 +105,7 @@ export function InvariantsPanel({ doc }: { doc: Doc }) {
                   {r.ref}
                 </button>{' '}
                 {r.status && <span className="tbadge outline">{STATUS[r.status]}</span>} <Gaps r={r} />
+                {(r.refines ?? []).length > 0 && <span className="tbadge outline" title={'Narrows ' + r.refines!.join(', ')}>refines {r.refines!.join(', ')}</span>}
                 <div>{r.statement ? <Linked text={r.statement} /> : <span className="muted">not found in {doc.glossary.ref ?? 'the domain'}</span>}</div>
               </td>
               <td className="mono small">{r.guarded_by.length ? r.guarded_by.map((g) => g.node).join(', ') : <span className="muted">none</span>}</td>
@@ -219,6 +220,11 @@ export function InvariantBlock({
             <div className="inv-statement">
               <Linked text={r.statement ?? ''} />
             </div>
+            {(r.refines ?? []).length > 0 && (
+              <div className="small">
+                <span className="tbadge outline" title="It narrows an inherited term">refines</span> {r.refines!.join(', ')}
+              </div>
+            )}
             {r.why && (
               <div className="small">
                 <b>Why:</b> {r.why}
@@ -238,7 +244,9 @@ export function InvariantBlock({
 
 /** GlossaryBlock draws a glossary block of the document's own as a list of definitions. */
 export function GlossaryBlock({ doc, line, end, source }: { doc: Doc; line: number; end: number; source: string }) {
-  const terms = doc.glossary.own ? doc.glossary.terms.filter((t) => t.line > line && t.line < end) : []
+  // A domain node's glossary is its whole path; only its own terms are in its blocks.
+  const own = (t: Term) => !t.domain || t.domain === doc.domain?.name
+  const terms = doc.glossary.own ? doc.glossary.terms.filter((t) => own(t) && t.line > line && t.line < end) : []
   if (terms.length === 0) return <CodeWithNote source={source} />
   return (
     <dl className="gloss-block">
@@ -253,6 +261,11 @@ export function GlossaryBlock({ doc, line, end, source }: { doc: Doc; line: numb
             {t.definition}
             {(t.aliases ?? []).length > 0 && <div className="small muted">Not: {t.aliases!.join(', ')}</div>}
             {(t.see ?? []).length > 0 && <div className="small muted">See: {t.see!.join(', ')}</div>}
+            {(t.refined ?? []).map((r) => (
+              <div key={r.domain + r.id} className="small">
+                <span className="tbadge outline" title="An invariant of a domain node that narrows this term">refined</span> {r.domain}#{r.id}: {r.statement}
+              </div>
+            ))}
           </dd>
         </div>
       ))}
@@ -260,7 +273,7 @@ export function GlossaryBlock({ doc, line, end, source }: { doc: Doc; line: numb
   )
 }
 
-function CodeWithNote({ source }: { source: string }) {
+export function CodeWithNote({ source }: { source: string }) {
   return (
     <>
       <pre className="md-pre">

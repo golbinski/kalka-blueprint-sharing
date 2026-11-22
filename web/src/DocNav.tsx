@@ -2,7 +2,7 @@
 // breadcrumb and the Document / Trace tabs, and the rail listing the
 // documents of the section the open one belongs to.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, type BlueprintInfo, type Doc, type DomainRow, type IssuesView, type SeedRow, type WaitingItem } from './api'
+import { api, type BlueprintInfo, type Crumb, type Doc, type DomainRow, type IssuesView, type SeedRow, type WaitingItem } from './api'
 import { groupRows, levels, loadGroupBy, loadShowArchived, usable, type Group } from './groups'
 import { ExportButton, IssueChip, IssueParents } from './Issue'
 import { loadCollapsed, NARROW, railHref, saveCollapsed, type DocView } from './rail'
@@ -29,6 +29,9 @@ export function SectionsNav({ scope, personal, active, needs }: { scope: string;
   )
 }
 
+/** crumbText is a plan node in the breadcrumb: its issue key and title. */
+const crumbText = (c: Crumb) => (c.issue ? c.issue.replace(/^[a-z]+:/, '') + ' ' : '') + c.title
+
 /** DocBar is the bar under the top bar while a document is open: the
  * breadcrumb, the issue it addresses (spec 10.5) and the view tabs. */
 export function DocBar({ doc, scope, view, traceIndex, reload }: { doc: Doc; scope: string; view: DocView; traceIndex: number; reload?: () => void }) {
@@ -39,8 +42,24 @@ export function DocBar({ doc, scope, view, traceIndex, reload }: { doc: Doc; sco
         <li>
           <a href={scopeHref(scope, section)}>{SECTION_LABEL[section]}</a>
         </li>
+        {(doc.plan?.path ?? []).map((c) => (
+          <li key={c.kalka_id} title={c.title}>
+            {c.rel ? <a href={docHref(c.rel)}>{crumbText(c)}</a> : crumbText(c)}
+          </li>
+        ))}
+        {doc.plan?.missing && (
+          <li className="muted" title={'kalka_parent names ' + doc.plan.missing + ', which is not on this computer'}>
+            parent not here
+          </li>
+        )}
         <li aria-current="page" title={doc.title}>
-          {doc.title}
+          {doc.issue_key ? (
+            <>
+              <span className="mono crumb-key">{doc.issue_key}</span> {doc.title}
+            </>
+          ) : (
+            doc.title
+          )}
         </li>
       </ol>
       {doc.issue && (

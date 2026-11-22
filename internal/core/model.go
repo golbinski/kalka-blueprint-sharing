@@ -73,6 +73,12 @@ type DocView struct {
 	Export *ExportState `json:"export,omitempty"`
 	// Archived is when the document was archived (kalka_archived).
 	Archived string `json:"archived,omitempty"`
+	// Plan is the document's place in the plan graph (spec 6.18): the
+	// breadcrumbs, the goal tree and the children; nil outside it.
+	Plan *PlanView `json:"plan,omitempty"`
+	// IssueKey is kalka_issue's payload, shown in the title whether or not
+	// a plugin knows the tracker.
+	IssueKey string `json:"issue_key,omitempty"`
 }
 
 // SeedInfo describes a seed in the document view.
@@ -162,9 +168,9 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		Rev: doc.Rev(), Sections: doc.Sections(), Headings: doc.Headings(),
 		Entries: []EntryView{},
 	}
-	res := check.Document(doc, check.Options{Domains: storeDomains{d}})
+	res := check.Document(doc, check.Options{Domains: storeDomains{d}, Docs: storeDocs{d}})
 	v.Problems, v.Glossary = res.Problems, res.Glossary
-	v.Invariants = check.Matrix(doc, res.Domain)
+	v.Invariants = check.Matrix(doc, res.Context, storeDocs{d})
 	if doc.IsDomain() && len(v.Invariants) > 0 {
 		check.ReferencedBy(v.Invariants, doc, d.blueprintsOf(doc))
 	}
@@ -268,8 +274,14 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 	if t, ok := doc.Archived(); ok {
 		v.Archived = t.UTC().Format(time.RFC3339)
 	}
+	if snapshot == 0 {
+		v.Plan = d.planView(doc)
+	}
+	if r, ok := doc.Issue(); ok {
+		v.IssueKey = r.Payload
+	}
 	if doc.IsSeed() {
-		si := &SeedInfo{Parent: doc.Parent()}
+		si := &SeedInfo{Parent: doc.OriginDoc()}
 		if si.Parent != "" {
 			if pf, err := d.Store.Resolve(si.Parent); err == nil && pf != nil {
 				si.ParentRel, si.ParentTitle = d.rel(pf.Path), pf.Doc.Title()

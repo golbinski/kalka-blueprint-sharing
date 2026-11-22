@@ -6,6 +6,7 @@ package check
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -34,6 +35,8 @@ type Options struct {
 	Set int
 	// Domains is where domain versions are read; nil means none is held.
 	Domains Domains
+	// Docs is where the plan graph is looked up; nil means it is not.
+	Docs Docs
 	// Plugins, when set, resolves reference targets (--with-plugins).
 	Plugins Plugins
 	Ctx     context.Context
@@ -42,8 +45,8 @@ type Options struct {
 // Result is what the checker found in one document.
 type Result struct {
 	Problems []bp.Problem
-	// Domain is the referenced domain version, when available.
-	Domain *bp.Document
+	// Context is the domain paths the document is read against.
+	Context DomainContext
 	// Glossary is what the document's terms are linked against.
 	Glossary Glossary
 }
@@ -57,12 +60,14 @@ func Document(doc *bp.Document, o Options) Result {
 	var r Result
 	ps := append([]bp.Problem(nil), doc.Problems()...)
 	ps = append(ps, bp.Hints(doc)...)
-	var dps []bp.Problem
-	r.Domain, dps = domainRef(doc, o.Domains)
-	ps = append(ps, dps...)
-	r.Glossary = GlossaryOf(doc, r.Domain)
+	r.Context = domainContext(doc, o.Domains)
+	r.Glossary = GlossaryOf(doc, r.Context)
+	ps = append(ps, domainRefProblems(doc, r.Context, r.Glossary, o.Domains)...)
+	ps = append(ps, treeProblems(doc, r.Context, o.Domains)...)
 	ps = append(ps, termProblems(doc, r.Glossary)...)
-	ps = append(ps, invariantProblems(doc, r.Domain, o.Domains)...)
+	ps = append(ps, qualifyProblems(doc, r.Context, r.Glossary)...)
+	ps = append(ps, invariantProblems(doc, r.Context, o.Domains)...)
+	ps = append(ps, planProblems(doc, o.Docs)...)
 	if o.Plugins != nil {
 		ps = append(ps, refProblems(doc, o)...)
 	}
@@ -93,39 +98,93 @@ func Sort(ps []bp.Problem) {
 	})
 }
 
-// domainRef checks `kalka_domain:` of a blueprint (R001 to R003) and
-// returns the version it names when it is available.
-func domainRef(doc *bp.Document, ds Domains) (*bp.Document, []bp.Problem) {
+// domainRefProblems checks `kalka_domain:` of a blueprint (R001 to R003).
+func domainRefProblems(doc *bp.Document, c DomainContext, g Glossary, ds Domains) []bp.Problem {
 	if doc.IsDomain() {
-		return nil, nil
+		return nil
 	}
 	raw, has := doc.Frontmatter().Get(bp.KeyDomain)
 	if !has || raw == "" {
-		return nil, nil
+		return nil
 	}
 	line := doc.Frontmatter().KeyLine(bp.KeyDomain)
-	ref, ok := bp.ParseDomainRef(raw)
-	if !ok {
-		return nil, []bp.Problem{bp.NewProblem("R002", line, fmt.Sprintf("%q is not <team>/<domain>@v<N>; write for example parcels/delivery@v7", raw))}
-	}
-	var latest int64
-	var dom *bp.Document
-	if ds != nil {
-		latest = ds.Latest(ref.Team, ref.Domain)
-		dom = ds.Version(ref.Team, ref.Domain, ref.Version)
-	}
 	var out []bp.Problem
-	switch {
-	case dom != nil:
-	case latest == 0:
-		out = append(out, bp.NewProblem("R001", line, fmt.Sprintf("no document of domain %s/%s is here, so the glossary and invariant rules were not run; point --domain at it", ref.Team, ref.Domain)))
-	default:
-		out = append(out, bp.NewProblem("R001", line, fmt.Sprintf("%s is not kept here (v%d is), so the glossary and invariant rules were not run; another version is never used instead", ref, latest)))
+	for _, item := range bp.DomainList(raw) {
+		if _, ok := bp.ParseDomainRef(item); !ok {
+			out = append(out, bp.NewProblem("R002", line, fmt.Sprintf("%q is not <team>/<domain>@v<N>; write for example team-lending/library.reservations@v1", item)))
+		}
 	}
-	if latest > ref.Version {
-		out = append(out, bp.NewProblem("R003", line, fmt.Sprintf("v%d of %s/%s is available; the plan is written against v%d", latest, ref.Team, ref.Domain, ref.Version)))
+	for i, p := range c.Paths {
+		ref := p.Ref
+		var latest int64
+		if ds != nil {
+			latest = ds.Latest(ref.Team, ref.Domain)
+		}
+		node := c.node(i)
+		switch {
+		case node != nil:
+		case latest == 0:
+			out = append(out, bp.NewProblem("R001", line, fmt.Sprintf("no document of domain %s/%s is here, so the glossary and invariant rules were not run; point --domain at it", ref.Team, ref.Domain)))
+		default:
+			out = append(out, bp.NewProblem("R001", line, fmt.Sprintf("%s is not kept here (v%d is), so the glossary and invariant rules were not run; another version is never used instead", ref, latest)))
+		}
+		if latest > ref.Version {
+			var newer *bp.Document
+			if ds != nil {
+				newer = ds.Version(ref.Team, ref.Domain, latest)
+			}
+			if what := touched(doc, node, newer, g); what != "" {
+				out = append(out, bp.NewProblem("R003", line, fmt.Sprintf("v%d of %s/%s changes %s, which the plan uses; the plan is written against v%d", latest, ref.Team, ref.Domain, what, ref.Version)))
+			}
+		}
 	}
-	return dom, out
+	return out
+}
+
+// touched says which terms and invariants of node the document uses that
+// newer changes, or "" for none; when either version is not available it
+// cannot tell and says "the domain".
+func touched(doc, node, newer *bp.Document, g Glossary) string {
+	if node == nil || newer == nil {
+		return "the domain"
+	}
+	var out []string
+	name := node.DomainName()
+	nt := map[string]bp.Term{}
+	for _, t := range newer.Glossary() {
+		nt[bp.PhraseKey(t.Term)] = t
+	}
+	if g.State == GlossaryHeld {
+		m := bp.NewMatcher(g.Terms)
+		for _, u := range doc.TermUses(m) {
+			t := g.Terms[u.Term]
+			if t.Domain != name {
+				continue
+			}
+			n, ok := nt[bp.PhraseKey(t.Term)]
+			if !ok || !sameTerm(t, n) {
+				if w := "term " + t.Term; !slices.Contains(out, w) {
+					out = append(out, w)
+				}
+			}
+		}
+	}
+	for _, a := range doc.DomainRefs() {
+		if a.Ref.Domain != name {
+			continue
+		}
+		o, n := node.Invariant(a.Ref.ID), newer.Invariant(a.Ref.ID)
+		if o != nil && (n == nil || bp.PhraseKey(o.Statement) != bp.PhraseKey(n.Statement)) {
+			if w := "invariant " + a.Ref.ID; !slices.Contains(out, w) {
+				out = append(out, w)
+			}
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+func sameTerm(a, b bp.Term) bool {
+	return bp.PhraseKey(a.Definition) == bp.PhraseKey(b.Definition) && slices.Equal(a.Forms, b.Forms) && slices.Equal(a.Aliases, b.Aliases)
 }
 
 // refProblems resolves the reference targets of the typed blocks with the

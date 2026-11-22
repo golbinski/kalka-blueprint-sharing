@@ -34,7 +34,7 @@ func TestSeedCommands(t *testing.T) {
 	seed, _ := bp.Parse(raw)
 	parentRaw, _ := os.ReadFile(path)
 	parent, _ := bp.Parse(parentRaw)
-	if parent.KalkaID() == "" || seed.Parent() != parent.KalkaID() || seed.Origin() != c["id"] || !seed.IsSeed() {
+	if parent.KalkaID() == "" || seed.OriginDoc() != parent.KalkaID() || func() string { _, e, _ := seed.Origin(); return e }() != c["id"] || !seed.IsSeed() {
 		t.Fatalf("seed:\n%s\nparent:\n%s", raw, parentRaw)
 	}
 	last := parent.Items()[len(parent.Items())-1].Entry

@@ -10,6 +10,7 @@ import { attestedBadge, shortName } from './scope'
 import { DiagnosticsPanel } from './Diagnostics'
 import { hintsOf } from './diag'
 import { DocHeader } from './DocHeader'
+import { GoalsBlock } from './Goals'
 import { GlossaryBlock, InvariantBlock, InvariantsPanel, LinkContext, linkerOf, showInvariant, TermsPanel, useLink } from './Aids'
 import { canvasHref, docHref, localTime, plural } from './util'
 
@@ -508,6 +509,7 @@ function SectionBody({ s, doc, onComment }: { s: Section; doc: Doc; onComment?: 
         if (p.kind === 'mermaid') return <Mermaid key={i} source={p.source} />
         if (p.kind === 'invariants') return <InvariantBlock key={i} doc={doc} line={p.line} end={p.end} source={p.source} onComment={onComment} />
         if (p.kind === 'glossary') return <GlossaryBlock key={i} doc={doc} line={p.line} end={p.end} source={p.source} />
+        if (p.kind === 'goals') return <GoalsBlock key={i} doc={doc} line={p.line} end={p.end} source={p.source} onComment={onComment} />
         const t = doc.traces.find((x) => x.line === p.line)
         if (!t)
           return (

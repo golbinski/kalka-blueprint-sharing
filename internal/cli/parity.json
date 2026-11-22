@@ -32,6 +32,8 @@
     { "command": "seed", "class": "workflow", "action": "seed.create" },
     { "command": "seed backlink", "class": "workflow", "action": "seed.backlink" },
     { "command": "promote", "class": "workflow", "action": "seed.promote" },
+    { "command": "close", "class": "workflow", "action": "doc.close" },
+    { "command": "context", "class": "view", "place": "Document view, More, Context for an agent" },
     { "command": "seeds", "class": "view", "place": "Seeds" },
     { "command": "domains", "class": "view", "place": "Domains" },
     { "command": "check", "class": "view", "place": "Checks in the document view, with --explain as each rule's meaning; the confirmation before Publish and Release" },

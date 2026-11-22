@@ -11,14 +11,20 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 )
 
-// Frontmatter keys of seeds (spec 6.11).
+// Frontmatter keys of seeds (spec 6.11) and of the document graph (spec
+// 6.18).
 const (
-	KeyStatus  = name.Product + "_status"
-	KeyParent  = name.Product + "_parent"
-	KeyOrigin  = name.Product + "_origin"
-	KeyCreated = name.Product + "_created"
+	KeyStatus    = name.Product + "_status"
+	KeyParent    = name.Product + "_parent"
+	KeyOrigin    = name.Product + "_origin"
+	KeyCreated   = name.Product + "_created"
+	KeyBreakdown = name.Product + "_breakdown"
 
-	StatusSeed = "seed"
+	StatusSeed   = "seed"
+	StatusClosed = "closed"
+
+	BreakdownDecomposed = "decomposed"
+	BreakdownAdopted    = "adopted"
 )
 
 func (d *Document) get(key string) string {
@@ -32,11 +38,52 @@ func (d *Document) Status() string { return d.get(KeyStatus) }
 // IsSeed reports `kalka_status: seed`.
 func (d *Document) IsSeed() bool { return d.Status() == StatusSeed }
 
-// Parent is the kalka_id of the blueprint a seed was split from.
-func (d *Document) Parent() string { return strings.ToLower(d.get(KeyParent)) }
+// IsClosed reports `kalka_status: closed`: the owner confirmed the
+// document delivered (spec 6.18).
+func (d *Document) IsClosed() bool { return d.Status() == StatusClosed }
 
-// Origin is the id of the entry that triggered a seed.
-func (d *Document) Origin() string { return d.get(KeyOrigin) }
+var (
+	uuidRe       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	seedOriginRe = regexp.MustCompile(`^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:#([0-9a-f]{32}))?$`)
+)
+
+// Origin is where a seed came from (spec 6.11): the kalka_id of the
+// document it was split from and, when it started from an entry, that
+// entry's id. ok is false when kalka_origin is absent or malformed.
+func (d *Document) Origin() (doc, entry string, ok bool) {
+	m := seedOriginRe.FindStringSubmatch(strings.ToLower(d.get(KeyOrigin)))
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
+
+// OriginDoc is the kalka_id of the document a seed was split from, or "".
+func (d *Document) OriginDoc() string {
+	doc, _, _ := d.Origin()
+	return doc
+}
+
+// PlanParent is the kalka_id of the parent plan node a document that is
+// not a domain document names with kalka_parent (spec 6.18), or "".
+func (d *Document) PlanParent() string {
+	if d.IsDomain() {
+		return ""
+	}
+	if v := strings.ToLower(d.get(KeyParent)); uuidRe.MatchString(v) {
+		return v
+	}
+	return ""
+}
+
+// Breakdown is kalka_breakdown: decomposed, adopted, or "".
+func (d *Document) Breakdown() string {
+	switch v := d.get(KeyBreakdown); v {
+	case BreakdownDecomposed, BreakdownAdopted:
+		return v
+	}
+	return ""
+}
 
 // Created is the `kalka_created:` time; ok is false if absent or unreadable.
 func (d *Document) Created() (time.Time, bool) {
@@ -102,10 +149,11 @@ func Bud(parent *Document, spec SeedSpec, sign Signer) (*Document, *Entry, error
 	}
 	at := spec.At.UTC().Format(time.RFC3339)
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\n%s: %s\n%s: %s\n%s: %s\n%s: %s\n", name.FrontmatterID, spec.KalkaID, name.FrontmatterOwner, spec.Owner, KeyStatus, StatusSeed, KeyParent, pid)
+	from := pid
 	if origin != nil {
-		fmt.Fprintf(&b, "%s: %s\n", KeyOrigin, origin.ID)
+		from += "#" + origin.ID
 	}
+	fmt.Fprintf(&b, "---\n%s: %s\n%s: %s\n%s: %s\n%s: %s\n", name.FrontmatterID, spec.KalkaID, name.FrontmatterOwner, spec.Owner, KeyStatus, StatusSeed, KeyOrigin, from)
 	fmt.Fprintf(&b, "%s: %s\n---\n\n# %s\n\n## Problem\n\n%s\n\n## Why it was split off\n\n%s\n", KeyCreated, at, title, problem, why)
 	seed, err := Parse([]byte(b.String()))
 	if err != nil {
@@ -125,7 +173,7 @@ func Bud(parent *Document, spec SeedSpec, sign Signer) (*Document, *Entry, error
 // unless parent already has one for it: the retry of Bud's second write.
 // It returns nil, nil when the backlink is already there.
 func AddBacklink(parent, seed *Document, author string, at time.Time, sign Signer) (*Entry, error) {
-	if seed.Parent() != parent.KalkaID() {
+	if seed.OriginDoc() != parent.KalkaID() {
 		return nil, errors.New("this seed was not split off from this blueprint")
 	}
 	for _, it := range parent.Items() {
@@ -135,7 +183,7 @@ func AddBacklink(parent, seed *Document, author string, at time.Time, sign Signe
 	}
 	anchor, re := "", ""
 	for _, it := range parent.Items() {
-		if o := seed.Origin(); o != "" && it.Entry.ID == o {
+		if _, o, _ := seed.Origin(); o != "" && it.Entry.ID == o {
 			re = o
 			if it.Entry.Anchor != "" && parent.HasAnchor(it.Entry.Anchor) {
 				anchor = it.Entry.Anchor
@@ -201,4 +249,41 @@ func NewKalkaID() string {
 	b[6] = b[6]&0x0f | 0x40
 	b[8] = b[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// graphProblems checks the shape of kalka_parent, kalka_origin and
+// kalka_breakdown in a document that is not a domain document (spec 6.2).
+func (d *Document) graphProblems() []Problem {
+	var out []Problem
+	if raw := d.get(KeyParent); raw != "" && !d.IsDomain() && d.PlanParent() == "" {
+		out = append(out, NewProblem("F014", d.fm.KeyLine(KeyParent), fmt.Sprintf("kalka_parent names the parent plan node by its kalka_id, a UUID (have %q); it is ignored", raw)))
+	}
+	if raw := d.get(KeyOrigin); raw != "" {
+		if _, _, ok := d.Origin(); !ok {
+			out = append(out, NewProblem("F015", d.fm.KeyLine(KeyOrigin), fmt.Sprintf("kalka_origin is <kalka_id> or <kalka_id>#<entry id> (have %q); it is ignored", raw)))
+		}
+	}
+	if raw := d.get(KeyBreakdown); raw != "" && d.Breakdown() == "" {
+		out = append(out, NewProblem("F016", d.fm.KeyLine(KeyBreakdown), fmt.Sprintf("kalka_breakdown is decomposed or adopted (have %q); it is ignored", raw)))
+	}
+	return out
+}
+
+// Close sets kalka_status: closed, the owner's confirmation that the
+// document is delivered (spec 6.18); reopen takes it back to open. Only
+// the owner may; the caller checks.
+func Close(d *Document, reopen bool) error {
+	switch {
+	case d.IsSeed():
+		return errors.New("a seed is promoted first, then closed")
+	case reopen && !d.IsClosed():
+		return errors.New("the document is not closed")
+	case !reopen && d.IsClosed():
+		return errors.New("the document is already closed")
+	case reopen:
+		d.SetFrontmatter(KeyStatus, "open")
+	default:
+		d.SetFrontmatter(KeyStatus, StatusClosed)
+	}
+	return nil
 }

@@ -28,7 +28,7 @@ func TestBudFromReviewerAndSync(t *testing.T) {
 	}
 	seed := bob.doc(res.Seed)
 	parent := bob.doc(pname)
-	if !seed.IsSeed() || seed.Owner() != bob.email || seed.Parent() != parent.KalkaID() || seed.Origin() != dev.ID {
+	if !seed.IsSeed() || seed.Owner() != bob.email || seed.OriginDoc() != parent.KalkaID() || func() string { _, e, _ := seed.Origin(); return e }() != dev.ID {
 		t.Fatalf("seed:\n%s", seed.Bytes())
 	}
 	if its := parent.Items(); parent.Plan() != planBefore || its[len(its)-1].Entry.Kind != bp.KindBudded {

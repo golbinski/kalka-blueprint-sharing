@@ -2874,3 +2874,54 @@ details.terms {
 .doc-rail-group a {
   color: inherit;
 }
+
+/* The plan graph (spec 6.18): goals and criteria with their states. */
+.tbadge.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.goals-block {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.goal-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+.goal-card.criterion {
+  border-left-color: var(--accent);
+}
+.goal-text {
+  font-weight: 500;
+}
+.goal-steps li b {
+  display: inline-block;
+  min-width: 3.5em;
+  color: var(--text-2);
+}
+.goal-claimants {
+  margin: 2px 0 0 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+}
+.goal-claimants .goal-claimants {
+  margin-top: 3px;
+}
+.crumb-key {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.agent-context {
+  max-height: 55vh;
+  overflow: auto;
+  white-space: pre-wrap;
+}

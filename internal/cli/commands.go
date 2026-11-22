@@ -68,6 +68,8 @@ var commands = []command{
 	{"seed", ClassWorkflow, withNow(cmdSeed)},
 	{"seeds", ClassView, withNow(cmdSeeds)},
 	{"promote", ClassWorkflow, plain(cmdPromote)},
+	{"close", ClassWorkflow, plain(cmdClose)},
+	{"context", ClassView, plain(cmdContext)},
 	{"teams", ClassView, plain(cmdTeams)},
 	{"team", ClassWorkflow, plain(cmdTeam)},
 	{"join", ClassWorkflow, plain(cmdJoin)},

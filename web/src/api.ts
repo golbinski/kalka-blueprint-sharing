@@ -305,8 +305,10 @@ export interface TraceNode {
   ref?: string
   why?: string
   change?: 'new' | 'modified' | 'removed'
-  /** Invariants the step keeps true: an id, or <domain>#<id> (spec 6.15). */
+  /** Invariants the step keeps true: an id, parent#<id> or <domain>#<id> (spec 6.15). */
   guards?: string[]
+  /** Acceptance criteria of the document the step demonstrates (spec 6.18). */
+  covers?: string[]
   line: number
 }
 
@@ -319,6 +321,10 @@ export interface Term {
   context?: string
   see?: string[]
   line: number
+  /** The domain node that defines it, in a glossary put together from a domain path. */
+  domain?: string
+  /** Invariants of domain nodes on the path that narrow it (refines). */
+  refined?: { domain: string; id: string; statement: string }[]
 }
 
 /** The glossary a document is linked against. */
@@ -338,8 +344,9 @@ export interface InvariantRow {
   id: string
   domain?: string
   statement?: string
-  context?: string
   why?: string
+  /** The inherited terms it narrows. */
+  refines?: string[]
   verified_by: string[]
   status?: 'new' | 'changed' | 'removed'
   /** The heading it is under; its comment anchor is section#id. */
@@ -468,6 +475,61 @@ export interface Doc {
   export?: ExportState
   /** When it was archived. */
   archived?: string
+  /** The document's place in the plan graph (spec 6.18); absent outside it. */
+  plan?: PlanView
+  /** kalka_issue's key, such as DEV-123, shown in the title. */
+  issue_key?: string
+}
+
+/** A plan node on the way to a document, or one of its children. */
+export interface Crumb {
+  kalka_id: string
+  rel?: string
+  title: string
+  issue?: string
+  closed?: boolean
+}
+
+export type GoalState = 'unclaimed' | 'claimed' | 'ready' | 'delivered' | 'open'
+
+export interface GoalStep {
+  keyword: 'given' | 'when' | 'then'
+  text: string
+  line: number
+}
+
+/** A goal or an acceptance criterion in the goal tree, with what claims it. */
+export interface GoalNode {
+  kind: 'goal' | 'criterion'
+  id: string
+  text: string
+  state: GoalState
+  doc?: string
+  title?: string
+  issue?: string
+  own?: boolean
+  section?: string
+  line?: number
+  realizes?: string[]
+  steps?: GoalStep[]
+  covered_by?: { trace: number; node: string; section?: string }[]
+  claimants?: GoalNode[]
+}
+
+export interface PlanView {
+  path: Crumb[]
+  missing?: string
+  cycle?: boolean
+  goals: GoalNode[]
+  children: Crumb[]
+  breakdown?: 'decomposed' | 'adopted'
+  closed?: boolean
+}
+
+/** The flattened context of a document for an agent (kalka context). */
+export interface AgentContextResult {
+  context: unknown
+  markdown: string
 }
 
 export interface TransferInfo {
@@ -514,6 +576,13 @@ export interface DomainInfo {
   versions: number[]
   viewing?: number
   owner?: string
+  /** The parent version the node pins, such as team-lending/library@v2. */
+  parent?: string
+  /** The newest version of the parent held here: newer than the pin is "parent newer". */
+  parent_latest?: number
+  parent_rel?: string
+  /** Subdomains held here. */
+  children?: string[]
 }
 /** A blueprint's `kalka_domain:` reference (spec 6.12). */
 export interface DomainRefView {
@@ -804,6 +873,8 @@ export const api = {
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
+  close: (path: string, reopen = false) => call<{ ok: boolean }>('POST', '/api/close', { path, reopen }),
+  agentContext: (path: string) => call<AgentContextResult>('GET', '/api/context?path=' + encodeURIComponent(path)),
   issues: (team = '') => call<IssuesView>('GET', '/api/issues' + scope(team)).then((v) => ({ caps: v.caps, issues: v.issues ?? {} })),
   exportDoc: (path: string) => call<ExportResult>('POST', '/api/export', { path }),
   archive: (path: string, archived: boolean, takeOver = false) => call<{ archived: boolean }>('POST', '/api/archive', { path, archived, take_over: takeOver }),

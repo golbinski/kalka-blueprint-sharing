@@ -2,12 +2,12 @@
 // one sentence, what follows from it, at most one primary action, and the
 // rest under More. Changing the owner, deleting for the team and taking a
 // blueprint over open as a confirmation inside the card.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ReleaseImpact } from './Aids'
 import { ErrorConfirm } from './Diagnostics'
 import { confirmable } from './diag'
 import { act } from './actions'
-import { api, type Doc } from './api'
+import { api, type Doc, type DomainInfo } from './api'
 import { docState } from './docstate'
 import { Menu, type MenuItem } from './Menu'
 import { MemberSelect, useMembers } from './Members'
@@ -53,7 +53,11 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const handoff = !!t?.can_act
   const errors = doc.problems.some((p) => p.blocks)
   const [askErr, setAskErr] = useState(false)
+  const [agent, setAgent] = useState(false)
   const more: MenuItem[] = []
+  // The owner confirms a plan-graph document delivered, or reopens it (spec 6.18).
+  const closable = !dm && !!doc.plan && (doc.role === 'owner' || doc.role === 'local')
+  if (!dm?.viewing) more.push({ label: 'Context for an agent', sub: 'the goals, invariants and terms above this document', onSelect: () => setAgent(true) })
   if (live && (t!.can_act || t!.team_owner) && st.primary !== 'choose') {
     more.push({
       label: 'Change owner…',
@@ -90,7 +94,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
         <div className="grow">
           <div className="doc-head-state">{st.head}</div>
           <div className="doc-head-sub">
-            {doc.archived && <span className="badge">archived</span>} {st.sub}
+            {doc.archived && <span className="badge">archived</span>} {doc.plan?.closed && <span className="badge">closed</span>} {st.sub}
             {dm?.viewing ? (
               <>
                 {' '}
@@ -223,6 +227,17 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
           Another blueprint, {t.domain_clash}, claims the same domain. References to it are ambiguous until a team owner deletes one.
         </div>
       )}
+      {dm?.parent && !dm.viewing && <ParentLine dm={dm} />}
+      {doc.plan && !dm && (
+        <div className="doc-head-line row center">
+          <span className="grow">{planLine(doc)}</span>
+          {closable && (
+            <button type="button" className={doc.plan.closed ? '' : 'primary'} {...act('doc.close')} disabled={busy} onClick={() => run(() => api.close(doc.rel, !!doc.plan!.closed))}>
+              {doc.plan.closed ? 'Reopen' : 'Close as delivered'}
+            </button>
+          )}
+        </div>
+      )}
       {doc.transfer?.from && <div className="doc-head-line">{attestedText(doc.transfer)}</div>}
       {(t?.local_only ?? 0) > 0 && (
         <div className="doc-head-line">
@@ -232,6 +247,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
       {err && <div className="error-text">{err}</div>}
       {warn && <div className="warn-box">{warn}</div>}
 
+      {agent && <AgentContextDialog doc={doc} onClose={() => setAgent(false)} />}
       {transfer && <TransferDialog doc={doc} mode={transfer} onClose={() => setTransfer('')} onDone={reload} />}
       {releasing && (
         <ReleaseDialog
@@ -244,6 +260,94 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
         />
       )}
     </section>
+  )
+}
+
+// planLine sums up the document's place in the plan graph: how many of
+// its goals are claimed, ready or delivered, and its children (spec 6.18).
+function planLine(doc: Doc): string {
+  const p = doc.plan!
+  const goals = p.goals.filter((g) => g.kind === 'goal')
+  const criteria = p.goals.filter((g) => g.kind === 'criterion')
+  const parts: string[] = []
+  if (goals.length > 0) {
+    const n = (s: string) => goals.filter((g) => g.state === s).length
+    const by = ['unclaimed', 'claimed', 'ready', 'delivered'].filter((s) => n(s) > 0).map((s) => `${n(s)} ${s}`)
+    parts.push(`${plural(goals.length, 'goal')}: ${by.join(', ')}`)
+  }
+  if (criteria.length > 0) parts.push(plural(criteria.length, 'acceptance criterion', 'acceptance criteria'))
+  if (p.children.length > 0) parts.push(plural(p.children.length, 'child', 'children'))
+  if (p.breakdown) parts.push(p.breakdown === 'adopted' ? 'breakdown adopted from outside kalka' : 'broken down in kalka')
+  if (p.closed) parts.push('closed: the owner confirmed it delivered')
+  return parts.join(' · ') || 'Part of a plan.'
+}
+
+// ParentLine says which parent version a domain node extends, and that a
+// newer one is out ("parent newer", D030): its owner moves the pin when
+// they choose (spec 6.12).
+function ParentLine({ dm }: { dm: DomainInfo }) {
+  const pinned = Number(/@v(\d+)$/.exec(dm.parent ?? '')?.[1] ?? 0)
+  const newer = (dm.parent_latest ?? 0) > pinned
+  const parent = dm.parent_rel ? <a href={docHref(dm.parent_rel, newer ? pinned : undefined)}>{dm.parent}</a> : dm.parent
+  return (
+    <div className="doc-head-line">
+      Extends {parent}.
+      {newer && (
+        <>
+          {' '}
+          <span className="tbadge outline" title="A newer version of the parent domain is out (D030)">
+            parent newer
+          </span>{' '}
+          v{dm.parent_latest} is available; this node moves to it when its owner changes kalka_parent.
+        </>
+      )}
+      {(dm.children ?? []).length > 0 && <span className="muted"> Subdomains here: {dm.children!.join(', ')}.</span>}
+    </div>
+  )
+}
+
+// AgentContextDialog shows what kalka context prints for the document: the
+// plan path and the domain path, ready to copy for an agent (spec 6.18).
+function AgentContextDialog({ doc, onClose }: { doc: Doc; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    api
+      .agentContext(doc.rel)
+      .then((r) => setText(r.markdown))
+      .catch((e) => setErr((e as Error).message))
+  }, [doc.rel])
+  return (
+    <Modal title="Context for an agent" wide onClose={onClose}>
+      <p className="muted small">
+        The goals and invariants of every plan node above this document and the terms of every domain node it rests on, at the pinned versions.
+        The same as <code>kalka context {doc.rel}</code>.
+      </p>
+      {err && <p className="error-text">{err}</p>}
+      {text === null && !err && <p className="muted">Loading…</p>}
+      {text !== null && (
+        <>
+          <pre className="md-pre agent-context">
+            <code>{text}</code>
+          </pre>
+          <div className="row">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                navigator.clipboard?.writeText(text).then(() => setCopied(true))
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   )
 }
 

@@ -53,9 +53,13 @@ read yet.
 
 Beyond review: **seeds** (ideas split off a growing plan into the team's
 pre-backlog), **domain documents** (a team's shared vocabulary, versioned,
-referenced from blueprints), **trace blocks** (a process at business level
-and in code side by side, with kalka pointing out where they diverge),
-**transfers** of documents between teams.
+referenced from blueprints, and arranged in a tree of subdomains),
+**plan trees** (an epic's goals realized by its stories' acceptance
+criteria, with states kalka works out), **trace blocks** (a process at
+business level and in code side by side, with kalka pointing out where
+they diverge), **transfers** of documents between teams. Every typed block
+is written in one small line-oriented language, the
+[kalka language v2](docs/language.md).
 
 ## Install
 
@@ -126,6 +130,9 @@ kalka waiting
 | [docs/install.md](docs/install.md) | Installing on Windows, macOS and Linux |
 | [docs/headless.md](docs/headless.md) | Running without the desktop app, for servers and agents |
 | [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
+| [docs/language.md](docs/language.md) | The kalka language v2: the syntax of goals, invariants, glossary and trace blocks |
+| [docs/trace.md](docs/trace.md) | Trace blocks in full: semantics, validation, divergences |
+| [docs/rules.md](docs/rules.md) | Every rule of `kalka check` |
 | [docs/teamlog.md](docs/teamlog.md) | The team log's encoding and replay rules |
 | [docs/peerjs.md](docs/peerjs.md) | How the PeerJS servers behave where kalka depends on it |
 | [samples/README.md](samples/README.md) | Sample blueprints for trying kalka |
@@ -135,9 +142,12 @@ kalka waiting
 - `kalka reference export` writes the **blueprint reference**: a short
   guide, in the form of an agent skill, to writing blueprints agents can
   act on safely (scope, verification plan, critical sections, operations,
-  the deviation log). A blueprint opts in with `kalka_reference:
-  kalka-blueprint@v1` and then gets soft hints such as "no verification
-  plan".
+  the deviation log, plan nodes and acceptance criteria). A blueprint
+  opts in with `kalka_reference: kalka-blueprint@v2` and then gets soft
+  hints such as "no verification plan".
+- `kalka context <file>` prints what an agent needs before working on a
+  document: the goals and invariants of every plan node above it, and the
+  terms and invariants of every domain node it rests on.
 - Every command takes `--json`, and errors carry a stable `kind`.
   `kalka waiting --json` is what an agent polls.
 - An agent that is not acting for the owner adds entries

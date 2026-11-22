@@ -1,5 +1,5 @@
 ---
-kalka_reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v2
 kalka_domain: packaging/release@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 8d56d5b47dbb7bfe0316f8b128fa1b8ed658c160
@@ -25,49 +25,41 @@ A new package that writes Windows icon resources, the generator for `cmd/kalka-d
 2. [winicon](gh:tools/winicon/main.go#L19-L58) draws the sizes from the app icon and writes `rsrc_windows_amd64.syso` and `rsrc_windows_arm64.syso`, which the Go linker embeds in every Windows build of the package. They are committed, so a plain `go build` gets them.
 3. The release refuses a `kalka-desktop.exe` without the icon ([check](gh:tools/release/pe.go#L50-L58)).
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "The taskbar and Start menu show kalka's icon"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "Notifications keep showing it"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Icon group id 3 in the executable"
-    realizes: [B1, B2]
-    guards: [A1]
-    ref: "gh:wails:v3/pkg/application/webview_window_windows.go#L660-L674"
-    why: "Wails loads id 3 for the window and for the notification image"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "The same group as IDI_APPLICATION"
-    ref: "gh:wails:v3/pkg/application/application_windows.go#L212-L226"
-    why: "the window class asks the executable for it"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "Refuse a release without the icon"
-    guards: ["release#I4"]
-    ref: "gh:tools/release/pe.go#L50-L58"
-    why: "a build that lost the resources would ship with the default icon unnoticed"
+step B1: The taskbar and Start menu show kalka's icon
+  next B2
+step B2: Notifications keep showing it
+
+lane code
+
+step C1: Icon group id 3 in the executable
+  next C2
+  realizes B1
+  realizes B2
+  ref gh:wails:v3/pkg/application/webview_window_windows.go#L660-L674
+  guards A1
+  why Wails loads id 3 for the window and for the notification image
+step C2: The same group as IDI_APPLICATION
+  next C3
+  ref gh:wails:v3/pkg/application/application_windows.go#L212-L226
+  why the window class asks the executable for it
+step C3: Refuse a release without the icon
+  ref gh:tools/release/pe.go#L50-L58
+  guards release#I4
+  why a build that lost the resources would ship with the default icon unnoticed
 ```
 
 ## Verification plan
 
-```invariants v1
-affects: ["release#I4"]
-invariants:
-  - id: A1
-    statement: "The icon group with the lowest id in kalka-desktop.exe is the app icon"
-    why: "Explorer takes icon index 0 to be the lowest id"
-    verified_by: ["gh:internal/winres/winres_test.go#L14-L62"]
-    status: new
+```invariants v2
+affects release#I4
+
+invariant A1: The icon group with the lowest id in kalka-desktop.exe is the app icon
+  why Explorer takes icon index 0 to be the lowest id
+  verified-by gh:internal/winres/winres_test.go#L14-L62
+  status new
 ```
 
 - [TestLinkedIcon](gh:internal/winres/winres_test.go#L14-L62) links the object into Windows programs for amd64 and arm64 and reads both groups back.

@@ -10,24 +10,21 @@ The words of the lending desk, version 1.
 
 ## Glossary
 
-```glossary v1
-- term: "loan"
-  definition: "One item lent to one reader"
-  forms: ["loans"]
-  aliases: ["borrowing"]
-- term: "reader"
-  definition: "Someone with a library card"
-  forms: ["readers"]
+```glossary v2
+term loan: One item lent to one reader
+  form loans
+  alias borrowing
+
+term reader: Someone with a library card
+  form readers
 ```
 
 ## Invariants
 
-```invariants v1
-invariants:
-  - id: I1
-    statement: "An item is on at most one loan at a time"
-    verified_by: ["Test: lending an item already on loan is refused"]
-  - id: I2
-    statement: "A reader holds at most twelve loans"
-    verified_by: ["Test: the thirteenth loan is refused"]
+```invariants v2
+invariant I1: An item is on at most one loan at a time
+  verified-by Test: lending an item already on loan is refused
+
+invariant I2: A reader holds at most twelve loans
+  verified-by Test: the thirteenth loan is refused
 ```

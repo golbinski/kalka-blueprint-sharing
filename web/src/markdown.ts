@@ -3,6 +3,7 @@
 // plugin references (gh:...) become spans, never links; images become links, since the CSP would block
 // remote images anyway and they could be used for tracking.
 import MarkdownIt from 'markdown-it'
+import type { Term } from './api'
 import { Matcher } from './glossary'
 import { highlightFence } from './highlight'
 
@@ -12,7 +13,7 @@ const md = new MarkdownIt({
   html: false,
   linkify: false,
   typographer: false,
-  highlight: (code, info) => (['trace', 'mermaid', 'glossary', 'invariants'].includes(info.trim().split(/\s+/)[0]) ? '' : highlightFence(code, info)),
+  highlight: (code, info) => (['trace', 'mermaid', 'glossary', 'invariants', 'goals'].includes(info.trim().split(/\s+/)[0]) ? '' : highlightFence(code, info)),
 })
 
 const safeLink = /^(https?:\/\/|#)/i
@@ -153,7 +154,7 @@ function linkInline(children: Token[], env: LinkEnv, TokenCtor: TokenCtor): Toke
       const t = link.terms!.terms[m.term]
       env.counts?.set(m.term, (env.counts.get(m.term) ?? 0) + 1)
       const surface = text.slice(m.start, m.end)
-      const def = (m.alias ? `An alias of “${t.term}”: ` : '') + t.definition + (t.context ? ` (${t.context})` : '')
+      const def = termDef(t, m.alias)
       ms.push({
         start: m.start,
         end: m.end,
@@ -203,6 +204,15 @@ md.core.ruler.push('kalka_link', (state) => {
   }
 })
 
+// termDef is a term's hover text: the definition, where it is defined in
+// a domain path, and the invariants that narrow it (refines, spec 6.12).
+export function termDef(t: Term, alias = false): string {
+  let def = (alias ? `An alias of “${t.term}”: ` : '') + t.definition + (t.context ? ` (${t.context})` : '')
+  if (t.domain) def += ` — ${t.domain}`
+  for (const r of t.refined ?? []) def += `\nNarrowed by ${r.domain}#${r.id}: ${r.statement}`
+  return def
+}
+
 // render turns Markdown into HTML that is safe to insert; link names what
 // to link in it.
 export function render(src: string, link?: Linker): string {
@@ -223,9 +233,9 @@ export type Part =
   | { kind: 'html'; html: string }
   | { kind: 'trace'; line: number; source: string }
   | { kind: 'mermaid'; source: string }
-  // A glossary or invariants block: line and end are the file lines of its
-  // fences, to find what the daemon read from it.
-  | { kind: 'glossary' | 'invariants'; line: number; end: number; source: string }
+  // A glossary, invariants or goals block: line and end are the file lines
+  // of its fences, to find what the daemon read from it.
+  | { kind: 'glossary' | 'invariants' | 'goals'; line: number; end: number; source: string }
 
 // renderParts renders a section with its top-level ```trace and ```mermaid
 // fences cut out; line is the file line of the trace's opening fence, to
@@ -242,7 +252,7 @@ export function renderParts(src: string, firstLine: number, link?: Linker): Part
   tokens.forEach((t, i) => {
     if (t.type !== 'fence' || t.level !== 0 || !t.map) return
     const info = t.info.trim().split(/\s+/)[0]
-    if (info !== 'trace' && info !== 'mermaid' && info !== 'glossary' && info !== 'invariants') return
+    if (info !== 'trace' && info !== 'mermaid' && info !== 'glossary' && info !== 'invariants' && info !== 'goals') return
     flush(i)
     const line = firstLine + t.map[0]
     if (info === 'trace') out.push({ kind: 'trace', line, source: t.content })
@@ -289,11 +299,9 @@ export function plainText(src: string): string {
           ? '[trace]'
           : f[2] === 'mermaid'
             ? '[diagram]'
-            : f[2] === 'invariants'
-              ? '[invariants]'
-              : f[2] === 'glossary'
-                ? '[glossary]'
-                : '[code]',
+            : f[2] === 'invariants' || f[2] === 'glossary' || f[2] === 'goals'
+              ? `[${f[2]}]`
+              : '[code]',
       )
       continue
     }

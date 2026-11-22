@@ -148,6 +148,7 @@ type Document struct {
 	glossary   []Term
 	invariants []Invariant
 	affects    []Affect
+	goals      []Goal
 	// runs is the body's prose, where glossary terms are matched.
 	runs []textRun
 }
@@ -278,12 +279,14 @@ func Parse(data []byte) (*Document, error) {
 	d.buildTraces(fences)
 	d.buildGlossary(fences)
 	d.buildInvariants(fences)
+	d.buildGoals(fences)
 
 	if !d.hasLog && !logAppendable(d.pre) {
 		d.problem("B001", 0, "the body ends inside an unclosed code fence or HTML block, so a review log cannot be added after it")
 	}
 	d.checkFrontmatter()
 	d.problems = append(d.problems, d.domainProblems()...)
+	d.problems = append(d.problems, d.graphProblems()...)
 	d.problems = append(d.problems, d.issueProblems()...)
 	d.checkEntries()
 	return d, nil

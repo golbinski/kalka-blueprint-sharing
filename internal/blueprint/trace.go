@@ -1,23 +1,17 @@
 package blueprint
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark/ast"
-	"go.yaml.in/yaml/v3"
 )
 
 // TraceInfo is the first word of a trace block's fence (spec 6.10).
 const TraceInfo = "trace"
-
-// TraceVersion is the trace language version this reader implements.
-const TraceVersion = 1
 
 // Limits of a trace block (spec 6.10).
 const (
@@ -69,8 +63,8 @@ type Trace struct {
 	// Nested is set for a block inside a list or block quote.
 	Nested bool   `json:"nested,omitempty"`
 	Source string `json:"source"`
-	// Version is the language version the fence names: 1 when it names
-	// none, or the newer number this reader does not interpret (T005).
+	// Version is the language version the fence names: 2 when it names
+	// none, or the number this reader does not interpret (S012).
 	Version     int          `json:"version"`
 	Lanes       []string     `json:"lanes,omitempty"`
 	Nodes       []TraceNode  `json:"nodes,omitempty"`
@@ -93,6 +87,9 @@ type TraceNode struct {
 	// Guards are the invariants the step keeps true (spec 6.15): ids of the
 	// document's own, or <domain>#<id>. The invariant rules resolve them.
 	Guards []string `json:"guards,omitempty"`
+	// Covers are the acceptance criteria the step demonstrates: ids of the
+	// document's criteria (goals blocks).
+	Covers []string `json:"covers,omitempty"`
 	// Line is the file line where the node starts.
 	Line int `json:"line"`
 }
@@ -113,6 +110,8 @@ type TraceError struct {
 	Node    string `json:"node,omitempty"`
 	Line    int    `json:"line"`
 	Message string `json:"message"`
+	// Fix is a suggested replacement, for the lexical rules.
+	Fix *Fix `json:"fix,omitempty"`
 }
 
 // Divergence is a place where two lanes stop lining up. Node is the node
@@ -163,23 +162,21 @@ func (d *Document) HasAnchor(anchor string) bool {
 	if !d.HasSection(slug) {
 		return false
 	}
-	return !hasID || d.HasNode(slug, id) || d.HasInvariant(slug, id)
+	return !hasID || d.HasNode(slug, id) || d.HasInvariant(slug, id) || d.HasGoal(slug, id)
 }
 
-// fence is a typed block's fence (trace, glossary, invariants), or a yaml
-// one that may have been meant as a trace, found while parsing, before
-// validation.
+// fence is a typed block's fence (trace, glossary, invariants, goals),
+// found while parsing, before validation.
 type fence struct {
 	line   int    // file line of the opening fence
 	info   string // the whole info string
-	word   string // its first word: trace, glossary, invariants, yaml or yml
-	yaml   bool   // fenced as yaml or yml
+	word   string // its first word: trace, glossary, invariants or goals
 	nested bool
 	source string
 }
 
-// findFences collects the typed blocks (trace, glossary, invariants), and
-// ```yaml ones, from a parsed
+// findFences collects the typed blocks (trace, glossary, invariants,
+// goals) from a parsed
 // part of the body. lineAt maps a byte offset of src to a 0-based line of
 // the part, and keep filters by that line (to leave out the review log).
 func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep func(int) bool) []fence {
@@ -194,8 +191,7 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 			info = strings.TrimSpace(string(fc.Info.Segment.Value(src)))
 		}
 		word, _, _ := strings.Cut(strings.ReplaceAll(info, "\t", " "), " ")
-		isYAML := word == "yaml" || word == "yml"
-		if word != TraceInfo && word != GlossaryInfo && word != InvariantsInfo && !isYAML {
+		if word != TraceInfo && word != GlossaryInfo && word != InvariantsInfo && word != GoalsInfo {
 			return ast.WalkSkipChildren, nil
 		}
 		var b strings.Builder
@@ -214,7 +210,7 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 		if !keep(open) {
 			return ast.WalkSkipChildren, nil
 		}
-		out = append(out, fence{line: base + open + 1, info: info, word: word, yaml: isYAML, nested: fc.Parent() != root, source: b.String()})
+		out = append(out, fence{line: base + open + 1, info: info, word: word, nested: fc.Parent() != root, source: b.String()})
 		return ast.WalkSkipChildren, nil
 	})
 	return out
@@ -225,13 +221,7 @@ func findFences(root ast.Node, src []byte, lineAt func(int) int, base int, keep 
 // trace never blocks a sync (rules T…, which are not Blocks).
 func (d *Document) buildTraces(fences []fence) {
 	for _, f := range fences {
-		if f.word != TraceInfo && !f.yaml {
-			continue
-		}
-		if f.yaml {
-			if looksLikeTrace(f.source) {
-				d.problem("T122", f.line, "this yaml block has lanes and nodes, so it was probably meant as a trace; fence it as trace v1")
-			}
+		if f.word != TraceInfo {
 			continue
 		}
 		t := parseTrace(f.source, f.line, f.info)
@@ -255,7 +245,7 @@ func (d *Document) buildTraces(fences []fence) {
 			k := t.Section + "#" + n.ID
 			if first, dup := seen[k]; dup && first != t.Index {
 				t.Warnings = append(t.Warnings, TraceError{Code: "T120", Node: n.ID, Line: n.Line,
-					Message: fmt.Sprintf("trace %d under the same heading also has a node %s, so comments on it are ambiguous; use another id prefix in this block", first+1, n.ID)})
+					Message: fmt.Sprintf("trace %d under the same heading also has a step %s, so comments on it are ambiguous; use another id prefix in this block", first+1, n.ID)})
 			}
 			if _, ok := seen[k]; !ok {
 				seen[k] = t.Index
@@ -268,26 +258,25 @@ func (d *Document) buildTraces(fences []fence) {
 			where += " (" + t.Title + ")"
 		}
 		for _, e := range append(append([]TraceError(nil), t.Errors...), t.Warnings...) {
-			msg := where + ": " + e.Message
-			if e.Node != "" {
-				msg = where + ", node " + e.Node + ": " + e.Message
-			}
-			p := NewProblem(e.Code, e.Line, msg)
-			p.Node = e.Node
-			d.problems = append(d.problems, p)
+			d.problems = append(d.problems, e.problem(where, "step "))
 		}
 	}
 }
 
-// looksLikeTrace reports whether YAML has a root mapping with both lanes
-// and nodes (T122).
-func looksLikeTrace(src string) bool {
-	var doc yaml.Node
-	if yaml.Unmarshal([]byte(src), &doc) != nil || len(doc.Content) == 0 {
-		return false
+// problem is the diagnostic of a block's error or warning; where names the
+// block, and what the kind of item a node is ("step ").
+func (e TraceError) problem(where, what string) Problem {
+	msg := where + ": " + e.Message
+	if e.Node != "" {
+		msg = where + ", " + what + e.Node + ": " + e.Message
 	}
-	root := doc.Content[0]
-	return root.Kind == yaml.MappingNode && mapValue(root, "lanes") != nil && mapValue(root, "nodes") != nil
+	p := NewProblem(e.Code, e.Line, msg)
+	p.Node = e.Node
+	p.Fix = e.Fix
+	if e.Fix != nil {
+		p.Column, p.EndLine, p.EndColumn = e.Fix.Column, e.Fix.EndLine, e.Fix.EndColumn
+	}
+	return p
 }
 
 // sectionHeading is the nearest heading above a body line, or nil.
@@ -307,213 +296,141 @@ func (d *Document) sectionHeading(line int) *Heading {
 	return h
 }
 
-var (
-	traceVersionRe = regexp.MustCompile(`^v[1-9][0-9]*$`)
-	yamlLineRe     = regexp.MustCompile(`^yaml: line (\d+): `)
-	refFormRe      = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:\S+$`)
-)
+var refFormRe = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:\S+$`)
 
-var (
-	traceBlockKeys = []string{"lanes", "nodes"}
-	traceNodeKeys  = []string{"id", "lane", "text", "next", "back", "realizes", "ref", "why", "change", "guards"}
-)
-
-// traceParser holds what one block's validation has found.
-type traceParser struct {
-	t         *Trace
-	base      int // file line of the opening fence; YAML lines count from it
-	lanesLine int // YAML line of lanes
-}
-
-// fail records an error at a YAML line (1 is the first line of content).
-func (p *traceParser) fail(code, node string, line int, format string, a ...any) {
-	p.t.Errors = append(p.t.Errors, TraceError{Code: code, Node: node, Line: p.base + line, Message: fmt.Sprintf(format, a...)})
-}
-
-func (p *traceParser) warn(code, node string, line int, format string, a ...any) {
-	p.t.Warnings = append(p.t.Warnings, TraceError{Code: code, Node: node, Line: p.base + line, Message: fmt.Sprintf(format, a...)})
-}
-
-// rawNode is a node as read, with the YAML lines its parts came from.
-type rawNode struct {
-	TraceNode
-	line                          int // YAML line of the node
-	nextLine, backLine, realsLine int
-}
-
-// parseTrace reads and validates one block (spec 6.10, validation). The
-// stages run in order, each only if the ones before found no error.
+// parseTrace reads and validates one block (docs/trace.md, 4). The stages
+// run in order, each only if the ones before found no error.
 func parseTrace(src string, fenceLine int, info string) Trace {
-	t := Trace{Source: src, Version: TraceVersion}
-	p := &traceParser{t: &t, base: fenceLine}
-
-	// Stage 0: the fence.
-	words := strings.Fields(info)
-	switch {
-	case len(words) < 2:
-		p.warn("T101", "", 0, "the fence names no version and is read as v1; write ```trace v1")
-	case words[1] == "v1":
-	case traceVersionRe.MatchString(words[1]):
-		n, err := strconv.Atoi(words[1][1:])
-		if err != nil {
-			n = 0
-		}
-		t.Version = n
-		p.fail("T005", "", 0, "trace %s: needs a newer kalka", words[1])
-		return t
-	default:
+	t := Trace{Source: src, Version: LangVersion, Line: fenceLine}
+	lp := &langParser{lang: traceLang, base: fenceLine}
+	ok := lp.version(info)
+	var items []langItem
+	if ok {
+		items = lp.parse(src)
+	}
+	t.Errors, t.Warnings = lp.errors, lp.warns
+	if !ok {
 		t.Version = 0
-		p.fail("T005", "", 0, "%q after trace is not a version; write ```trace v1", words[1])
-		return t
-	}
-
-	// Stage 1: YAML, in the restricted form.
-	dec := yaml.NewDecoder(strings.NewReader(src))
-	var doc yaml.Node
-	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
-		p.yamlError(err)
-		return t
-	}
-	var extra yaml.Node
-	switch err := dec.Decode(&extra); {
-	case errors.Is(err, io.EOF):
-	case err != nil:
-		p.yamlError(err)
-		return t
-	default:
-		p.fail("T002", "", extra.Line, "the block holds more than one YAML document; remove the --- line")
-		return t
-	}
-	walkYAML(&doc, func(n *yaml.Node, key bool) {
-		switch {
-		case n.Kind == yaml.AliasNode:
-			p.fail("T002", "", n.Line, "aliases (*%s) are not allowed; write the value out", n.Value)
-		case n.Anchor != "":
-			p.fail("T002", "", n.Line, "anchors (&%s) are not allowed; write the value out", n.Anchor)
-		case key && n.Tag == "!!merge":
-			p.fail("T002", "", n.Line, "merge keys (<<) are not allowed; write the keys out")
-		case n.Style&yaml.TaggedStyle != 0:
-			p.fail("T002", "", n.Line, "explicit tags (%s) are not allowed; remove the tag", n.Tag)
+		if v := strings.Fields(info); len(v) > 1 && langVerRe.MatchString(v[1]) {
+			fmt.Sscanf(v[1], "v%d", &t.Version)
 		}
-	})
-	if len(t.Errors) > 0 {
 		return t
 	}
+	p := &traceParser{t: &t}
 
-	// Stage 2: structure and the shape of every value.
-	walkYAML(&doc, func(n *yaml.Node, _ bool) {
-		if n.Kind != yaml.MappingNode {
-			return
-		}
-		seen := map[string]bool{}
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			k := n.Content[i]
-			if seen[k.Value] {
-				p.fail("T003", "", k.Line, "key %s appears twice in one mapping; keep one", k.Value)
+	// Stage 1: lanes and steps.
+	var lanes []string
+	var raws []TraceNode
+	for _, it := range items {
+		switch it.Keyword {
+		case "lane":
+			switch {
+			case utf8.RuneCountInString(it.Text) > maxLaneName:
+				p.fail("T012", "", it.Line, "lane name %q is longer than %d characters", it.Text, maxLaneName)
+			case slices.Contains(lanes, it.Text):
+				p.fail("T012", "", it.Line, "lane %s is opened twice; put all its steps under one lane line", it.Text)
 			}
-			seen[k.Value] = true
+			lanes = append(lanes, it.Text)
+			p.laneLine = append(p.laneLine, it.Line)
+		case "step":
+			if it.Section == "" {
+				p.fail("T032", it.Name, it.Line, "the step comes before any lane; start the block with lane business (the most abstract level)")
+				continue
+			}
+			n := TraceNode{ID: it.Name, Lane: it.Section, Text: it.Text, Line: it.Line,
+				Ref: it.one("ref"), Why: it.one("why"), Change: it.one("change")}
+			for _, a := range it.all("next") {
+				n.Next = p.edge(n.Next, "next", n.ID, a)
+			}
+			for _, a := range it.all("back") {
+				n.Back = p.edge(n.Back, "back", n.ID, a)
+			}
+			n.Realizes = p.ids(it, "realizes")
+			n.Covers = p.ids(it, "covers")
+			for _, g := range p.ids(it, "guards") {
+				if _, ok := ParseInvRef(g); !ok {
+					p.fail("S009", n.ID, it.Line, "guards names an invariant by id (I1), as parent#<id> or as <domain>#<id> (library#L1), not %q", g)
+					continue
+				}
+				n.Guards = append(n.Guards, g)
+			}
+			p.stepWarnings(&n, it)
+			raws = append(raws, n)
 		}
-	})
-	walkYAML(&doc, func(n *yaml.Node, key bool) {
-		if !key && n.LineComment != "" && n.Kind != yaml.DocumentNode {
-			p.warn("T103", "", n.Line, "a comment follows a value on the same line; put it on a line of its own, since YAML cuts an unquoted text at \" #\"")
-		}
-	})
-	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		p.fail("T004", "", 1, "the block must be a mapping with lanes and nodes")
-		return t
 	}
-	root := doc.Content[0]
-	p.unknownKeys(root, traceBlockKeys, "")
-	lanes := p.lanes(root)
-	raws := p.nodes(root)
+	if len(raws) == 0 && len(t.Errors) == 0 {
+		p.fail("T020", "", fenceLine, "the block has no steps; write lane business, then step B1: <what happens> under it")
+	}
+	if len(raws) > MaxTraceNodes {
+		p.fail("T022", "", fenceLine, "%d steps; a block has at most %d, so split it under several headings", len(raws), MaxTraceNodes)
+	}
+	if len(lanes) > 0 && (len(lanes) < MinTraceLanes || len(lanes) > MaxTraceLanes) {
+		p.fail("T011", "", p.laneLine[0], "%d lanes; a trace has %d to %d, most abstract first", len(lanes), MinTraceLanes, MaxTraceLanes)
+	}
 	if len(t.Errors) > 0 {
 		return t
 	}
 
-	// Stage 3: each node's own fields.
+	// Stage 2: ids.
 	laneOf := map[string]int{}
 	for i, l := range lanes {
 		laneOf[l] = i
 	}
-	byID := map[string]*rawNode{}
+	byID := map[string]*TraceNode{}
 	for i := range raws {
 		n := &raws[i]
-		switch {
-		case n.ID == "":
-			p.fail("T030", "", n.line, "the node has no id; add id: with a name such as C1")
-		case len(n.ID) > maxNodeID || !nodeIDRe.MatchString(n.ID):
-			p.fail("T030", n.ID, n.line, "an id starts with a letter, uses only letters, digits, - and _, and has at most %d characters", maxNodeID)
-		case byID[n.ID] != nil:
-			p.fail("T031", n.ID, n.line, "the id is used twice (first at line %d); give this step a new id", fenceLine+byID[n.ID].line)
-		default:
-			byID[n.ID] = n
+		if byID[n.ID] != nil {
+			p.fail("T031", n.ID, n.Line, "the id is used twice (first at line %d); give this step a new id", byID[n.ID].Line)
+			continue
 		}
-		if _, ok := laneOf[n.Lane]; !ok {
-			if n.Lane == "" {
-				p.fail("T032", n.ID, n.line, "lane is missing; name one of %s", strings.Join(lanes, ", "))
-			} else {
-				p.fail("T032", n.ID, n.line, "lane %q is not in lanes (%s)", n.Lane, strings.Join(lanes, ", "))
-			}
-		}
-		if n.Text == "" {
-			p.fail("T033", n.ID, n.line, "text is missing; say in one short line what the step does")
-		}
-		if n.Change != "" && n.Change != ChangeNew && n.Change != ChangeModified && n.Change != ChangeRemoved {
-			p.fail("T046", n.ID, n.line, "change is new, modified or removed, not %q; leave it out for an unchanged step", n.Change)
-		}
+		byID[n.ID] = n
 	}
 	if len(t.Errors) > 0 {
 		return t
 	}
 
-	// Stage 4: what the edges name.
+	// Stage 3: what the edges name.
 	for i := range raws {
 		n := &raws[i]
 		for _, e := range n.Next {
 			m := byID[e.To]
 			switch {
 			case m == nil:
-				p.fail("T040", n.ID, n.nextLine, "next names %s, which is not a node of this block", e.To)
+				p.fail("T040", n.ID, n.Line, "next names %s, which is not a step of this block", e.To)
 			case m.Lane != n.Lane:
-				p.fail("T041", n.ID, n.nextLine, "next names %s in lane %s; next stays within one lane, use realizes across lanes", e.To, m.Lane)
+				p.fail("T041", n.ID, n.Line, "next names %s in lane %s; next stays within one lane, use realizes across lanes", e.To, m.Lane)
 			case m.ID == n.ID:
-				p.fail("T042", n.ID, n.nextLine, "next names the node itself; a step that repeats goes under back")
+				p.fail("T042", n.ID, n.Line, "next names the step itself; a step that repeats goes under back")
 			}
 		}
 		for _, e := range n.Back {
 			m := byID[e.To]
 			switch {
 			case m == nil:
-				p.fail("T040", n.ID, n.backLine, "back names %s, which is not a node of this block", e.To)
+				p.fail("T040", n.ID, n.Line, "back names %s, which is not a step of this block", e.To)
 			case m.Lane != n.Lane:
-				p.fail("T041", n.ID, n.backLine, "back names %s in lane %s; back stays within one lane", e.To, m.Lane)
+				p.fail("T041", n.ID, n.Line, "back names %s in lane %s; back stays within one lane", e.To, m.Lane)
 			}
 		}
 		for _, r := range n.Realizes {
 			m := byID[r]
 			switch {
 			case m == nil:
-				p.fail("T040", n.ID, n.realsLine, "realizes %s, which is not a node of this block", r)
+				p.fail("T040", n.ID, n.Line, "realizes %s, which is not a step of this block", r)
 			case laneOf[m.Lane] >= laneOf[n.Lane]:
-				p.fail("T045", n.ID, n.realsLine, "realizes %s in lane %s, which is not above %s; realizes names nodes of more abstract lanes", r, m.Lane, n.Lane)
+				p.fail("T045", n.ID, n.Line, "realizes %s in lane %s, which is not above %s; realizes names steps of more abstract lanes", r, m.Lane, n.Lane)
 			}
 		}
 	}
 	if len(t.Errors) > 0 {
 		return t
 	}
+	t.Lanes, t.Nodes = lanes, raws
 
-	nodes := make([]TraceNode, len(raws))
-	for i := range raws {
-		nodes[i] = raws[i].TraceNode
-	}
-	t.Lanes, t.Nodes = lanes, nodes
-
-	// Stage 5: order. next has no cycles; back returns to an earlier step.
+	// Stage 4: order. next has no cycles; back returns to an earlier step.
 	for _, c := range nextCycles(&t) {
 		n := byID[c[len(c)-1]]
-		p.fail("T043", n.ID, n.nextLine, "next edges form a cycle through %s; write the edge that returns under back", strings.Join(c, ", "))
+		p.fail("T043", n.ID, n.Line, "next edges form a cycle through %s; write the edge that returns as back", strings.Join(c, ", "))
 	}
 	if len(t.Errors) == 0 {
 		reach := reachability(&t)
@@ -521,7 +438,7 @@ func parseTrace(src string, fenceLine int, info string) Trace {
 			n := &raws[i]
 			for _, e := range n.Back {
 				if e.To != n.ID && !reach[e.To][n.ID] {
-					p.fail("T044", n.ID, n.backLine, "back names %s, which does not come before %s; a forward edge belongs under next", e.To, n.ID)
+					p.fail("T044", n.ID, n.Line, "back names %s, which does not come before %s; a forward edge is a next", e.To, n.ID)
 				}
 			}
 		}
@@ -530,53 +447,75 @@ func parseTrace(src string, fenceLine int, info string) Trace {
 		t.Lanes, t.Nodes = nil, nil
 		return t
 	}
-	p.graphWarnings(raws)
+	p.graphWarnings()
 	return t
 }
 
-// yamlError reports a YAML parse error at the line it names.
-func (p *traceParser) yamlError(err error) {
-	msg := err.Error()
-	line := 0
-	if m := yamlLineRe.FindStringSubmatch(msg); m != nil {
-		line, _ = strconv.Atoi(m[1])
-		msg = msg[len(m[0]):]
-	}
-	msg = strings.TrimPrefix(msg, "yaml: ")
-	p.fail("T001", "", line, "the YAML does not parse: %s; put text values in double quotes", msg)
+// traceParser holds what one block's validation has found.
+type traceParser struct {
+	t        *Trace
+	laneLine []int // file lines of the lane headers
 }
 
-// walkYAML visits every node; key is set for mapping keys.
-func walkYAML(n *yaml.Node, visit func(n *yaml.Node, key bool)) {
-	var walk func(n *yaml.Node, key bool)
-	walk = func(n *yaml.Node, key bool) {
-		visit(n, key)
-		for i, c := range n.Content {
-			walk(c, n.Kind == yaml.MappingNode && i%2 == 0)
-		}
-	}
-	walk(n, false)
+func (p *traceParser) fail(code, node string, line int, format string, a ...any) {
+	p.t.Errors = append(p.t.Errors, TraceError{Code: code, Node: node, Line: line, Message: fmt.Sprintf(format, a...)})
 }
 
-// unknownKeys warns about keys that are not known and do not start with
-// x- (T102), suggesting the nearest known key.
-func (p *traceParser) unknownKeys(m *yaml.Node, known []string, node string) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		k := m.Content[i].Value
-		if slices.Contains(known, k) || strings.HasPrefix(k, "x-") {
+func (p *traceParser) warn(code, node string, line int, format string, a ...any) {
+	p.t.Warnings = append(p.t.Warnings, TraceError{Code: code, Node: node, Line: line, Message: fmt.Sprintf(format, a...)})
+}
+
+// edge adds a next or back edge; one named twice counts once (T104).
+func (p *traceParser) edge(es []TraceEdge, kw, node string, a langAttr) []TraceEdge {
+	if slices.ContainsFunc(es, func(o TraceEdge) bool { return o.To == a.Value }) {
+		p.warn("T104", node, a.Line, "%s names %s twice", kw, a.Value)
+		return es
+	}
+	return append(es, TraceEdge{To: a.Value, Label: a.Label})
+}
+
+// ids are the values of a repeated reference keyword, each once (T104).
+func (p *traceParser) ids(it langItem, kw string) []string {
+	var out []string
+	for _, a := range it.all(kw) {
+		if slices.Contains(out, a.Value) {
+			p.warn("T104", it.Name, a.Line, "%s names %s twice", kw, a.Value)
 			continue
 		}
-		msg := fmt.Sprintf("unknown key %s is ignored", k)
-		if s := nearest(k, known); s != "" {
-			msg += fmt.Sprintf("; did you mean %s?", s)
-		} else {
-			msg += "; a key of your own starts with x-"
-		}
-		p.warn("T102", node, m.Content[i].Line, "%s", msg)
+		out = append(out, a.Value)
 	}
+	return out
 }
 
-// nearest is the known key within two edits of k, if any.
+// stepWarnings are the warnings that need only one step (T104, T109,
+// T112, T113).
+func (p *traceParser) stepWarnings(n *TraceNode, it langItem) {
+	for _, e := range n.Next {
+		if slices.ContainsFunc(n.Back, func(b TraceEdge) bool { return b.To == e.To }) {
+			p.warn("T104", n.ID, n.Line, "%s is both a next and a back; keep one", e.To)
+		}
+	}
+	if utf8.RuneCountInString(n.Text) > advisedText {
+		p.warn("T109", n.ID, n.Line, "the text has %d characters; keep it under %d and put the rest in why or the prose", utf8.RuneCountInString(n.Text), advisedText)
+	}
+	if utf8.RuneCountInString(n.Why) > advisedWhy {
+		p.warn("T109", n.ID, n.Line, "why has %d characters; keep it under %d and put the rest in the prose", utf8.RuneCountInString(n.Why), advisedWhy)
+	}
+	for _, e := range append(slices.Clone(n.Next), n.Back...) {
+		if utf8.RuneCountInString(e.Label) > advisedLabel {
+			p.warn("T109", n.ID, n.Line, "the label of the edge to %s has %d characters; keep it under %d", e.To, utf8.RuneCountInString(e.Label), advisedLabel)
+		}
+	}
+	if n.Ref != "" && !refFormRe.MatchString(n.Ref) {
+		p.warn("T112", n.ID, n.Line, "ref %q is not of the form scheme:payload without spaces, such as gh:src/file.go#L10-L20", n.Ref)
+	}
+	if labelled := countLabels(n.Next); len(n.Next) > 1 && labelled > 0 && labelled < len(n.Next) {
+		p.warn("T113", n.ID, n.Line, "only some of the next edges have a label; say when each one is taken")
+	}
+	_ = it
+}
+
+// nearest is the known keyword within two edits of k, if any.
 func nearest(k string, known []string) string {
 	best, dist := "", 3
 	for _, c := range known {
@@ -607,180 +546,6 @@ func editDistance(a, b string) int {
 	return prev[len(b)]
 }
 
-// absent reports a missing value, or one written as ~, null or nothing.
-func absent(n *yaml.Node) bool {
-	if n == nil {
-		return true
-	}
-	if n.Kind != yaml.ScalarNode || n.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-		return false
-	}
-	switch n.Value {
-	case "", "~", "null", "Null", "NULL":
-		return true
-	}
-	return false
-}
-
-// textOf is a scalar's text with white space collapsed; ok is false when
-// the value is not a single text.
-func textOf(n *yaml.Node) (s string, ok bool) {
-	if absent(n) {
-		return "", true
-	}
-	if n.Kind != yaml.ScalarNode {
-		return "", false
-	}
-	return strings.Join(strings.Fields(n.Value), " "), true
-}
-
-// lanes reads the block's lanes (T010, T011, T012).
-func (p *traceParser) lanes(root *yaml.Node) []string {
-	v := mapValue(root, "lanes")
-	if absent(v) {
-		p.fail("T010", "", root.Line, "lanes is missing; list the levels, most abstract first: lanes: [business, code]")
-		return nil
-	}
-	if v.Kind != yaml.SequenceNode {
-		p.fail("T010", "", v.Line, "lanes is a list of names: lanes: [business, code]")
-		return nil
-	}
-	p.lanesLine = v.Line
-	var out []string
-	for _, l := range v.Content {
-		name, ok := textOf(l)
-		if !ok {
-			p.fail("T010", "", l.Line, "lanes is a list of names: lanes: [business, code]")
-			return nil
-		}
-		switch {
-		case name == "":
-			p.fail("T012", "", l.Line, "a lane name is empty")
-		case len([]rune(name)) > maxLaneName:
-			p.fail("T012", "", l.Line, "lane name %q is longer than %d characters", name, maxLaneName)
-		case slices.Contains(out, name):
-			p.fail("T012", "", l.Line, "lane %q is listed twice", name)
-		}
-		out = append(out, name)
-	}
-	if len(out) < MinTraceLanes || len(out) > MaxTraceLanes {
-		p.fail("T011", "", v.Line, "%d lanes; a trace has %d to %d", len(out), MinTraceLanes, MaxTraceLanes)
-	}
-	return out
-}
-
-// nodes reads the block's nodes with the shape of each value (T020, T021,
-// T022, T034) and the warnings that need only one node (T102, T104, T109,
-// T112, T113).
-func (p *traceParser) nodes(root *yaml.Node) []rawNode {
-	v := mapValue(root, "nodes")
-	switch {
-	case absent(v):
-		p.fail("T020", "", root.Line, "nodes is missing; list the steps of all lanes under nodes:")
-		return nil
-	case v.Kind != yaml.SequenceNode:
-		p.fail("T020", "", v.Line, "nodes is a list of steps, each starting with - id:")
-		return nil
-	case len(v.Content) == 0:
-		p.fail("T020", "", v.Line, "nodes is empty; a trace has at least one step")
-		return nil
-	case len(v.Content) > MaxTraceNodes:
-		p.fail("T022", "", v.Line, "%d nodes; a block has at most %d, so split it under several headings", len(v.Content), MaxTraceNodes)
-	}
-	var out []rawNode
-	for _, nn := range v.Content {
-		if nn.Kind != yaml.MappingNode || nn.Style&yaml.FlowStyle != 0 {
-			p.fail("T021", "", nn.Line, "write each node as a block mapping, one key per line (- id: C1, then lane:, text: … below it), not as {…}")
-			continue
-		}
-		n := rawNode{line: nn.Line}
-		n.Line = p.base + nn.Line
-		str := func(key string) string {
-			s, ok := textOf(mapValue(nn, key))
-			if !ok {
-				p.fail("T034", "", mapValue(nn, key).Line, "%s is a single text; put it in double quotes", key)
-			}
-			return s
-		}
-		n.ID, n.Lane, n.Text = str("id"), str("lane"), str("text")
-		n.Ref, n.Why, n.Change = str("ref"), str("why"), str("change")
-		id := n.ID
-		if x := mapValue(nn, "next"); !absent(x) {
-			n.nextLine = x.Line
-			n.Next = p.edges(x, "next", id)
-		} else {
-			n.nextLine = nn.Line
-		}
-		if x := mapValue(nn, "back"); !absent(x) {
-			n.backLine = x.Line
-			n.Back = p.edges(x, "back", id)
-		} else {
-			n.backLine = nn.Line
-		}
-		if x := mapValue(nn, "realizes"); !absent(x) {
-			n.realsLine = x.Line
-			n.Realizes = p.idList(x, id)
-		} else {
-			n.realsLine = nn.Line
-		}
-		if x := mapValue(nn, "guards"); !absent(x) {
-			n.Guards = p.guards(x, id)
-		}
-		p.unknownKeys(nn, traceNodeKeys, id)
-		for _, e := range n.Next {
-			if slices.ContainsFunc(n.Back, func(b TraceEdge) bool { return b.To == e.To }) {
-				p.warn("T104", id, n.backLine, "%s is under both next and back; keep it under one", e.To)
-			}
-		}
-		if len([]rune(n.Text)) > advisedText {
-			p.warn("T109", id, nn.Line, "text has %d characters; keep it under %d and put the rest in why or the prose", len([]rune(n.Text)), advisedText)
-		}
-		if len([]rune(n.Why)) > advisedWhy {
-			p.warn("T109", id, nn.Line, "why has %d characters; keep it under %d and put the rest in the prose", len([]rune(n.Why)), advisedWhy)
-		}
-		for _, e := range append(slices.Clone(n.Next), n.Back...) {
-			if len([]rune(e.Label)) > advisedLabel {
-				p.warn("T109", id, nn.Line, "the label of the edge to %s has %d characters; keep it under %d", e.To, len([]rune(e.Label)), advisedLabel)
-			}
-		}
-		if n.Ref != "" && !refFormRe.MatchString(n.Ref) {
-			p.warn("T112", id, nn.Line, "ref %q is not of the form scheme:payload without spaces, such as gh:src/file.go#L10-L20", n.Ref)
-		}
-		if labelled := countLabels(n.Next); len(n.Next) > 1 && labelled > 0 && labelled < len(n.Next) {
-			p.warn("T113", id, n.nextLine, "only some of the next edges have a label; say when each one is taken")
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// guards reads invariant references: a text or a list of texts, each an
-// id or <domain>#<id> (T034 otherwise).
-func (p *traceParser) guards(v *yaml.Node, node string) []string {
-	var items []*yaml.Node
-	switch v.Kind {
-	case yaml.ScalarNode:
-		items = []*yaml.Node{v}
-	case yaml.SequenceNode:
-		items = v.Content
-	default:
-		p.fail("T034", node, v.Line, "guards is a list of invariants, such as guards: [I1, \"loans#I3\"]")
-		return nil
-	}
-	var out []string
-	for _, it := range items {
-		s, ok := textOf(it)
-		if !ok || !invRefRe.MatchString(s) {
-			p.fail("T034", node, it.Line, "guards names invariants by id (I1) or as <domain>#<id> (\"loans#I3\"), not %q", s)
-			return nil
-		}
-		if !slices.Contains(out, s) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func countLabels(es []TraceEdge) int {
 	n := 0
 	for _, e := range es {
@@ -789,94 +554,4 @@ func countLabels(es []TraceEdge) int {
 		}
 	}
 	return n
-}
-
-// edges reads next or back: an id, a list of ids, or a mapping of id to
-// label. Duplicates count once (T104).
-func (p *traceParser) edges(v *yaml.Node, key, node string) []TraceEdge {
-	var out []TraceEdge
-	add := func(e TraceEdge, line int) {
-		if slices.ContainsFunc(out, func(o TraceEdge) bool { return o.To == e.To }) {
-			p.warn("T104", node, line, "%s names %s twice", key, e.To)
-			return
-		}
-		out = append(out, e)
-	}
-	shape := func(line int) {
-		p.fail("T034", node, line, "%s is a list of ids, or a mapping of id to label, such as %s: {C2: \"file is small\"}", key, key)
-	}
-	switch v.Kind {
-	case yaml.ScalarNode:
-		s, _ := textOf(v)
-		add(TraceEdge{To: s}, v.Line)
-	case yaml.SequenceNode:
-		for _, it := range v.Content {
-			s, ok := textOf(it)
-			if !ok || s == "" {
-				shape(it.Line)
-				return nil
-			}
-			add(TraceEdge{To: s}, it.Line)
-		}
-	case yaml.MappingNode:
-		for i := 0; i+1 < len(v.Content); i += 2 {
-			to, ok1 := textOf(v.Content[i])
-			label, ok2 := textOf(v.Content[i+1])
-			if !ok1 || !ok2 || to == "" {
-				shape(v.Content[i].Line)
-				return nil
-			}
-			add(TraceEdge{To: to, Label: label}, v.Content[i].Line)
-		}
-	default:
-		shape(v.Line)
-	}
-	return out
-}
-
-// idList reads realizes: an id or a list of ids. The mapping form is
-// reserved. Duplicates count once (T104).
-func (p *traceParser) idList(v *yaml.Node, node string) []string {
-	var out []string
-	add := func(s string, line int) {
-		if slices.Contains(out, s) {
-			p.warn("T104", node, line, "realizes names %s twice", s)
-			return
-		}
-		out = append(out, s)
-	}
-	switch v.Kind {
-	case yaml.ScalarNode:
-		s, _ := textOf(v)
-		add(s, v.Line)
-		return out
-	case yaml.SequenceNode:
-		good := true
-		for _, it := range v.Content {
-			if s, ok := textOf(it); !ok || s == "" {
-				good = false
-			}
-		}
-		if good {
-			for _, it := range v.Content {
-				s, _ := textOf(it)
-				add(s, it.Line)
-			}
-			return out
-		}
-	}
-	p.fail("T034", node, v.Line, "realizes is a list of ids, such as realizes: [B1, B2]")
-	return nil
-}
-
-func mapValue(m *yaml.Node, key string) *yaml.Node {
-	if m == nil || m.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
 }

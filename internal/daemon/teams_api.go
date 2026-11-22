@@ -492,6 +492,11 @@ func (c *Client) Archive(ctx context.Context, path string, archived bool) error 
 	return c.do(ctx, http.MethodPost, "/api/archive", map[string]any{"path": path, "archived": archived}, nil)
 }
 
+// Close confirms a document delivered, or reopens it (spec 6.18).
+func (c *Client) Close(ctx context.Context, path string, reopen bool) error {
+	return c.do(ctx, http.MethodPost, "/api/close", map[string]any{"path": path, "reopen": reopen}, nil)
+}
+
 // Promote turns a seed into a blueprint (spec 6.11).
 func (c *Client) Promote(ctx context.Context, path, status string) error {
 	return c.do(ctx, http.MethodPost, "/api/promote", map[string]string{"path": path, "status": status}, nil)

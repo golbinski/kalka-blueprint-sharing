@@ -11,12 +11,13 @@ import (
 // document's own invariants, or a domain invariant it affects or guards.
 type Row struct {
 	// Ref is the id, or <domain>#<id> for a domain invariant.
-	Ref        string   `json:"ref"`
-	ID         string   `json:"id"`
-	Domain     string   `json:"domain,omitempty"`
-	Statement  string   `json:"statement,omitempty"`
-	Context    string   `json:"context,omitempty"`
-	Why        string   `json:"why,omitempty"`
+	Ref       string `json:"ref"`
+	ID        string `json:"id"`
+	Domain    string `json:"domain,omitempty"`
+	Statement string `json:"statement,omitempty"`
+	Why       string `json:"why,omitempty"`
+	// Refines are the inherited terms the invariant narrows.
+	Refines    []string `json:"refines,omitempty"`
 	VerifiedBy []string `json:"verified_by"`
 	Status     string   `json:"status,omitempty"`
 	// Section is the heading the invariant is under: its anchor is
@@ -34,16 +35,16 @@ type Row struct {
 	ReferencedBy []string `json:"referenced_by,omitempty"`
 }
 
-// Matrix is the invariants matrix of doc; dom is the domain version it
-// references (Result.Domain), or nil.
-func Matrix(doc, dom *bp.Document) []Row {
+// Matrix is the invariants matrix of doc, read against the domain paths
+// of Result.Context.
+func Matrix(doc *bp.Document, c DomainContext, docs Docs) []Row {
 	hasTrace := false
 	for _, t := range doc.Traces() {
 		hasTrace = hasTrace || t.Valid()
 	}
 	rows := []Row{}
 	for _, v := range doc.Invariants() {
-		r := Row{Ref: v.ID, ID: v.ID, Statement: v.Statement, Context: v.Context, Why: v.Why, VerifiedBy: v.VerifiedBy, Status: v.Status, Section: v.Section, Line: v.Line, Resolved: true}
+		r := Row{Ref: v.ID, ID: v.ID, Statement: v.Statement, Why: v.Why, VerifiedBy: v.VerifiedBy, Refines: v.Refines, Status: v.Status, Section: v.Section, Line: v.Line, Resolved: true}
 		r.GuardedBy = doc.GuardedBy(v.ID)
 		if v.Live() {
 			if hasTrace && len(r.GuardedBy) == 0 {
@@ -61,10 +62,28 @@ func Matrix(doc, dom *bp.Document) []Row {
 	}
 	for _, a := range doc.DomainRefs() {
 		r := Row{Ref: a.Text, ID: a.Ref.ID, Domain: a.Ref.Domain, Line: a.Line}
-		if dom != nil && dom.DomainName() == a.Ref.Domain {
+		if dom := c.ByName[a.Ref.Domain]; dom != nil {
 			if v := dom.Invariant(a.Ref.ID); v != nil {
 				r.Resolved = true
-				r.Statement, r.Context, r.Why, r.VerifiedBy = v.Statement, v.Context, v.Why, v.VerifiedBy
+				r.Statement, r.Why, r.VerifiedBy, r.Refines = v.Statement, v.Why, v.VerifiedBy, v.Refines
+			}
+		}
+		r.GuardedBy = doc.GuardedBy(a.Text)
+		if hasTrace && affects[a.Text] && len(r.GuardedBy) == 0 {
+			r.Gaps = append(r.Gaps, "unguarded")
+		}
+		rows = append(rows, r.norm())
+	}
+	// Invariants inherited from the plan nodes above, named parent#<id>.
+	path, _, cycle := PlanPath(doc, docs)
+	for _, a := range doc.ParentRefs() {
+		r := Row{Ref: a.Text, ID: a.Ref.ID, Domain: bp.ParentRef, Line: a.Line}
+		if !cycle {
+			for i := len(path) - 1; i >= 0 && !r.Resolved; i-- {
+				if v := path[i].Invariant(a.Ref.ID); v != nil {
+					r.Resolved = true
+					r.Statement, r.Why, r.VerifiedBy = v.Statement, v.Why, v.VerifiedBy
+				}
 			}
 		}
 		r.GuardedBy = doc.GuardedBy(a.Text)

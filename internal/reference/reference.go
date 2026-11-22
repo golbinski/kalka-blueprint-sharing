@@ -10,7 +10,7 @@ import (
 
 // Version is the reference version documents opt into with
 // `kalka_reference: <Version>` in their frontmatter.
-const Version = "kalka-blueprint@v1"
+const Version = "kalka-blueprint@v2"
 
 // FileName is the name the reference is exported under.
 const FileName = "BLUEPRINT-REFERENCE.md"

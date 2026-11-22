@@ -97,6 +97,8 @@ func usage(w io.Writer) {
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
   %[1]s seed backlink <seed> [--json]   add a missing backlink to the seed's parent
   %[1]s promote <file> [--status <s>] [--json]   a seed becomes a blueprint (default draft)
+  %[1]s close <file> [--reopen] [--json]   the owner confirms the document delivered
+  %[1]s context <file> [--domain <path>] [--json]   the plan and domain path for an agent
   %[1]s seeds [--team <t>|personal] [--json]   list the pre-backlog
   %[1]s teams [--json]        the teams you hold, your role and what waits in each
   %[1]s team create <name> | invite <email> [--expires 72h] | uninvite <id> | members | log | invites | sync
@@ -127,7 +129,7 @@ option (--rendezvous alone writes config.yaml when kalka is not running), pause,
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
 teams, team members|log|invites, waiting, seeds, transfers, domains, settings) never
 start it: with none running they read the local files and their JSON says
-"daemon": false. check, invariants, comment, seed, seed backlink and reference never need it.
+"daemon": false. check, context, invariants, comment, seed, seed backlink and reference never need it.
 `, name.Binary, NoStartEnv)
 }
 

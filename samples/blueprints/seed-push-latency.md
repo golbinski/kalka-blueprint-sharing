@@ -1,7 +1,6 @@
 ---
 kalka_status: seed
-kalka_parent: 3b1f6a52-8c47-4e0d-9a2b-5d7e41c0f8a6
-kalka_origin: 9e41b7c20d5a4f83a6c1e07b2d94f358
+kalka_origin: 3b1f6a52-8c47-4e0d-9a2b-5d7e41c0f8a6#9e41b7c20d5a4f83a6c1e07b2d94f358
 kalka_created: 2026-11-10T14:22:05Z
 ---
 

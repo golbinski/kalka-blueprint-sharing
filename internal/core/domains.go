@@ -24,6 +24,16 @@ type DomainInfo struct {
 	Viewing  int64   `json:"viewing,omitempty"`
 	// Owner releases the next version, "" when nobody may (a dispute).
 	Owner string `json:"owner,omitempty"`
+	// Parent is the parent version the node pins (kalka_parent), and
+	// ParentLatest the newest version of the parent held here: newer than
+	// the pin is "parent newer" (spec 6.12). ParentRel is the parent's
+	// live document.
+	Parent       string `json:"parent,omitempty"`
+	ParentLatest int64  `json:"parent_latest,omitempty"`
+	ParentRel    string `json:"parent_rel,omitempty"`
+	// Children are the subdomains held here that name this node's domain
+	// as their parent.
+	Children []string `json:"children,omitempty"`
 }
 
 // DomainRefView is a blueprint's `kalka_domain:` reference (spec 6.12).
@@ -122,6 +132,17 @@ func (d *Node) domainInfo(live string, doc *bp.Document, viewing int64) (*Domain
 	di := &DomainInfo{Name: doc.DomainName(), Team: doc.Team(), Versions: d.Store.Snapshots(live), Viewing: viewing}
 	if di.Versions == nil {
 		di.Versions = []int64{}
+	}
+	sd := storeDomains{d}
+	if up, ok := doc.DomainParent(); ok {
+		di.Parent = up.String()
+		di.ParentLatest = sd.Latest(doc.Team(), up.Domain)
+		if docs := d.Store.FindDomain(doc.Team(), up.Domain); len(docs) > 0 {
+			di.ParentRel = d.rel(docs[0].Path)
+		}
+	}
+	for _, c := range sd.Children(doc.Team(), doc.DomainName()) {
+		di.Children = append(di.Children, c.DomainName())
 	}
 	h, err := d.heldAt(live)
 	if err != nil || h.dir.Name != doc.Team() {
@@ -241,6 +262,25 @@ func (s storeDomains) Latest(team, domain string) int64 {
 		latest = max(latest, v)
 	}
 	return latest
+}
+
+// Children are the live documents of the domains whose parent is domain
+// (check.Siblings).
+func (s storeDomains) Children(team, domain string) []*bp.Document {
+	var out []*bp.Document
+	for _, in := range s.d.Store.List() {
+		if in.Domain == "" || in.Duplicate || (team != "" && in.Team != team) {
+			continue
+		}
+		f, err := s.d.Store.Load(in.Path)
+		if err != nil {
+			continue
+		}
+		if up, ok := f.Doc.DomainParent(); ok && up.Domain == domain {
+			out = append(out, f.Doc)
+		}
+	}
+	return out
 }
 
 // blueprintsOf are the held blueprints whose `kalka_domain:` names dom's

@@ -86,6 +86,8 @@ type Info struct {
 	DomainVersion int64  `json:"domain_version,omitempty"`
 	// Seed: kalka_status is seed (spec 6.11); the page lists it under Seeds.
 	Seed bool `json:"seed,omitempty"`
+	// Parent is the kalka_id of the parent plan node (kalka_parent).
+	Parent string `json:"parent,omitempty"`
 	// Traces is the number of trace blocks, valid or not (spec 6.10).
 	Traces int `json:"traces,omitempty"`
 	// Issue is a valid kalka_issue (spec 6.2), as written; what the
@@ -252,6 +254,7 @@ func (s *Store) refresh(p string) (changed, external bool) {
 		info.KalkaID, info.Title, info.Owner, info.Rev = d.KalkaID(), d.Title(), d.Owner(), d.Rev()
 		info.Team, info.Domain, info.DomainVersion = d.Team(), d.DomainName(), d.DomainVersion()
 		info.Seed, info.Traces = d.IsSeed(), len(d.Traces())
+		info.Parent = d.PlanParent()
 		if r, ok := d.Issue(); ok {
 			info.Issue = r.String()
 		}

@@ -1,5 +1,5 @@
 {
-  "rules": "v1",
+  "rules": "v2",
   "kalka": "dev",
   "files": [
     {
@@ -23,10 +23,10 @@
           "blocks": true
         },
         {
-          "line": 15,
+          "line": 12,
           "rule": "T040",
           "severity": "error",
-          "message": "trace 1 (The renewal path), node D1: next names D9, which is not a node of this block",
+          "message": "trace 1 (The renewal path), step D1: next names D9, which is not a step of this block",
           "node": "D1"
         }
       ],
@@ -69,7 +69,7 @@
           "line": 3,
           "rule": "R003",
           "severity": "info",
-          "message": "v2 of lending/loans is available; the plan is written against v1"
+          "message": "v2 of lending/loans changes term reader, which the plan uses; the plan is written against v1"
         }
       ]
     },
@@ -111,7 +111,7 @@
           "line": 2,
           "rule": "R003",
           "severity": "info",
-          "message": "v2 of lending/loans is available; the plan is written against v1"
+          "message": "v2 of lending/loans changes term reader, invariant I2, which the plan uses; the plan is written against v1"
         },
         {
           "line": 8,
@@ -137,17 +137,17 @@
           "node": "loans#I2"
         },
         {
-          "line": 28,
+          "line": 26,
           "rule": "I030",
           "severity": "warning",
-          "message": "invariant N1: no trace step guards it; add guards: [N1] to the steps that keep it true, or say in the text why none does",
+          "message": "invariant N1: no trace step guards it; add guards N1 to the steps that keep it true, or say in the text why none does",
           "node": "N1"
         },
         {
-          "line": 28,
+          "line": 26,
           "rule": "I031",
           "severity": "warning",
-          "message": "invariant N1: nothing says how it is verified; add verified_by with a test reference or a check a reviewer makes",
+          "message": "invariant N1: nothing says how it is verified; add verified-by with a test reference or a check a reviewer makes",
           "node": "N1"
         }
       ],
@@ -179,13 +179,13 @@
           "line": 2,
           "rule": "R002",
           "severity": "warning",
-          "message": "\"loans\" is not \u003cteam\u003e/\u003cdomain\u003e@v\u003cN\u003e; write for example parcels/delivery@v7"
+          "message": "\"loans\" is not \u003cteam\u003e/\u003cdomain\u003e@v\u003cN\u003e; write for example team-lending/library.reservations@v1"
         },
         {
-          "line": 20,
+          "line": 19,
           "rule": "T110",
           "severity": "warning",
-          "message": "trace 1 (The hold path), node C2: the step realizes nothing above it; add a why saying why it exists",
+          "message": "trace 1 (The hold path), step C2: the step realizes nothing above it; add a why saying why it exists",
           "node": "C2"
         }
       ],

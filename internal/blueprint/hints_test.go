@@ -28,13 +28,13 @@ func TestHintsOptIn(t *testing.T) {
 		t.Fatalf("foreign reference: %v", h)
 	}
 	// Opted in, nothing present: every section, in order.
-	got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\n---\n# Plan\n")))
+	got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\n---\n# Plan\n")))
 	want := "H001,H002,H003,H004,H005"
 	if got != want {
 		t.Fatalf("got %s", got)
 	}
 	// All present, at any heading level: none.
-	if h := Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\n---\n"+strings.ReplaceAll(allSections, "## Scope", "#### Scope"))); len(h) != 0 {
+	if h := Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\n---\n"+strings.ReplaceAll(allSections, "## Scope", "#### Scope"))); len(h) != 0 {
 		t.Fatalf("all present: %v", h)
 	}
 	// An unknown version: one information line.
@@ -52,18 +52,18 @@ func TestHintsEach(t *testing.T) {
 				body = strings.Replace(body, "## "+h, "## Something else", 1)
 			}
 		}
-		got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\n---\n"+body)))
+		got := hintCodes(Hints(mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\n---\n"+body)))
 		if got != s.code {
 			t.Errorf("%s missing: got %q", s.slug, got)
 		}
 	}
 	// The domain reference may be the frontmatter key instead of a section.
-	d := mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\nkalka_domain: parcels/delivery@v7\n---\n"+strings.Replace(allSections, "## Domain reference", "## Background", 1))
+	d := mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\nkalka_domain: parcels/delivery@v7\n---\n"+strings.Replace(allSections, "## Domain reference", "## Background", 1))
 	if h := Hints(d); len(h) != 0 {
 		t.Fatalf("domain key: %v", h)
 	}
 	// A malformed key does not count.
-	d = mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\nkalka_domain: delivery\n---\n"+strings.Replace(allSections, "## Domain reference", "## Background", 1))
+	d = mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\nkalka_domain: delivery\n---\n"+strings.Replace(allSections, "## Domain reference", "## Background", 1))
 	if got := hintCodes(Hints(d)); got != "H001" {
 		t.Fatalf("malformed domain key: %s", got)
 	}
@@ -71,7 +71,7 @@ func TestHintsEach(t *testing.T) {
 
 // Hints never make a document invalid.
 func TestHintsAreNotProblems(t *testing.T) {
-	d := mustParse(t, "---\nkalka_reference: kalka-blueprint@v1\n---\n# Plan\n")
+	d := mustParse(t, "---\nkalka_reference: kalka-blueprint@v2\n---\n# Plan\n")
 	if d.HasErrors() {
 		t.Fatalf("errors: %v", d.Problems())
 	}

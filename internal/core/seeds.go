@@ -103,10 +103,10 @@ func (d *Node) Backlink(seedPath string) (*bp.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sf.Doc.Parent() == "" {
-		return nil, errors.New("this document names no parent")
+	if sf.Doc.OriginDoc() == "" {
+		return nil, errors.New("this document is not a seed split off from another (no kalka_origin)")
 	}
-	pf, err := d.Store.Resolve(sf.Doc.Parent())
+	pf, err := d.Store.Resolve(sf.Doc.OriginDoc())
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (d *Node) Seeds() []SeedView {
 		}
 		doc := f.Doc
 		v := SeedView{Rel: d.rel(f.Path), KalkaID: doc.KalkaID(), Title: doc.Title(), Owner: doc.Owner(),
-			Mine: d.ownsAt(f.Path, doc), Parent: doc.Parent()}
+			Mine: d.ownsAt(f.Path, doc), Parent: doc.OriginDoc()}
 		_, v.Archived = doc.Archived()
 		if v.Parent != "" {
 			if pf, err := d.Store.Resolve(v.Parent); err == nil && pf != nil {

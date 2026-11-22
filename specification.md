@@ -2,7 +2,7 @@
 
 *Kalka* (Polish: tracing paper, carbon copy). The name appears in the binaries, the plugin prefix (`kalka-plugin-<scheme>`), the frontmatter key (`kalka_id`), the URL scheme (`kalka://`) and protocol strings; each component keeps it in one constant.
 
-Specification v0.6 · 2026-11-15
+Specification v0.7 · 2026-11-22
 
 This document describes kalka as built. Sections 1–15 and 19–23 are normative. Section 16 gives the end-to-end scenarios the test suite runs, 17 the reasoning behind choices that are not obvious and the risks that remain, 18 open questions. Before version 1, the wire protocol and the file formats may change between releases without a migration.
 
@@ -201,15 +201,16 @@ Moved the weight check into the intake handler because …
 | `kalka_id` | UUID v4 | Identity of the document | On publish, seed creation, or transfer (20.7) |
 | `kalka_owner` | email, compared in its canonical form (ASCII lower case) | The one owner (7.1) | On publish if absent; on handoff; when a new owner releases after a reassignment or an accepted transfer |
 | `kalka_team` | team name (19.2) | The team the document belongs to (20.1) | On publish; on a transfer |
-| `kalka_status` | `[a-z][a-z0-9-]*` | `seed` marks a seed (6.11); other values are labels | On seed creation; on promotion |
-| `kalka_parent` | UUID | The blueprint a seed was split from | On seed creation |
-| `kalka_origin` | 32 hex | The entry id that triggered a seed | On seed creation |
+| `kalka_status` | `[a-z][a-z0-9-]*` | `seed` marks a seed (6.11); `closed` says the owner confirmed the document delivered (6.18); other values are labels | On seed creation; on promotion; on *Close* and *Reopen* |
+| `kalka_parent` | on a blueprint: the parent plan node's `kalka_id`; on a domain document: `<team>/<domain>@v<N>` | The parent in the plan tree (6.18), or the parent domain node's pinned version (6.12) | Never; the author writes it |
+| `kalka_breakdown` | `decomposed` or `adopted` | How a plan node's children came about: split in kalka, or adopted from outside it (6.18) | Never |
+| `kalka_origin` | `<kalka_id>[#<entry id>]` | Where a seed was split off: the document, and the entry that triggered it (6.11) | On seed creation |
 | `kalka_created` | RFC 3339 UTC | When a seed was created | On seed creation |
 | `kalka_copied_from` | `<team name>/<kalka_id>` | The source of a copy (20.7) | On a copy |
 | `kalka_moved_from` | `<team name>/<kalka_id>` | The source of a move (20.7) | On a move |
 | `kalka_moved_to` | `<team name>/<kalka_id>` | Where a moved document went; only on its tombstone stub (20.6) | On the move's tombstone |
 | `kalka_kind` | `domain` | A domain document (6.12) | Never; the author writes it |
-| `kalka_domain` | on a domain document: a name `[a-z0-9][a-z0-9-]*`; on any other document: `<team>/<domain>@v<N>` | The domain's name, or a reference to a domain version | Never |
+| `kalka_domain` | on a domain document: a dotted name, each segment `[a-z0-9][a-z0-9-]*`, such as `library.reservations`; on any other document: `<team>/<domain>@v<N>`, or a list of them `[a, b]` | The domain node's name, or the domain node versions the document rests on (6.12) | Never |
 | `kalka_version` | positive integer | A domain document's released version | On release (6.12) |
 | `kalka_reference` | `kalka-blueprint@v<N>` | Opts the document into hints (6.13) | Never |
 | `kalka_issue` | `<scheme>:<payload>`, a plugin reference (10.1) of at most 200 characters, such as `jira:DEV-123` | The one issue the blueprint addresses (10.5) | Never; the author writes it |
@@ -304,57 +305,49 @@ File at most 2 MiB; entry body at most 64 KiB. Larger inputs are rejected with a
 
 A trace block describes the same process at two or more levels of abstraction and links the levels. Its purpose is to make visible where a high-level description (the idea) and its formalization (typically code) stop lining up, because those are the details a reviewer needs and prose loses. The language is defined in full in [`docs/trace.md`](docs/trace.md); this section summarizes it.
 
-It is a fenced code block with the info string `trace v1`, containing YAML in a restricted form. It is part of the body, so only the owner can change it. It is intended to be written by an agent and read by people; `kalka` renders it and never edits it.
+It is a fenced code block with the info string `trace v2`, written in the kalka language v2 (6.14, [`docs/language.md`](docs/language.md)). It is part of the body, so only the owner can change it. It is intended to be written by an agent and read by people; `kalka` renders it and never edits it.
 
 ````markdown
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: D1
-    lane: business
-    text: "Extract text"
-    next: [D2]
-  - id: D2
-    lane: business
-    text: "Classify the document"
+```trace v2
+lane business
 
-  - id: I1
-    lane: code
-    text: "Is the file larger than 20 MB?"
-    ref: "gh:src/import/size_guard.py#L12-L48"
-    why: "the parser runs out of memory on larger files"
-    next:
-      I2: "no"
-  - id: I2
-    lane: code
-    text: "Extract and classify in one pass"
-    realizes: [D1, D2]
-    ref: "gh:src/import/parse.py#L200-L310"
+step D1: Extract text
+  next D2
+step D2: Classify the document
+
+lane code
+
+step I1: Is the file larger than 20 MB?
+  next I2: no
+  ref gh:src/import/size_guard.py#L12-L48
+  why the parser runs out of memory on larger files
+step I2: Extract and classify in one pass
+  realizes D1
+  realizes D2
+  ref gh:src/import/parse.py#L200-L310
 ```
 ````
 
-**Syntax.** One YAML document with no anchors, aliases, tags or merge keys, and no key twice in one mapping. Every scalar is text (`404` and `yes` are texts). Each node is a block mapping, one key per line; free text should be in double quotes. `trace` with no version is read as v1 with a warning; a newer version (`trace v2`) is not interpreted and is shown as code with "needs a newer kalka".
+**Syntax.** A `lane <name>` line opens each lane, most abstract first; `step <id>: <text>` lines under it are its steps, with their attributes indented by two spaces below them, one per line:
 
-| Key | Where | Meaning |
-|---|---|---|
-| `lanes` | block | 2 to 5 distinct lane names, most abstract first. The core attaches no meaning to the names. |
-| `nodes` | block | 1 to 40 nodes (20 or fewer advised). |
-| `id` | node | Required. `[A-Za-z][A-Za-z0-9_-]*`, at most 32 characters, unique in the block. |
-| `lane` | node | Required. One of `lanes`. |
-| `text` | node | Required. One short line. |
-| `next` | node | Nodes of the same lane that follow: a list of ids, or a mapping of id to a label saying when the edge is taken. `next` edges never form a cycle. |
-| `back` | node | Nodes of the same lane the flow returns to (a loop or retry): the node itself or one before it. Same forms as `next`. |
-| `realizes` | node | Ids of nodes in more abstract lanes that this node implements. |
-| `ref` | node | A reference target `scheme:payload` (the target of a link as in 10.1, without the Markdown), resolved by plugins. |
-| `why` | node | Why the step exists or differs from the lanes above. Expected on a step that realizes nothing. |
-| `change` | node | `new`, `modified` or `removed`: what the plan does to the step. Absent means unchanged. |
-| `guards` | node | Invariants the step keeps true (6.15): ids of the document's own invariants, or `<domain>#<id>` for a domain's. |
+| Keyword | Meaning |
+|---|---|
+| `lane` | 2 to 5 distinct lanes, most abstract first. The core attaches no meaning to the names. |
+| `step` | 1 to 40 steps (20 or fewer advised), each `<id>: <text>`: an id `[A-Za-z][A-Za-z0-9_-]*` of at most 32 characters, unique in the block, and one short line. |
+| `next` | A step of the same lane that follows, with an optional label saying when the edge is taken (`next C3: queue not empty`). `next` edges never form a cycle. |
+| `back` | A step of the same lane the flow returns to (a loop or retry): the step itself or one before it. Same form as `next`. |
+| `realizes` | A step in a more abstract lane that this step implements. |
+| `covers` | An acceptance criterion of the document the step demonstrates (6.18). |
+| `ref` | A reference target `scheme:payload` (the target of a link as in 10.1, without the Markdown), resolved by plugins. |
+| `why` | Why the step exists or differs from the lanes above. Expected on a step that realizes nothing. |
+| `change` | `new`, `modified` or `removed`: what the plan does to the step. Absent means unchanged. |
+| `guards` | An invariant the step keeps true (6.15): the document's own by id, `parent#<id>` for an inherited one, `<domain>#<id>` for a domain node's. |
 
-A key starting with `x-` belongs to the author and is ignored silently; any other unknown key is ignored with a warning naming the nearest known key.
+A keyword starting with `x-` belongs to the author and is ignored silently; any other unknown keyword is ignored with a warning naming the nearest known one (S020).
 
-**Validation** (`kalka check`, and on render) returns errors and warnings, each a diagnostic with a rule id (`T001`…, 6.17), a file line and the node. A block with errors is shown as a plain code block with the errors beside it; a block with only warnings is drawn with them. Neither ever stops a sync; an error confirms before Publish and Release (6.17).
+**Validation** (`kalka check`, and on render) returns errors and warnings, each a diagnostic with a rule id (`S…` for the shared lexis, `T…` for the trace's own rules, 6.17), a file line and the node. A block with errors is shown as a plain code block with the errors beside it; a block with only warnings is drawn with them. Neither ever stops a sync; an error confirms before Publish and Release (6.17).
 
-**Planned change.** A trace with `change` keys describes the state after the plan. A removed step stays in the flow where it is today, drawn struck through; order passes through it, and it takes no part in divergences. A new step is never unverified for lack of a `ref`.
+**Planned change.** A trace with `change` lines describes the state after the plan. A removed step stays in the flow where it is today, drawn struck through; order passes through it, and it takes no part in divergences. A new step is never unverified for lack of a `ref`.
 
 **Divergences** are computed by `kalka` from the graph, never declared by the author, over live (not removed) nodes. "A precedes B" means a path of `next` edges leads from A to B; `back` edges take no part.
 
@@ -380,20 +373,20 @@ Fenced blocks with the info string `mermaid` are rendered as diagrams by a bundl
 
 A *seed* is a blueprint with `kalka_status: seed`: an idea split off from a blueprint whose scope is growing, kept small until someone takes it up. There is no new document type. Everything that holds for a blueprint holds for a seed: one `owner`, append-only entries, releases, handoff and reassignment as usual.
 
-- Optional keys: `parent` (the `kalka_id` of the blueprint it was split from), `origin` (the `id` of the entry that triggered it, usually a deviation), `created` (6.2).
+- Optional keys: `kalka_origin: <kalka_id>[#<entry id>]`, the document it was split from and the entry that triggered it, usually a deviation; `kalka_created` (6.2). A seed's origin is not a place in the plan tree: `kalka_parent` (6.18) is left for the author to set when the seed becomes a plan of its own.
 - Body: an H1 title, `## Problem` and `## Why it was split off`. `kalka` writes exactly this when it creates a seed, from the text the user typed. This is the one document `kalka` assembles.
 
 **Budding.** From any blueprint a member holds, as owner or not, *Split off a seed…* (UI) or `kalka seed` (CLI) does the following:
 
 1. If the parent has no `kalka_id`, it gets one first.
-2. The seed file is written, with a fresh `kalka_id`, `kalka_owner:` the budding user, `kalka_status: seed`, `parent`, `origin` when started from an entry, and `created`.
+2. The seed file is written, with a fresh `kalka_id`, `kalka_owner:` the budding user, `kalka_status: seed`, `kalka_origin` (with `#<entry id>` when started from an entry), and `kalka_created`.
 3. A signed `budded` entry is appended to the parent, anchored like the entry it came from, with `re: <origin id>` when there is one. Body: the line `budded: <seed kalka_id>`, then the seed's title.
 4. If step 3 fails, the UI offers "add the backlink" (`kalka seed backlink`) and never creates a second seed.
 5. The seed is written in the parent's directory, named after its title. A seed of a team document is published to the same team at once (its first release); a seed of a Personal document stays in Personal.
 
 The parent's frontmatter and body are not touched. The backlink reaches the parent's owner through replication, like any entry.
 
-**Pre-backlog.** A view, *Seeds* in the app, per team and for Personal, of every seed held there: title, owner, parent (linked when held, also after the parent was moved, through `moved-from`), and last activity: the later of `created` and the newest entry.
+**Pre-backlog.** A view, *Seeds* in the app, per team and for Personal, of every seed held there: title, owner, where it was split off (linked when held, also after the parent was moved, through `moved-from`), and last activity: the later of `created` and the newest entry.
 
 **Promotion.** The owner (in Personal, the local user, as for any document there: 7.1) changes `status` to another value, typically `draft`: *Promote* in the UI or `kalka promote`, which for a team document also releases the change. A team owner promotes someone else's seed by taking it over first (19.6). A non-owner's edit of `status` is a stray plan edit and does not travel (20.4).
 
@@ -401,7 +394,7 @@ The parent's frontmatter and body are not touched. The backlink reaches the pare
 
 A *domain document* holds a team's shared language for one domain: glossary, bounded contexts, invariants, domain events. Agents read it as context when they work on blueprints. A team may have several domains.
 
-`kalka` interprets only its typed blocks: `glossary v1` (6.16) and `invariants v1` (6.15). Its prose, however it is organised, is for people (6.14). The review view of a domain document lists its invariants with the held blueprints that reference each one.
+`kalka` interprets only its typed blocks: `glossary v2` (6.16) and `invariants v2` (6.15). Its prose, however it is organised, is for people (6.14). The review view of a domain document lists its invariants with the held blueprints that reference each one.
 
 - File name: `<team>-<domain>-domain.md`, created by its author. `kalka` finds domain documents by frontmatter, never by file name.
 - Frontmatter: `kalka_kind: domain`, `team`, `domain`, `owner`, `version`. It is always a team document (20.1).
@@ -415,28 +408,53 @@ A *domain document* holds a team's shared language for one domain: glossary, bou
 
 A blueprint's reference to a version that is not kept here is shown as such ("not kept here"), as is a reference to a domain of which no document is held.
 
-**References from blueprints.** A blueprint names the domain version it was written against with `kalka_domain: <team>/<domain>@v<N>`. When a newer version of that domain is held locally, the review view shows a dismissible "newer domain version available (v<M>)" indicator. It never blocks anything. A reference to a team name held twice (19.2) is shown as ambiguous.
+**References from blueprints.** A blueprint names the domain version it was written against with `kalka_domain: <team>/<domain>@v<N>`. When a newer version of that domain is held locally, the review view shows a dismissible "newer domain version available (v<M>)" indicator. `kalka check` reports it as information (`R003`) only when the newer version changes something the document uses: a term it uses, an invariant it names, or the parent pin of a node on its path. It never blocks anything. A reference to a team name held twice (19.2) is shown as ambiguous.
+
+**The domain tree.** Domains form a tree per team: a root domain, its subdomains, theirs. A domain node's name is its path, `library.reservations`, and starts with its parent's name followed by a dot (`D001`). A subdomain names its parent's version:
+
+```yaml
+kalka_kind: domain
+kalka_domain: library.reservations
+kalka_parent: team-lending/library@v2
+```
+
+- **Pins, not bumps.** A new version of a parent changes nothing below it. The child shows "parent newer" (`D030`, information) until its owner moves the pin and releases. A pin to a version not kept here is `D002`; pins that lead back are `D003`.
+- **A path, not a node.** A blueprint pinning `library.reservations@v1` rests on the whole path to the root at the pinned versions: it is linked against the terms of every node on it, and may name the invariants of every node on it (`<domain>#<id>`). A domain off the path is `I020`.
+- **Extend only.** A subdomain adds terms and invariants; it may not redefine a term, form or alias defined above it (`D010`). To narrow an inherited term, an invariant says so with `refines <term>`; the term then shows the narrowing on hover. An invariant that speaks only of inherited terms without saying which it refines is `D011`; `refines` naming no term on the path is `D012`. When two branches need different meanings of one word, use two terms, or move the term down into each branch.
+- **Siblings.** Two children of one node defining a term the same way is information (`D031`): lift it to their common parent.
+- **Several nodes.** A plan node may name several domain nodes, `kalka_domain: [team/library.reservations@v1, team/library.fines@v1]`. Where they pin different versions of a common ancestor, that is `D021`. Where two of them define a word differently, a use of it must be qualified, `library.fines#hold` (`D020`).
 
 ### 6.13 Blueprint reference and hints
 
-`kalka` ships `BLUEPRINT-REFERENCE.md`, embedded in the binary and versioned as `kalka-blueprint@v<N>` (v1 at first). `kalka reference export` writes it out. It is written to be dropped in unchanged as an agent skill or instruction file: it opens with frontmatter holding `name` and `description`.
+`kalka` ships `BLUEPRINT-REFERENCE.md`, embedded in the binary and versioned as `kalka-blueprint@v<N>` (v2 now, written for the kalka language v2). `kalka reference export` writes it out. It is written to be dropped in unchanged as an agent skill or instruction file: it opens with frontmatter holding `name` and `description`.
 
 It tells agents to run `kalka check --json` before handing a document over, and lists the rules of 6.17, generated from the registry. It describes what a blueprint useful to agents usually contains, as guidance, never as a requirement. Each section comes with a short reason it helps agents, and examples use invented everyday services (parcel logistics, library lending):
 
 1. **Domain reference**: which domain document and version applies (`kalka_domain:`, 6.12).
 2. **Scope**: the bounded contexts and modules expected to be touched. Work beyond the scope becomes a seed (6.11), not a larger change.
-3. **Verification plan**: an `invariants v1` block (6.15) whose invariants say how each is verified (`verified_by`), with edge cases and what a human reviewer must specifically check. Written at planning time, not at review time. Trace steps name the invariants they keep with `guards`.
+3. **Verification plan**: an `invariants v2` block (6.15) whose invariants say how each is verified (`verified-by`), with edge cases and what a human reviewer must specifically check. Written at planning time, not at review time. Trace steps name the invariants they keep with `guards`.
 4. **Critical sections**: where the design deliberately departs from the clean model, for example for performance, and why. Agents must not "clean them up"; human review is required there.
 5. **Operations**: failure modes, what to observe, how to roll back.
 6. **Deviation log**: the `deviation` entries of the review log (6.5), recorded with `kalka comment --kind deviation`, never a body section.
 
-**Hints** are opt-in. Only a document whose frontmatter says `kalka_reference: kalka-blueprint@v1` gets them: one hint per recommended body section (1 to 5) that has no heading with the matching slug (at any level; a `-N` duplicate suffix is ignored), for example "no verification plan". A frontmatter `kalka_domain:` key of the form `<team>/<domain>@v<N>` also satisfies the domain-reference hint. The hints are rules `H001` (no domain reference), `H002` (scope), `H003` (verification plan, also satisfied by an invariants block), `H004` (critical sections) and `H005` (operations); an unknown version gives `H010`. There is no hint for the deviation log, since a plan not yet implemented has none. Hints are information only: they never change the exit code of `kalka check`, never stop a sync, and can be dismissed per document in the UI. Dismissal is kept in the browser, not in the file or the config. A document naming an unknown reference version gets one information line and no hints. Every other document gets no hints at all.
+It also describes plan nodes, goals and acceptance criteria (6.18), the domain tree (6.12), the language v2 (6.14), and tells agents to read `kalka context <file>` before starting.
+
+**Hints** are opt-in. Only a document whose frontmatter says `kalka_reference: kalka-blueprint@v2` gets them: one hint per recommended body section (1 to 5) that has no heading with the matching slug (at any level; a `-N` duplicate suffix is ignored), for example "no verification plan". A frontmatter `kalka_domain:` key of the form `<team>/<domain>@v<N>` also satisfies the domain-reference hint. The hints are rules `H001` (no domain reference), `H002` (scope), `H003` (verification plan, also satisfied by an invariants block), `H004` (critical sections) and `H005` (operations); an unknown version gives `H010`. There is no hint for the deviation log, since a plan not yet implemented has none. Hints are information only: they never change the exit code of `kalka check`, never stop a sync, and can be dismissed per document in the UI. Dismissal is kept in the browser, not in the file or the config. A document naming an unknown reference version gets one information line and no hints. Every other document gets no hints at all.
 
 ### 6.14 Conventions live in typed blocks
 
-`kalka` takes meaning only from the frontmatter and from typed fenced blocks: `trace v1` (6.10), `invariants v1` (6.15) and `glossary v1` (6.16). It never infers meaning from prose or from headings, with two exceptions: headings give comment anchors (6.5), and the opt-in hints of 6.13 look for headings by slug. Everything else in the body is for people and is rendered, never interpreted.
+`kalka` takes meaning only from the frontmatter and from typed fenced blocks: `trace v2` (6.10), `invariants v2` (6.15), `glossary v2` (6.16) and `goals v2` (6.18). It never infers meaning from prose or from headings, with two exceptions: headings give comment anchors (6.5), and the opt-in hints of 6.13 look for headings by slug. Everything else in the body is for people and is rendered, never interpreted.
 
-The typed blocks share one syntax, the restricted YAML of 6.10: one YAML document, no anchors, aliases, tags or merge keys, no key twice in one mapping, every scalar a text, block mappings one key per line. A key starting with `x-` belongs to the author and is ignored silently; another unknown key is ignored with a warning naming the nearest known key. The fence names the language and its version (`invariants v1`); a block with no version is read as v1 with a warning, and a newer version is shown as code with "needs a newer kalka". A block with errors is shown as code with its diagnostics beside it.
+**The kalka language v2.** The typed blocks share one line-oriented language, defined in full in [`docs/language.md`](docs/language.md) (lexis, EBNF, the keyword table, references, ids and anchors):
+
+- A header line starts in column 0: an item `<keyword> <name>: <text>`, a section `<keyword> <text>`, or a declaration `<keyword> <ref>`. An attribute line is indented by exactly two spaces, `<keyword> <value>`, and belongs to the item above. There is no third level.
+- One line is one value; a list is a repeated keyword. No line continuation, no quoting, no escaping: free text may hold commas, colons and quotes.
+- Keywords are lower case, singular, whole words, only at the start of a line, never followed by a colon. No tabs and no comments.
+- References are `<id>` within the document, `parent#<id>` for the parent plan node (6.18) and `<domain>#<id>` for a domain node (6.12).
+- A keyword starting with `x-` belongs to the author and is ignored silently; another unknown keyword is ignored with a warning naming the nearest known one.
+- Drift into familiar formats, Gherkin (`Scenario:`, `Given`, `And`) or YAML (`- id:`, `lanes:`), is an error naming the v2 form to write.
+
+The fence names the block and the language version (`invariants v2`); a block with no version is read as v2 with a warning, and `v1` (the retired YAML form) or a newer version is shown as code. There is no migration from v1: kalka is not yet at 1.0 and keeps no compatibility between its versions. The lexical rules are the `S` group (6.17), shared by every block; each block's own rules follow. Each lexical diagnostic says what to write instead, and most carry the replacement line as a fix.
 
 What `kalka` finds in a document is reported as **diagnostics** (6.17), the same from `kalka check` and in the app.
 
@@ -445,32 +463,29 @@ What `kalka` finds in a document is reported as **diagnostics** (6.17), the same
 An *invariant* is a property that must hold whatever the code does: "a parcel is never handed to two couriers at once". Invariants are first-class items: they have ids, take comments, and are checked against the trace that should guard them.
 
 ````markdown
-```invariants v1
-affects: ["parcel-delivery#I3"]
-invariants:
-  - id: I1
-    statement: "A parcel has at most three redelivery attempts"
-    context: "redelivery"
-    why: "the depot keeps a parcel for seven days; three attempts fit"
-    verified_by: ["gh:test/redelivery_test.py#L40-L90", "Reviewer: run the migration on a copy of last week's attempts"]
-    status: new
+```invariants v2
+affects parcel-delivery#I3
+
+invariant I1: A parcel has at most three redelivery attempts
+  why the depot keeps a parcel for seven days; three attempts fit
+  verified-by gh:test/redelivery_test.py#L40-L90
+  verified-by Reviewer: run the migration on a copy of last week's attempts
+  status new
 ```
 ````
 
 The block is allowed in domain documents and in blueprints, anywhere in the body; a document may hold several, read as one list.
 
-| Key | Where | Meaning |
+| Keyword | Level | Meaning |
 |---|---|---|
-| `invariants` | block | 1 to 100 invariants. |
-| `affects` | block, blueprints only | Domain invariants the plan touches, each `<domain>#<id>`. |
-| `id` | invariant | Required. `[A-Za-z][A-Za-z0-9_-]*`, at most 32 characters, unique in the document. `I1`, `I2`… is the advised form. |
-| `statement` | invariant | Required. One sentence saying what holds; at most 300 characters advised. |
-| `context` | invariant | The bounded context it belongs to. |
-| `why` | invariant | Why it must hold. |
-| `verified_by` | invariant | How it is checked: a list of texts, each a reference target `scheme:payload` resolved by plugins (10.1), or free text such as a manual check. |
-| `status` | invariant, blueprints only | `new`, `changed` or `removed`: what the plan does to it, as `change` does for a trace step. Absent means unchanged. |
+| `invariant <id>: <statement>` | item | One invariant, 1 to 100 per document. The id `[A-Za-z][A-Za-z0-9_-]*`, at most 32 characters, unique in the document (`I1`, `I2`… is the advised form); the statement one sentence saying what holds, at most 300 characters advised. |
+| `affects <ref>` | declaration | An invariant of another document the plan touches: a domain node's `<domain>#<id>`, or the parent plan node's `parent#<id>`. Blueprints only. |
+| `why` | attribute | Why it must hold. |
+| `verified-by` | attribute, repeatable | How it is checked: a reference target `scheme:payload` resolved by plugins (10.1), or free text such as a manual check (`Reviewer: …`). |
+| `refines` | attribute, repeatable | An inherited term the invariant narrows (6.12). |
+| `status` | attribute, blueprints only | `new`, `changed` or `removed`: what the plan does to it, as `change` does for a trace step. Absent means unchanged. |
 
-**References.** An invariant of the same document is named by its id (`I1`). An invariant of a domain is named `<domain>#<id>` (`parcel-delivery#I3`) and resolves against the domain version the blueprint references with `kalka_domain: <team>/<domain>@v<N>` (6.12), read from that version's snapshot, never from another version. References appear in `affects` and in a trace node's `guards` (6.10); a reference anywhere in prose is only text.
+**References.** An invariant of the same document is named by its id (`I1`). An invariant of a domain node is named `<domain>#<id>` (`parcel-delivery#I3`) and resolves against the node of that name on the path of the domain version the blueprint references with `kalka_domain: <team>/<domain>@v<N>` (6.12), read from that version's snapshot, never from another version. An invariant of the parent plan node, or of a plan node above it, is named `parent#<id>` (6.18). References appear in `affects` and in a trace step's `guards` (6.10); a reference anywhere in prose is only text.
 
 **Anchors.** Each invariant is a comment anchor, `§<slug>#<id>`, where the slug is the heading above its block, as for trace steps. An invariant id that is also a trace node id under the same heading is a warning: comments on it would be ambiguous.
 
@@ -478,7 +493,7 @@ The block is allowed in domain documents and in blueprints, anywhere in the body
 
 - a reference that does not resolve (an unknown id, a domain other than the one `kalka_domain:` names, or no `kalka_domain:` at all) is an error;
 - an invariant the document introduces (not `removed`) or affects that no trace node guards is a warning, only when the document has a valid trace block;
-- an invariant with no `verified_by` is a warning (not for `removed` ones);
+- an invariant with no `verified-by` is a warning (not for `removed` ones);
 - a domain invariant that a blueprint references and that a newer held version of the domain no longer has is information, for readers of the blueprint and for the domain's owner when releasing (11.1);
 - when the referenced domain version is not held, the rules that need it say so once, as information ("can't check"), and are not run.
 
@@ -487,34 +502,33 @@ The block is allowed in domain documents and in blueprints, anywhere in the body
 A domain document defines its terms in typed blocks. So may a blueprint that names no domain (no `kalka_domain:`): a sketch or a small piece of work that has no domain document yet keeps its words beside the plan, and they work there as a domain's do in its blueprints.
 
 ````markdown
-```glossary v1
-- term: "parcel"
-  definition: "One item the depot accepts, labelled and tracked on its own"
-  forms: ["parcels"]
-  aliases: ["package", "consignment"]
-  context: "delivery"
-  see: ["delivery attempt"]
-- term: "delivery attempt"
-  definition: "One visit by a courier to hand a parcel over"
-  forms: ["delivery attempts"]
+```glossary v2
+term parcel: One item the depot accepts, labelled and tracked on its own
+  form parcels
+  alias package
+  alias consignment
+  see delivery attempt
+  context delivery
+
+term delivery attempt: One visit by a courier to hand a parcel over
+  form delivery attempts
 ```
 ````
 
-| Key | Meaning |
-|---|---|
-| `term` | Required. The canonical term, at most 60 characters. |
-| `definition` | Required. What it means here; at most 400 characters advised. |
-| `aliases` | Words people also use for it. Using one is a warning naming the term. |
-| `forms` | Other forms of the term itself (plural, other inflections); they link like the term. |
-| `context` | The bounded context it belongs to. |
-| `see` | Related terms of the same glossary. |
+| Keyword | Level | Meaning |
+|---|---|---|
+| `term <term>: <definition>` | item | The canonical term, at most 60 characters, which may hold spaces and ends at the first `: `; and what it means here, at most 400 characters advised. |
+| `form` | attribute, repeatable | Another form of the term itself (plural, other inflections); it links like the term. |
+| `alias` | attribute, repeatable | A word people also use for it. Using one is a warning naming the term. |
+| `see` | attribute, repeatable | A related term of the same glossary, or of a domain node above. |
+| `context` | attribute | The bounded context it belongs to. |
 
 The block is a list of 1 to 500 entries. Several glossary blocks in one document are read as one glossary; the same term twice, or a term, form or alias that names two entries, is an error. A glossary block in a blueprint that names a domain is a warning and is shown as code: that blueprint is linked against its domain's glossary, never two at once.
 
-**Linking.** A blueprint's text is linked against the glossary of **the domain version it references**, read from that version's snapshot. When that version is not kept here the view says "glossary v3 not kept here" and nothing is linked or checked; another version is never used instead. A domain document, and a blueprint that names no domain, link their text against their own glossary.
+**Linking.** A blueprint's text is linked against the glossary of **the domain version it references**, read from that version's snapshot, together with the glossaries of every node above it on its domain path at their pinned versions (6.12). When that version is not kept here the view says "glossary v3 not kept here" and nothing is linked or checked; another version is never used instead. A domain document, and a blueprint that names no domain, link their text against their own glossary.
 
 - Matching is case-insensitive (Unicode lower case), on whole words (the characters on either side are not letters or digits), against each entry's term, forms and aliases. A space in a term matches any run of white space, line breaks included.
-- Text is matched within one run of text: body paragraphs, headings, list items, table cells and link text, a trace node's `text` and an invariant's `statement`. A term interrupted by markup (`par*cel*`) does not match.
+- Text is matched within one run of text: body paragraphs, headings, list items, table cells and link text, a trace step's text, an invariant's statement, and a goal's or criterion's text and steps. A term interrupted by markup (`par*cel*`) does not match.
 - Nothing is matched in code spans, code blocks other than trace blocks, link targets, raw HTML, the frontmatter or the review log.
 - At each position the longest match wins; matches never overlap.
 
@@ -534,19 +548,46 @@ Every finding of `kalka check` and of the app is a diagnostic: a file and positi
 |---|---|
 | `F` | Frontmatter: identity, owner, domain keys, the issue (`F020`–`F022`). |
 | `B` | Structure and the review log: fences, entries, anchors. |
+| `S` | The lexis of the kalka language v2, shared by every typed block (6.14, `docs/language.md`). |
 | `T` | Trace blocks (6.10, `docs/trace.md`). |
 | `G` | Glossary blocks and term use (6.16). |
 | `I` | Invariants blocks and references (6.15). |
+| `P` | Goals blocks and the plan graph (6.18). |
+| `D` | The domain tree (6.12). |
 | `R` | References to other documents: domain versions, and with `--with-plugins` reference targets. |
 | `H` | The opt-in hints of 6.13. |
 
-**Rule sets.** The rules form a versioned set, `v1` now. A later `kalka` adds rules to a new set (`v2`) and keeps running the older set when asked (`--rules v1`), so an agent's checks do not change under it. A set this `kalka` does not know is refused with "rules v2 needs a newer kalka".
+**Rule sets.** The rules form a versioned set, `v2` now, which goes with the language v2. Within a language version, a later `kalka` adds rules to a new set and keeps running the older set when asked (`--rules v<N>`), so an agent's checks do not change under it. Set `v1` went with the retired language v1 and is refused; a set this `kalka` does not know is refused with "rules v<N> needs a newer kalka".
 
 **The issue key needs no plugin.** `kalka_issue` that is not a `<scheme>:<payload>` reference is a warning (`F020`); a scheme no plugin shipped with kalka handles is information (`F021`), decided from a fixed list in the code, never from what is installed; a malformed `kalka_archived` is a warning (`F022`). None of these asks a tracker.
 
-**Determinism.** The checker reads only the files it is given and the domain versions it is pointed at (12.4). It uses no network, no daemon and no configuration beyond finding the local folder, and reads no keys: the same input, `kalka` version and rule set give byte-identical `--json` output. Plugins run only with `--with-plugins`.
+**Determinism.** The checker reads only the files it is given and the domain versions and plan nodes it is pointed at (12.4). It uses no network, no daemon and no configuration beyond finding the local folder, and reads no keys: the same input, `kalka` version and rule set give byte-identical `--json` output. Plugins run only with `--with-plugins`.
 
 **Severity and the network.** Diagnostics never stop a sync. A few structural errors (`F001`–`F004`, `B001`, `B012`, `B013`) make a file one that cannot be signed or merged safely: publishing, releasing and transfers refuse such a file, as before. Any other error is shown before Publish or Release with a confirmation, and never blocks.
+
+### 6.18 Plan graph
+
+Plans form a tree: a *plan node* (an epic, say) holds goals and invariants; the blueprints below it hold acceptance criteria and are what gets implemented. There are no level names, only one edge and any depth, and all of it is optional: a single blueprint may hold goals, criteria, invariants and a trace together.
+
+- **The edge.** A document names its parent plan node with `kalka_parent: <the parent's kalka_id>` (6.2). In the text the parent is always `parent`: `parent#G1`, `parent#E1`. A parent that is not held here is `P010`; when the checker was not given the plan nodes at all, `P011` says so once; a `kalka_parent` chain that leads back is `P012`. `parent#<id>` in a document with no `kalka_parent` is `P021`.
+- **Goals and criteria** are a `goals v2` block (6.14):
+
+  ```goals v2
+  goal G1: The queue head learns that a copy is waiting for them
+
+  criterion AC1: The queue head is notified exactly once
+    realizes G1
+    given a copy whose title has two open reservations
+    when the copy is returned
+    then the queue head gets one email
+  ```
+
+  A goal at a middle level realizes goals of its own parent, `realizes parent#G1` (`P004` for any other form); a criterion realizes a goal of its parent or of its own document. A criterion's steps are given, then when, then then (`P002`); one with no `then` is `P003`. An id twice is `P001`. A goal of the grandparent, named as if it were the parent's, is `P020`, and the message names the goal of the parent to realize instead.
+- **States are computed, never written.** A criterion is *open* until its document is closed, then *delivered*. A goal is *unclaimed* when nothing realizes it, *claimed* when something does, *ready* when everything claiming it is delivered or ready, and *delivered* when it is ready and its own document is closed. A leaf is delivered by its owner's explicit confirmation: *Close as delivered* in the UI or `kalka close <file>`, which writes `kalka_status: closed` and, for a team document, releases it at once; *Reopen* (`kalka close --reopen`) takes it back to open.
+- **Coverage.** An unclaimed goal is a warning while its document is open (`P030`) and an error once it is closed (`P031`), as is a closed document whose goals are claimed but not delivered. `kalka_breakdown: adopted` says the children came from outside kalka (the stories existed before the epic was written here): coverage is then a finding to decide on (`P032`, information). `kalka_breakdown: decomposed` says the split was made in kalka.
+- **Inherited invariants.** The invariants of every plan node above a document hold in it. It may add its own; it may not loosen or remove an inherited one, so reusing an inherited id for an invariant of its own is `P023`. It names an inherited invariant with `affects parent#<id>` and `guards parent#<id>`, which resolve on the whole plan path (`I020` when none has it).
+- **One chain.** A business step names the criterion it demonstrates with `covers` (6.10; `P022` for a name that is not a criterion of the document). The chain then runs from the epic's goal through the criterion and the business steps to code with a `ref`.
+- **Context for agents.** `kalka context <file>` (12.1), and *Context for an agent* in the document view, print the document's flattened context: the plan path from the root to the document, with each level's goals and invariants, and the domain path, with each node's terms (and the invariants that narrow them) and invariants, at the pinned versions. Siblings are never included. It is what an agent reads before working on the document.
 
 ---
 
@@ -854,7 +895,7 @@ The window follows the system's light or dark appearance; Mermaid diagrams follo
 
 Every view below except Needs you shows the selected scope. In Personal the Team and Domains views are hidden.
 
-**Top bar, document bar and rail.** The top bar is the same on every screen, a `<nav>` named "Sections": the team switcher, *Needs you*, *Blueprints*, *Seeds*, *Domains* and *Team* (the last two not in Personal), the sync state and *Settings*. While a document is open, the section it belongs to stays highlighted. Under it, only in the document, trace and map views, the document bar (`<nav>` "Document") holds a breadcrumb, the section's name linking to its list then the document's title, and on the right the tabs *Document* and *Trace* (*Trace* is shown disabled for a document with no trace blocks). A blueprint with `kalka_issue` shows its issue after the breadcrumb (10.5): a chip with the key, the title and the status, linked to the issue, with "as of <time>" when the tracker could not be reached, and before it the parent chain as a small breadcrumb of keys; without a plugin, or without access, the raw key only. Where the plugin can export, *Export…* sits left of the tabs, disabled with the reason when you cannot export (not released, unreleased edits, not the owner). It confirms what will be sent, then offers *Archive*. Both bars stay at the top as the page scrolls.
+**Top bar, document bar and rail.** The top bar is the same on every screen, a `<nav>` named "Sections": the team switcher, *Needs you*, *Blueprints*, *Seeds*, *Domains* and *Team* (the last two not in Personal), the sync state and *Settings*. While a document is open, the section it belongs to stays highlighted. Under it, only in the document, trace and map views, the document bar (`<nav>` "Document") holds a breadcrumb, the section's name linking to its list, then the plan nodes from the root to the document's parent (6.18), each by its issue key and title and linked when held here ("parent not here" when it is not), then the document's title after its issue key, and on the right the tabs *Document* and *Trace* (*Trace* is shown disabled for a document with no trace blocks). A blueprint with `kalka_issue` shows its issue after the breadcrumb (10.5): a chip with the key, the title and the status, linked to the issue, with "as of <time>" when the tracker could not be reached, and before it the parent chain as a small breadcrumb of keys; without a plugin, or without access, the raw key only. Where the plugin can export, *Export…* sits left of the tabs, disabled with the reason when you cannot export (not released, unreleased edits, not the owner). It confirms what will be sent, then offers *Archive*. Both bars stay at the top as the page scrolls.
 
 Which section a document belongs to is one rule, `sectionOf`, used for the highlight, the breadcrumb, the rail and the lists themselves, so a document is highlighted in the section whose list holds it: a domain document with a valid `kalka_domain:` that is not a duplicate is in *Domains*, in a team (Personal has no Domains, so there it is in *Blueprints*); a seed (`kalka_status: seed`) is in *Seeds*; anything else is in *Blueprints*. A duplicate domain document stays in *Blueprints*, where the duplicate is flagged.
 
@@ -864,12 +905,13 @@ Left of the document, the **document rail** (`<nav>` "<section> in <scope>") lis
 - **Setup** — the three settings: email, rendezvous, folder, with *Choose…* for the folder in the desktop window (the system's folder dialog, `POST /api/pick-folder`). Opened from a join link with no configuration, it is filled in from the token: the email and the server are shown as facts with *Change*, only the folder is asked, and *Save and join <team>* joins once kalka has restarted, without a second click.
 - **Join screen** — route `#/join/<token>`: the team name, the inviter, the invited email and the expiry, with one *Join* button. In place of the button it says "this invite is for <email>, you are <email>", "expired", "you are already a member", or that the invite is for a team on another kalka server. Opening it never joins. While the join waits it shows its steps (set up, invite accepted here, waiting for the inviter's kalka to run, getting the team's blueprints), the attempts so far and the expiry, that it keeps trying with the window closed, *Copy a message for <inviter>* and *Cancel this join*. A failed join shows its reason and a box for a new invite, until dismissed. `#/join` without a token lists the joins in progress or failed.
 - **Blueprints** — the blueprints in the scope, the most recently active first; seeds are listed under *Seeds* and domain documents under *Domains* only (`sectionOf`, above), and a scope holding only those says where they are: title (first H1) with "N new" (11.4), "unreleased edits" and validity problems as badges, the owner ("you" or the name before `@`), the team's version, and the last activity (the newest entry, else the file's time). In Personal each offers *Publish to team…*. In a team folder, one that does not replicate says why: "not shared: publish it or move it to Personal". An empty list says what to do next: in Personal, where to put a file, with *Open folder*; in a team, *Publish one from Personal* and *Invite a teammate*. A row with `kalka_issue` carries the issue's key and status. Where an installed plugin declares it, *Group by* offers *parent issue* (with a level picker named by the issue types, Epic and above, when there are several levels) and *issue status* (to do, in progress, done); each group has a header, a parent's key and title linked to it; *No <level>*, *Issue not available* and *No issue* come last. Order within a group is the list's order. Archived blueprints are hidden, with *Show archived (N)* when there are any. Both choices are remembered per team in the page's storage, and fall back to no grouping and hidden when storage fails or a plugin no longer offers the grouping.
-- **Review (linear)** — a header card, then the rendered body with entries next to the section they anchor to, general entries and releases at the end, entries on removed sections last. The header names the state in one sentence ("You own this · version 2 is with <team>", "<owner> owns this · you are reviewing version 1", "Yours · not shared yet") with what follows from it ("You have edits your teammates cannot see yet. Releasing sends them as version 3.") and at most one primary action: *Release vN* with an optional note, *Publish to team…*, or *Choose owner…*. Problems take the sentence's place: two owners (a disputed version), no owner (7.4), being moved to another team ("comments added now will not travel"); a pending change of owner is said on the second line. Everything else is under *More*: *Publish to team…* for a Personal blueprint, *Change owner…* (a hand-off for the owner, 7.2; a reassignment for a team owner, 7.3), *Split off a seed…*, *Copy to another team…*, *Move to another team…*, *Archive* or *Unarchive* (10.5), and *Delete for the team…* last; a team owner looking at someone else's blueprint also gets *Take over and release…* and *Take over and delete…* (7.4). Each destructive action is confirmed in the card. Entry cards carry no kind label for a comment (a deviation is labelled), the author's name before `@` with the address on hover, and badges whose explanation shows when clicked: "on vN" (outdated, with the version current when it was written), "section removed" (orphaned), "damaged", "not signed", "signature invalid: ignored", "only in your copy", "carried over" (attested, 20.7), "taken up in vN" (incorporated, 6.12), "former member". A thread written wholly on an earlier text folds into "N comments on an earlier version". Releases show as a version line (version, time, owner, note), and so do exports (version, the issue linked, time, who). A seed split off from an entry is a line under that entry, not a card. Selecting text in the body offers *Comment* beside the selection. The composer explains comment and deviation and lists the sections by their headings. Resolved references show inline with snippet and warnings; hints for documents opted into the reference (6.13) and the "newer domain version" line (6.12) stay below the header. The document bar above it carries the breadcrumb and the tabs *Document* and *Trace*. Beside the document, on a wide enough window, an outline rail lists its sections with their comment counts and a dot where there is a deviation, *General*, and *Open as map*.
+- **Review (linear)** — a header card, then the rendered body with entries next to the section they anchor to, general entries and releases at the end, entries on removed sections last. The header names the state in one sentence ("You own this · version 2 is with <team>", "<owner> owns this · you are reviewing version 1", "Yours · not shared yet") with what follows from it ("You have edits your teammates cannot see yet. Releasing sends them as version 3.") and at most one primary action: *Release vN* with an optional note, *Publish to team…*, or *Choose owner…*. Problems take the sentence's place: two owners (a disputed version), no owner (7.4), being moved to another team ("comments added now will not travel"); a pending change of owner is said on the second line. Everything else is under *More*: *Publish to team…* for a Personal blueprint, *Context for an agent* (6.18), *Change owner…* (a hand-off for the owner, 7.2; a reassignment for a team owner, 7.3), *Split off a seed…*, *Copy to another team…*, *Move to another team…*, *Archive* or *Unarchive* (10.5), and *Delete for the team…* last; a team owner looking at someone else's blueprint also gets *Take over and release…* and *Take over and delete…* (7.4). Each destructive action is confirmed in the card. Entry cards carry no kind label for a comment (a deviation is labelled), the author's name before `@` with the address on hover, and badges whose explanation shows when clicked: "on vN" (outdated, with the version current when it was written), "section removed" (orphaned), "damaged", "not signed", "signature invalid: ignored", "only in your copy", "carried over" (attested, 20.7), "taken up in vN" (incorporated, 6.12), "former member". A thread written wholly on an earlier text folds into "N comments on an earlier version". Releases show as a version line (version, time, owner, note), and so do exports (version, the issue linked, time, who). A seed split off from an entry is a line under that entry, not a card. Selecting text in the body offers *Comment* beside the selection. The composer explains comment and deviation and lists the sections by their headings. Resolved references show inline with snippet and warnings; hints for documents opted into the reference (6.13) and the "newer domain version" line (6.12) stay below the header. The document bar above it carries the breadcrumb and the tabs *Document* and *Trace*. Beside the document, on a wide enough window, an outline rail lists its sections with their comment counts and a dot where there is a deviation, *General*, and *Open as map*.
+- **Plan** — in the review view of a document in the plan graph (6.18), a line in the header card sums up its goals by state ("3 goals: 1 unclaimed, 2 claimed"), its criteria and its children, with *Close as delivered* or *Reopen* for the owner. A goals block is drawn in the body as cards, one per goal and criterion, each a comment anchor with its state as a badge (unclaimed, claimed, ready, delivered, open); a criterion lists its given, when and then lines and the trace steps that cover it; a goal lists, as a tree, the child goals and criteria that claim it, each with its document's issue key and title, linked when held, and its state. A trace step's detail lists the criteria it covers. A domain node's header names the parent version it extends, with a "parent newer" badge when a newer one is out (`D030`), and its subdomains.
 - **Invariants** — a panel in the review view of a document with invariants blocks (6.15): one row per invariant, its own and those it affects, with the statement, *guarded by* (links to the trace steps), *verified by* (each reference as the plugins resolved it) and the number of comments; an unguarded or unverified invariant is marked as a divergence is in a trace. An invariant id is a link wherever it appears in the body, in trace steps and in comments, with its statement on hover; each invariant takes comments like a section. A domain document's panel lists, per invariant, the held blueprints that reference it.
-- **Terms** — in the review view of a blueprint that references a domain version, of a blueprint with a glossary of its own (no `kalka_domain:`, 6.16), and of a domain document: the glossary's terms in the text are underlined (6.16), with the definition and context on hover or focus, and a side panel lists the terms used with their counts. "Glossary v3 not kept here" when that version is not held.
+- **Terms** — in the review view of a blueprint that references a domain version, of a blueprint with a glossary of its own (no `kalka_domain:`, 6.16), and of a domain document: the glossary's terms in the text are underlined (6.16), with the definition and context on hover or focus, the domain node that defines the term, and the invariants that narrow it (`refines`, 6.12), which a domain node's glossary also marks as "refined"; an invariant that refines a term carries a "refines" marker, and a side panel lists the terms used with their counts. "Glossary v3 not kept here" when that version is not held.
 - **Diagnostics** — the review view lists the document's diagnostics (6.17) by severity, each with its rule's title and meaning; *Publish to team…* and *Release* first show the errors and ask "Publish anyway?" or "Release anyway?".
 - **Review (canvas)** — not a tab: *Open as map* at the foot of the outline. The same data as an annotated graph: each body section is a fixed read-only card laid out in reading order; each entry is a note connected to its section's card; references are small cards beside the section. Replies hang under the note they answer; the General and Orphaned groups of the linear view get cards of their own after the body. Layout is computed from the text, not saved, so there is no canvas state to persist. Selecting a note or a section card opens the linear view scrolled to it. Freehand drawing is out of scope.
-- **Trace** — each trace block rendered as lanes side by side, most abstract on the left, flow running top to bottom within a lane. A lower-lane node is placed level with the first node it realizes; realization links are drawn across lanes in a style distinct from flow arrows, and `back` edges around the side of the lane in a style of their own, with their labels. New, modified and removed steps are marked, removed ones struck through. Nodes with a divergence are visibly marked, and the abstract lane is left empty opposite an implementation-only node, with no label: the flow arrow across the empty row already joins the steps on either side. Divergences are shown in plain words with the block's own lane names, never the class names: on a node "code only", "no code yet", "does J3 + J4", "split into K2 + K3", "split, not adjacent", "out of order", "link changed", "link not opened"; as a card head "Code only", "No code for this step", "Two business steps, one code step", "One business step, two code steps", "Its code steps are apart in the flow", "Different order in business and code", "The linked lines changed since this plan was written". The side panel is titled "N places where <lanes> differ", says that kalka worked them out from the arrows and that they are questions for review, not errors, and lists link problems (stale, unverified) in a group of their own; selecting a node replaces it with that node's detail: `why`, what it realizes, the resolved reference with snippet and warnings, entries anchored to the node, and a comment box that anchors to `§<slug>#<node-id>`. Validation warnings are listed in the side panel and under the inline block. A Diagram / Source toggle shows the raw YAML. Layout is computed, nothing is saved. The same block appears inline in the linear review view, never so small that a step cannot be read: a wide trace scrolls. Realization is shown as "carries out" / "carried out by".
+- **Trace** — each trace block rendered as lanes side by side, most abstract on the left, flow running top to bottom within a lane. A lower-lane node is placed level with the first node it realizes; realization links are drawn across lanes in a style distinct from flow arrows, and `back` edges around the side of the lane in a style of their own, with their labels. New, modified and removed steps are marked, removed ones struck through. Nodes with a divergence are visibly marked, and the abstract lane is left empty opposite an implementation-only node, with no label: the flow arrow across the empty row already joins the steps on either side. Divergences are shown in plain words with the block's own lane names, never the class names: on a node "code only", "no code yet", "does J3 + J4", "split into K2 + K3", "split, not adjacent", "out of order", "link changed", "link not opened"; as a card head "Code only", "No code for this step", "Two business steps, one code step", "One business step, two code steps", "Its code steps are apart in the flow", "Different order in business and code", "The linked lines changed since this plan was written". The side panel is titled "N places where <lanes> differ", says that kalka worked them out from the arrows and that they are questions for review, not errors, and lists link problems (stale, unverified) in a group of their own; selecting a node replaces it with that node's detail: `why`, what it realizes, the resolved reference with snippet and warnings, entries anchored to the node, and a comment box that anchors to `§<slug>#<node-id>`. Validation warnings are listed in the side panel and under the inline block. A Diagram / Source toggle shows the block's source. Layout is computed, nothing is saved. The same block appears inline in the linear review view, never so small that a step cannot be read: a wide trace scrolls. Realization is shown as "carries out" / "carried out by".
 - **Seeds** — seeds held in the scope (6.11), the pre-backlog: title, owner, where it was split off from, last activity; *Turn into a blueprint* (promote), and in Personal *Publish to team…*, since seeds are listed here only. Archived seeds are hidden as in Blueprints, with *Show archived*.
 - **Team** — in this order: the sync in words ("Last sync 11:02 with marek, ola · piotr offline") with *Sync now*; one sentence per blueprint the last sync refused, and why; **Invite a teammate** (email, validity, *Create invite*) with *Copy invite message* (how to install kalka, the link, and the code for when the link is not clickable), *Copy link*, *Copy code*, and the open invites with *Show* and *Cancel*; the members with role, last seen (online, or when this kalka last found them online, 9.3) and how many blueprints they own, each with a ⋯ menu: *Make team owner…*, *Remove as team owner…* (each confirmed, saying what it allows), *Give their blueprints to someone…*, *Remove from team…* (with a preview of the blueprints that become yours); transfers in and out (20.7), open while one waits; then folded the team history (the log as a readable history, with discarded operations and their reasons) and the technical details (team id, folder, key fingerprints, files not shared, deleted blueprints). Wherever a member is named (hand-off, reassignment, the owner of an accepted transfer) it is picked from the team's members, not typed. *Decline* of a transfer asks once.
 - **Domains** — "your team's shared vocabulary": the team's domain documents with version and owner; *Release* for the owner, with a checklist of open comments to mark as taken up (incorporated); a version switcher over local snapshots in the document header. With none yet, the start of a domain document to copy and *Open Personal folder*.
@@ -960,6 +1002,8 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka seed <parent> --title <t> [--from <entry id>] [-m <text>] [--why <text>]` | file | Bud a seed (6.11). | Review More *Split off a seed…*, a deviation's *Split off a seed* |
 | `kalka seed backlink <seed>` | file | Add a missing `budded` entry to the seed's parent. | Review *Link it from its parent* |
 | `kalka promote <file> [--status <s>]` | daemon | Change a seed's `status` (default `draft`). | Seeds, Review *Turn into a blueprint* |
+| `kalka close <file> [--reopen]` | daemon | The owner confirms the document delivered (`kalka_status: closed`), or reopens it (6.18). | Review *Close as delivered*, *Reopen* |
+| `kalka context <file> [--json] [--domain <path>]` | view | The document's flattened context for an agent: the plan path with goals and invariants, the domain path with terms and invariants (6.18). Reads files as `check` does. | Review More *Context for an agent* |
 | `kalka seeds [--team <t>\|personal]` | view | The pre-backlog of a team or Personal. | Seeds |
 | `kalka domains [--team <t>]` | view | Domain documents and versions. | Domains |
 | `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--rules v<N>] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
@@ -1037,8 +1081,8 @@ A test checks this list against the kinds the code declares, and that each is re
 | `--explain <id>` | Print what the rule means, why it exists, and a wrong and a right example. Takes no files. |
 | `--strict` | Warnings fail the check as errors do. |
 | `--rules v<N>` | Run that rule set (6.17); the default is the newest. |
-| `--with-plugins` | Resolve reference targets (trace `ref`, invariant `verified_by`) with the installed plugins and report those that do not resolve (`R010`) or that warn (`R011`). Off by default, since plugins may use the network. |
-| `--domain <path>` | Where domain versions are read from: a domain document, or a folder searched like the files. Without it the local `kalka` folder is used when one is set up; otherwise the rules that need a domain report "can't check". |
+| `--with-plugins` | Resolve reference targets (trace `ref`, invariant `verified-by`) with the installed plugins and report those that do not resolve (`R010`) or that warn (`R011`). Off by default, since plugins may use the network. |
+| `--domain <path>` | Where domain versions and plan nodes are read from: a document, or a folder searched like the files. The files checked are always read too. Without it the local `kalka` folder is used when one is set up; otherwise the rules that need a domain or a parent report "can't check" (`R001`, `P011`). |
 | `--verbose` | Also print information in the text output (`--json` always has it). |
 
 A domain version is found as its snapshot `*@v<N>.md` first, then as a domain document whose `kalka_version:` is that version (a repository that keeps only the live file).
@@ -1047,7 +1091,7 @@ A domain version is found as its snapshot `*@v<N>.md` first, then as a domain do
 
 `kalka check` never writes: there is no formatter and no `--fix`. Agents run `kalka check --json` before handing a document over (6.13).
 
-`kalka invariants <file> [--json] [--domain <path>]` prints the invariants matrix of 11.1, one row per invariant: the document's own, then the domain invariants it affects or guards, each with its statement (from the referenced version), status, the trace nodes guarding it, its `verified_by` and its gaps (`unguarded`, `unverified`). It prints the invariant diagnostics of `kalka check` (`I…`, and `R001` when the domain version is not here) and exits on them as `check` does. It reads domain versions as `check` does.
+`kalka invariants <file> [--json] [--domain <path>]` prints the invariants matrix of 11.1, one row per invariant: the document's own, then the inherited and domain invariants it affects or guards, each with its statement (from the referenced version or the plan node above), status, what it refines, the trace steps guarding it, its `verified-by` and its gaps (`unguarded`, `unverified`). It prints the invariant diagnostics of `kalka check` (`I…`, and `R001` when the domain version is not here) and exits on them as `check` does. It reads domain versions as `check` does.
 
 ### 12.5 `kalka doctor`
 
@@ -1179,7 +1223,7 @@ Choices that are not obvious from the rules alone, and why they were made.
 10. **The UI renders hostile input.** A received blueprint is untrusted Markdown shown by a page that can write files, so sanitization and the hardening of the local API are requirements, not polish (11.2, 13).
 11. **No offline queue on a server.** Team documents travel through whichever members are online (20.3).
 12. **Workflow-agnostic.** The core interprets the frontmatter keys of 6.2 and one section heading; everything else in the file is pass-through.
-13. **Trace blocks (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge instead of trusting the author to say so. The language is a strict subset of YAML (block-style nodes, every scalar a text, unknown keys warned about) because the common failures of free YAML, a text cut at a comma in a flow mapping or a misspelt key silently ignored, make the tool state something false about the code. Loops are written as `back` edges so that "comes before" is a partial order the classes can rely on. The version is in the fence, so a later version may change the syntax entirely.
+13. **Trace blocks (6.10).** Blueprints explained at business level are hard to tie back to code, and the details lost in that translation are the ones that matter for implementation. A trace block holds both views as flows and links them; `kalka` computes where they diverge instead of trusting the author to say so. The language is line-oriented, one value per line with no quoting (6.14), because the common failures of YAML, a text cut at a comma in a flow mapping, a colon that turns a text into a mapping, or a misspelt key silently ignored, make the tool state something false about the code; v1 was a restricted YAML and showed those failures in practice. Loops are written as `back` edges so that "comes before" is a partial order the classes can rely on. The version is in the fence, so a later version may change the syntax entirely.
 14. **Unparsed log content moves with the entry before it.** "Preserved in place" and "rewritten in canonical order" cannot both hold literally (6.4).
 15. **A key-derived peer id does not stop posing on a stock server:** any holder of the public key can register it. Channel binding prevents posing; on `kalka-rendezvous` a proof of the key also prevents squatting (8.3, 9.2, 9.6).
 16. **Team documents carry signed releases,** so whoever relays a document does not matter (20.4). Judging "body edits only by the owner" by the sender would refuse every relay.
@@ -1496,9 +1540,9 @@ Anything else is refused and listed in the Team view with the reason.
 - A move withdrawn and then accepted all the same (an accept beats a withdrawal) also ends as a copy: the source's entry is already answered.
 - Entries added in the source after the transfer started are not carried. They stay in the source and in its trash copy after the tombstone.
 
-**Identity.** Copy and move both get a new `kalka_id`. A tombstone is final for its id on every peer of its team, so with the id kept a document could never move back; and a member of both teams would hold two live files with one id. The store indexes `moved-from` and `copied-from` (14), so a seed's `kalka_parent:` and a `budded:` link still resolve to a moved document that is held.
+**Identity.** Copy and move both get a new `kalka_id`. A tombstone is final for its id on every peer of its team, so with the id kept a document could never move back; and a member of both teams would hold two live files with one id. The store indexes `moved-from` and `copied-from` (14), so a seed's `kalka_origin:`, a `kalka_parent:` and a `budded:` link still resolve to a moved document that is held.
 
-**Domain documents and seeds.** `kalka_version:` restarts with release 1 in the destination; snapshots are not carried. An accept is refused (`domain-exists`) when the destination holds a document for that domain. A seed keeps `parent` and `origin`.
+**Domain documents and seeds.** `kalka_version:` restarts with release 1 in the destination; snapshots are not carried. An accept is refused (`domain-exists`) when the destination holds a document for that domain. A seed keeps `kalka_origin`; a plan node's children keep their `kalka_parent`, which resolves through `moved-from` while the moved parent is held.
 
 ---
 

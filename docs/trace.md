@@ -1,6 +1,6 @@
-# kalka trace blocks: language specification, version 1
+# kalka trace blocks: language specification, version 2
 
-This is the full definition of the trace language that `specification.md` section 6.10 summarizes. Every block fenced as `trace v1` in this document is a valid instance, and the divergences listed under each example are the ones kalka computes; a test (`TestTraceSpecExamples`) keeps both true.
+This is the full definition of the trace block that `specification.md` section 6.10 summarizes. It is written in the kalka language v2, whose lexis is shared by every typed block and defined in [`language.md`](language.md); this document defines what is particular to traces. Every block fenced as `trace v2` in this document is a valid instance, and the divergences listed under each example are the ones kalka computes; a test (`TestTraceSpecExamples`) keeps both true.
 
 ## 1. Purpose and scope
 
@@ -18,98 +18,64 @@ Words used throughout:
 | Word | Meaning |
 |---|---|
 | lane | One level of abstraction. Lanes are ordered, most abstract first. |
-| node | One step in one lane. |
+| step, node | One step in one lane. "Node" is used where the graph is meant. |
 | flow | The `next` and `back` edges between nodes of one lane. |
 | realization link | A `realizes` entry: a node implements a node in a more abstract lane. |
 | live node | A node whose `change` is not `removed`. |
-| above, below | Lane A is above lane B when A comes earlier in `lanes` (A is more abstract). |
+| above, below | Lane A is above lane B when A is opened earlier in the block (A is more abstract). |
 
-## 2. Lexical structure and grammar
+## 2. Syntax
 
 ### 2.1 The fence
 
-A trace block is a Markdown fenced code block whose info string starts with the word `trace`:
-
-```ebnf
-info     = "trace" , [ ws , version ] , [ ws , reserved ] ;
-version  = "v" , nonzero , { digit } ;
-reserved = ? any text; ignored in v1 ? ;
-ws       = ( " " | "\t" ) , { " " | "\t" } ;
-nonzero  = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
-digit    = "0" | nonzero ;
-```
-
-- `trace v1` is the form this document defines.
-- `trace` with no second word is read as v1 and reported with warning T101.
-- `trace vN` with N greater than 1, or a second word that is not a version, is not interpreted (T005, section 6.3).
-- The word is case-sensitive. A block fenced as `yaml` is never a trace (but see T122).
+A trace block is a Markdown fenced code block whose info string is `trace v2`. The fence and its version follow the rules every typed block shares (language.md, section 2): `trace` with no version is read as v2 with warning S013; `trace v1`, the retired YAML form, and any newer or malformed version are shown as code (S012).
 
 ### 2.2 The content
 
-The content is one YAML 1.2 document, restricted as follows.
-
-1. No anchors, aliases, explicit tags, merge keys (`<<`) or second document (T002).
-2. No mapping has the same key twice (T003).
-3. Every scalar is taken as **text**: its content after YAML's unquoting and unescaping, with no type resolution. `404`, `yes`, `1e3` and `no` are the texts "404", "yes", "1e3" and "no". An unquoted `~`, `null`, `Null`, `NULL` or an empty value counts as absent.
-4. In every text, leading and trailing white space is dropped and each run of white space, including line breaks, becomes one space.
-5. Each entry of `nodes` is a block mapping, one key per line. A flow mapping (`{id: B1, …}`) is not allowed there (T021). Lists of ids may be written inline (`[B1, B2]`) or as block lists.
-6. Comments on their own line are allowed. A comment after a value on the same line draws warning T103, because an unquoted text containing ` #` is cut there by YAML.
-
-Free text (`text`, `why`, edge labels) and `ref` should be written in double quotes. This is advice, not a rule: an unquoted text that YAML reads back unchanged is valid.
-
-### 2.3 Schema
-
 ```ebnf
-block     = "lanes" , ":" , lane-list ,
-            "nodes" , ":" , node-list ;                 (* a mapping; key order is free *)
-lane-list = sequence of 2..5 lane-name ;
-lane-name = text , non-empty , at most 40 characters ;
-node-list = sequence of 1..40 node ;
-node      = block mapping with the keys below ;
-id        = letter , { letter | digit | "-" | "_" } ;   (* at most 32 characters *)
-letter    = "A".."Z" | "a".."z" ;
-id-list   = id | sequence of id ;                       (* one id may stand without brackets *)
-edges     = id-list | mapping of id to label ;          (* label: text, may be empty *)
-change    = "new" | "modified" | "removed" ;
-guards    = inv-ref | sequence of inv-ref ;
-inv-ref   = id | domain , "#" , id ;                    (* domain: [a-z0-9][a-z0-9-]* *)
+block      = lane-group , { lane-group } ;
+lane-group = { blank } , "lane " , lane-name , nl , { blank | step } ;
+step       = "step " , id , ": " , text , nl , { attribute } ;
+attribute  = "  " , keyword , " " , value , nl ;
+lane-name  = text ;                                       (* at most 40 characters *)
+id         = letter , { letter | digit | "-" | "_" } ;    (* at most 32 characters *)
+edge       = id , [ ": " , label ] ;                       (* next and back *)
+inv-ref    = id | "parent#" , id | domain , "#" , id ;   (* guards *)
+change     = "new" | "modified" | "removed" ;
 ```
 
-| Key | Where | Required | Value | Meaning in brief |
+A `lane` line in column 0 opens a lane; the steps under it, until the next `lane` line, belong to it. A `step` line in column 0 is one step; its attributes are indented by exactly two spaces below it. One line holds one value: a list is the keyword repeated.
+
+| Keyword | Level | How many | Value | Meaning in brief |
 |---|---|---|---|---|
-| `lanes` | block | yes | list of 2 to 5 distinct names | The levels, most abstract first. |
-| `nodes` | block | yes | list of 1 to 40 nodes | The steps of all lanes. |
-| `id` | node | yes | `id` | Name of the node, unique in the block. |
-| `lane` | node | yes | one of `lanes` | The lane the node belongs to. |
-| `text` | node | yes | text | What the step does, in one short line. |
-| `next` | node | no | `edges` | Nodes of the same lane that follow this one. |
-| `back` | node | no | `edges` | Nodes of the same lane the flow returns to (a loop or retry). |
-| `realizes` | node | no | `id-list` | Nodes in lanes above that this node implements. |
-| `ref` | node | no | text of the form `scheme:payload` | Link to the code or other source, resolved by a plugin. |
-| `why` | node | no | text | Why the step exists or differs from the lanes above. |
-| `change` | node | no | `change` | What the plan does to this step. Absent means unchanged. |
-| `guards` | node | no | list of invariant references | Invariants the step keeps true. |
+| `lane` | section | 2 to 5, distinct | a name | Opens a level; lanes come most abstract first. |
+| `step` | item | 1 to 40 | `<id>: <text>` | One step of the current lane. |
+| `next` | attribute | any | `edge` | A step of the same lane that follows this one. |
+| `back` | attribute | any | `edge` | A step of the same lane the flow returns to (a loop or retry). |
+| `realizes` | attribute | any | `id` | A step in a lane above that this step implements. |
+| `covers` | attribute | any | `id` | An acceptance criterion of the document this step demonstrates (specification 6.18). |
+| `ref` | attribute | one | `scheme:payload` | Link to the code or other source, resolved by a plugin. |
+| `why` | attribute | one | text | Why the step exists or differs from the lanes above. |
+| `change` | attribute | one | `change` | What the plan does to this step. Absent means unchanged. |
+| `guards` | attribute | any | `inv-ref` | An invariant the step keeps true. |
 
-Keys are case-sensitive. Any other key is an unknown key (section 6.1).
+A branch is several `next` lines, each with a label after `: ` saying when the edge is taken:
 
-The two forms of `edges`:
-
-```yaml
-next: [C2, C3]          # no labels
-next:                   # a label per edge, in double quotes
-  C2: "file is small"
-  C3: "file is large"
+```text
+step C2: Check the file size
+  next C3: file is small
+  next C4: file is large
 ```
 
-The order of items in `lanes`, `nodes`, `next`, `back` and `realizes`, and of the keys of an `edges` mapping, is significant and must be kept by a parser: it decides ties in layout and the order of reports.
+The order of lanes, steps and repeated attributes is significant and must be kept by a parser: it decides ties in layout and the order of reports.
 
 ## 3. Semantics
 
-**Lanes.** `lanes` lists the levels from most to least abstract. kalka attaches no meaning to the names. The last lane is the one whose nodes are expected to carry a `ref`.
+**Lanes.** The `lane` lines list the levels from most to least abstract. kalka attaches no meaning to the names. The last lane is the one whose nodes are expected to carry a `ref`.
 
-**Nodes.** A node is one step in one lane. `text` says what happens, not how well or why. Nodes should be listed lane by lane, each lane in flow order; the language does not require it.
+**Steps.** A step is one node in one lane. Its text says what happens, not how well or why. Steps are listed under their lane, in flow order where there is one.
 
-**`next`.** `next` on node A naming node B says B follows A in the same lane. The `next` edges of a lane must not form a cycle, and a node may not name itself. A node with several `next` edges is a point where the flow divides; the labels say when each edge is taken. v1 does not distinguish "one of these" from "all of these, in parallel": the label must say it (section 6.2 reserves keys for a later distinction). A node with no incoming `next` edge is a start of its lane's flow and a node with no outgoing `next` is an end; a lane may have several of each.
+**`next`.** `next` on node A naming node B says B follows A in the same lane. The `next` edges of a lane must not form a cycle, and a node may not name itself. A node with several `next` edges is a point where the flow divides; the labels say when each edge is taken. v2 does not distinguish "one of these" from "all of these, in parallel": the label must say it (section 6.2 reserves keywords for a later distinction). A node with no incoming `next` edge is a start of its lane's flow and a node with no outgoing `next` is an end; a lane may have several of each.
 
 **Order.** In one lane, A *precedes* B (written A ≺ B) when a path of one or more `next` edges leads from A to B. Because `next` has no cycles, ≺ is a strict partial order. Two nodes of a lane that neither precede nor follow each other are *unordered* (for example the two arms of a branch).
 
@@ -130,7 +96,7 @@ The order of items in `lanes`, `nodes`, `next`, `back` and `realizes`, and of th
 | `modified` | The step exists and the plan changes it. `why` or the prose says how. | the existing code |
 | `removed` | The step exists and the plan deletes it. | the existing code |
 
-`change` may be used in any lane (a new business step is a new requirement). A trace with no `change` keys describes one state, usually the code as built. A trace with `change` keys describes the state **after** the plan, with removed steps kept visible:
+`change` may be used in any lane (a new business step is a new requirement). A trace with no `change` describes one state, usually the code as built. A trace with `change` lines describes the state **after** the plan, with removed steps kept visible:
 
 - A removed node stays in the flow where it was. Order passes through it: if A → R → B and R is removed, A still precedes B.
 - Removed nodes take no part in divergences (section 5). They are neither reported nor counted as realizing or being realized.
@@ -138,7 +104,9 @@ The order of items in `lanes`, `nodes`, `next`, `back` and `realizes`, and of th
 
 Edges cannot be marked. An edge is taken to exist after the plan when both its ends are live.
 
-**`guards`.** Names the invariants (main specification 6.15) the step keeps true: an id of an invariant of the same document, or `<domain>#<id>` for an invariant of the domain the document references. A reference that does not resolve is reported by the invariant rules (`I020`), not by the trace: it never makes the block invalid. `guards` takes no part in divergences; it decides which invariants count as guarded (`I030`).
+**`guards`.** Names an invariant (main specification 6.15) the step keeps true: an id of an invariant of the same document, `parent#<id>` for one the document inherits from its parent plan node, or `<domain>#<id>` for an invariant of a domain node on the document's domain path. A reference that does not resolve is reported by the invariant rules (`I020`), not by the trace: it never makes the block invalid. `guards` takes no part in divergences; it decides which invariants count as guarded (`I030`).
+
+**`covers`.** Names an acceptance criterion (main specification 6.18) of the same document that the step demonstrates, usually on a business step. A name that is not a criterion of the document is P022. `covers` takes no part in divergences; it closes the chain from a goal through a criterion to the code.
 
 **Identity.** A node id names the node for comments: a review-log entry is anchored to `§<slug>#<id>`, where `<slug>` is the slug of the nearest heading above the block. Ids are scoped to the block, and should be unique among all blocks under the same heading (T120). An id is a permanent name: section 9 says how to keep it stable.
 
@@ -154,66 +122,57 @@ Validation runs in the stages below. A stage runs only if the stages before it f
 
 ### 4.1 Errors
 
+The lexical errors every typed block shares (S001 to S031: tabs, capitals, a colon after a keyword, indentation, an incomplete header line, an empty value, a keyword on the wrong level, a reference with spaces, drift into Gherkin or YAML, comments, the version, a bad id) are defined in language.md, section 5. A block with one of them is not a trace. The errors particular to traces:
+
 | Id | Stage | Condition |
 |---|---|---|
-| T001 | 1 | The content is not well-formed YAML. |
-| T002 | 1 | Anchor, alias, explicit tag, merge key, or more than one document. |
-| T003 | 2 | A key appears twice in one mapping. |
-| T004 | 2 | The document is not a mapping. |
-| T005 | 0 | The fence names a version this reader does not know (`trace v2`), or its second word is not a version. Not an authoring mistake when the version is newer: shown as "needs a newer kalka". |
-| T010 | 2 | `lanes` is missing or is not a list of texts. |
 | T011 | 2 | Fewer than 2 or more than 5 lanes. |
-| T012 | 2 | A lane name is empty, longer than 40 characters, or listed twice. |
-| T020 | 2 | `nodes` is missing, is not a list, or is empty. |
-| T021 | 2 | An entry of `nodes` is not a block mapping. |
-| T022 | 2 | More than 40 nodes. |
-| T030 | 3 | `id` is missing or does not match the `id` grammar. |
-| T031 | 3 | Two nodes have the same `id`. |
-| T032 | 3 | `lane` is missing or is not one of `lanes`. |
-| T033 | 3 | `text` is missing or empty. |
-| T034 | 2 | A value has the wrong shape: `text`, `why`, `ref`, `id`, `lane` or `change` is not a single text; `next` or `back` is not an `edges` value; `realizes` is not an `id-list`; `guards` is not a text or a list of texts; a label is not a text. This includes the retired form `{to: B2, label: …}`. |
-| T040 | 4 | `next`, `back` or `realizes` names an id that is not a node of the block. |
-| T041 | 4 | `next` or `back` names a node in another lane. |
-| T042 | 4 | `next` names the node itself. |
-| T043 | 5 | The `next` edges form a cycle. The message names the nodes on it. |
-| T044 | 5 | `back` names a node that is neither the node itself nor one that precedes it. |
-| T045 | 4 | `realizes` names a node that is not in a lane above. |
-| T046 | 3 | `change` is not `new`, `modified` or `removed`. |
+| T012 | 2 | A lane name is longer than 40 characters, or a lane is opened twice. |
+| T020 | 2 | The block has no steps. |
+| T022 | 2 | More than 40 steps. |
+| T032 | 2 | A step comes before any `lane` line. |
+| T031 | 3 | Two steps have the same id. |
+| T040 | 4 | `next`, `back` or `realizes` names an id that is not a step of the block. |
+| T041 | 4 | `next` or `back` names a step in another lane. |
+| T042 | 4 | `next` names the step itself. |
+| T045 | 4 | `realizes` names a step that is not in a lane above. |
+| T043 | 5 | The `next` edges form a cycle. The message names the steps on it. |
+| T044 | 5 | `back` names a step that is neither the step itself nor one that precedes it. |
+
+Stage 1 is the lexis of language.md.
 
 ### 4.2 Warnings
 
+The shared lexical warnings (S013 no version, S020 an unknown keyword, with the nearest known one suggested) are in language.md. The warnings particular to traces:
+
 | Id | Condition |
 |---|---|
-| T101 | The fence has no version. Read as v1. |
-| T102 | An unknown key on the block or on a node, not starting with `x-`. The key is ignored. The message should suggest the nearest known key (`realises` → `realizes`). |
-| T103 | A comment follows a value on the same line. |
-| T104 | An id is named twice in one `next`, `back` or `realizes`, or the same id is under both `next` and `back`. Duplicates count once. |
-| T105 | A node realizes M directly and also through another node it realizes. The direct link is redundant. |
-| T106 | A lane has no nodes. |
-| T107 | The nodes of a lane fall into two or more groups that no `next` or `back` edge joins. Usually a forgotten `next`. |
-| T108 | More than 20 nodes. |
-| T109 | `text` longer than 100 characters, `why` longer than 300, or a label longer than 40. |
-| T110 | A live node outside the first lane realizes no live node and has no `why`. |
+| T104 | An id is named twice by one keyword of a step, or the same id under both `next` and `back`. Duplicates count once. |
+| T105 | A step realizes M directly and also through another step it realizes. The direct link is redundant. |
+| T106 | A lane has no steps. |
+| T107 | The steps of a lane fall into two or more groups that no `next` or `back` edge joins. Usually a forgotten `next`. |
+| T108 | More than 20 steps. |
+| T109 | A step's text longer than 100 characters, `why` longer than 300, or a label longer than 40. |
+| T110 | A live step outside the first lane realizes no live step and has no `why`. |
 | T111 | Two ids differ only in letter case. |
-| T112 | `ref` is not of the form `scheme:payload`, or contains white space. |
-| T113 | A node has several `next` edges and only some have a label. |
+| T112 | `ref` is not of the form `scheme:payload`. |
+| T113 | A step has several `next` edges and only some have a label. |
 
 Warnings about the block's place in the document, raised by the document validator, not the block validator:
 
 | Id | Condition |
 |---|---|
-| T120 | Two trace blocks under the same heading both have a node with this id. Comments on it are ambiguous. |
-| T121 | The block has no heading above it, so its nodes cannot be commented on. |
-| T122 | A block fenced as `yaml` or `yml` has a root mapping with both `lanes` and `nodes`. It was probably meant as a trace. |
+| T120 | Two trace blocks under the same heading both have a step with this id. Comments on it are ambiguous. |
+| T121 | The block has no heading above it, so its steps cannot be commented on. |
 
 ### 4.3 Messages
 
 A message names the node and the offending value and says what to write instead, because the usual reader of a message is the agent that wrote the block. Examples:
 
 ```text
-T043 line 31, node C4: next edges form a cycle through C1, C2, C3, C4; write the edge that returns under back
-T044 line 12, node C2: back names C5, which does not come before C2; a forward edge belongs under next
-T034 line 9, node B1: next is a list of ids, or a mapping of id to label
+T043 line 31, step C4: next edges form a cycle through C1, C2, C3, C4; write the edge that returns as back
+T044 line 12, step C2: back names C5, which does not come before C2; a forward edge is a next
+S003 line 9, step B1: no colon after the keyword next: write "  next B2"
 ```
 
 ## 5. Divergences
@@ -306,34 +265,33 @@ With at most 40 nodes every step is small; no optimisation is needed.
 
 ## 6. Extension and versioning
 
-### 6.1 Unknown keys
+### 6.1 Unknown keywords
 
-- A key starting with `x-` belongs to the author or their tools. A reader ignores it without a warning. The language will never define a key starting with `x-`.
-- Any other unknown key is ignored with warning T102. It never makes a block invalid.
-- kalka never rewrites a block, so unknown keys stay in the file.
+- A keyword starting with `x-` belongs to the author or their tools. A reader ignores it without a warning. The language will never define a keyword starting with `x-`.
+- Any other unknown keyword is ignored with warning S020. It never makes a block invalid.
+- kalka never rewrites a block, so unknown keywords stay in the file.
 
 ### 6.2 Reserved names
 
-These names are reserved for later versions and must not be given another meaning by tools. In v1 they are unknown keys (T102).
+These keywords are reserved for later versions and must not be given another meaning by tools. In v2 they are unknown keywords (S020).
 
-| Name | Where | Kept for |
+| Name | Level | Kept for |
 |---|---|---|
-| `title`, `version`, `links` | block | A block title; a version inside the content; links between blocks. |
-| `kind` | node | Kinds of step, such as decision, event, end. |
-| `split`, `join` | node | Telling parallel flow from a choice. |
-| `detail` | node | A link to a block that expands this node. |
-| `data` | node | What a step passes to the next. |
-| `partial` | node | Saying a realization link covers part of its target. |
-| `group` | node | Grouping nodes inside a lane. |
-
-The mapping form of `realizes` (id to text) is reserved too; in v1 it is error T034.
+| `title`, `link` | section | A block title; links between blocks. |
+| `kind` | attribute | Kinds of step, such as decision, event, end. |
+| `split`, `join` | attribute | Telling parallel flow from a choice. |
+| `detail` | attribute | A link to a block that expands this step. |
+| `data` | attribute | What a step passes to the next. |
+| `partial` | attribute | Saying a realization link covers part of its target. |
+| `group` | attribute | Grouping steps inside a lane. |
 
 ### 6.3 Versions
 
-- The version is the number in the fence. It changes only when a block that was valid before would be read differently, or when the syntax changes in a way an old reader cannot ignore. v2 is free to change everything inside the fence, including leaving YAML.
-- A reader that meets a version it does not know does not interpret the content. It shows the source as code with the note "trace vN: needs a newer kalka" (T005). It does not guess.
-- Within v1, later revisions of this document may add optional keys, and only where a reader that ignores the key still reads a correct, less detailed trace and computes the same graph divergences for it. Such a key shows as T102 on an older reader. A key that changes which divergences are computed needs a new version; this is why `change` is in v1 and not left for later.
-- Later revisions of v1 may add warnings. They may not add errors that reject blocks valid under this document, and may not change the definitions of section 5.2.
+- The version is the number in the fence, the same for every typed block: the version of the kalka language (language.md, section 2). It changes only when a block that was valid before would be read differently, or when the syntax changes in a way an old reader cannot ignore.
+- v1, the YAML form, is retired: kalka shows a `trace v1` block as code with S012 and does not read it. There is no conversion; rewrite the block in v2.
+- A reader that meets a newer version does not interpret the content. It shows the source as code with the note "needs a newer kalka" (S012). It does not guess.
+- Within v2, later revisions may add optional keywords, and only where a reader that ignores the keyword still reads a correct, less detailed trace and computes the same graph divergences for it. Such a keyword shows as S020 on an older reader.
+- Later revisions of v2 may add warnings. They may not add errors that reject blocks valid under this document, and may not change the definitions of section 5.2.
 - Tools that read divergence lists must accept class names they do not know.
 - Validity and divergences are computed on each reader's machine and stored nowhere, so two peers on different kalka versions may see different warnings for the same block. This is the same situation as unverified and stale.
 
@@ -342,44 +300,38 @@ The mapping form of `realizes` (id to text) is reserved too; in v1 it is error T
 | Limit | Value | Past the limit |
 |---|---|---|
 | Lanes per block | 2 to 5 | T011 |
-| Nodes per block | 1 to 40 | T020, T022 |
-| Nodes per block, advised | 20 | T108 |
-| Id length | 32 characters | T030 |
+| Steps per block | 1 to 40 | T020, T022 |
+| Steps per block, advised | 20 | T108 |
+| Id length | 32 characters | S030 |
 | Lane name length | 40 characters | T012 |
-| `text` length, advised | 100 characters | T109 |
+| Step text length, advised | 100 characters | T109 |
 | `why` length, advised | 300 characters | T109 |
 | Label length, advised | 40 characters | T109 |
 
-A block is self-contained: no construct in v1 names a node of another block. A process too large for one block is split under several headings, one block each (section 9).
+A block is self-contained: no construct in v2 names a step of another block. A process too large for one block is split under several headings, one block each (section 9).
 
 ## 8. Examples
 
-Each example lists the graph divergences a validator must report, in the notation `class:node[nodes]@lane`. Unverified and stale are left out because they depend on the reader; on a machine with no plugin, every live node with a `ref`, and every live last-lane node without one, is also unverified unless it is `new`.
+Each example lists the graph divergences a validator must report, in the notation `class:node[nodes]@lane`. Unverified and stale are left out because they depend on the reader; on a machine with no plugin, every live step with a `ref`, and every live last-lane step without one, is also unverified unless it is `new`.
 
 ### 8.1 Minimal: two lanes
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "A member returns a book"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "The next member waiting for it is told"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Close the loan and free the copy"
-    realizes: [B1]
-    ref: "gh:src/loans/return.py#L18-L52"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Email the first open reservation"
-    realizes: [B2]
-    ref: "gh:src/reservations/notify.py#L9-L40"
+step B1: A member returns a book
+  next B2
+step B2: The next member waiting for it is told
+
+lane code
+
+step C1: Close the loan and free the copy
+  next C2
+  realizes B1
+  ref gh:src/loans/return.py#L18-L52
+step C2: Email the first open reservation
+  realizes B2
+  ref gh:src/reservations/notify.py#L9-L40
 ```
 
 Divergences: none.
@@ -388,62 +340,45 @@ Divergences: none.
 
 `C5` realizes the business step `P3` directly; the service lane says nothing about returns.
 
-```trace v1
-lanes: [business, service, code]
-nodes:
-  - id: P1
-    lane: business
-    text: "The courier attempts delivery"
-    next: [P2]
-  - id: P2
-    lane: business
-    text: "If nobody is home, try again the next working day"
-    next: [P3]
-  - id: P3
-    lane: business
-    text: "After the third failed attempt, return the parcel to the depot"
+```trace v2
+lane business
 
-  - id: S1
-    lane: service
-    text: "Delivery attempt recorded"
-    realizes: [P1]
-    next: [S2]
-  - id: S2
-    lane: service
-    text: "Redelivery scheduled"
-    realizes: [P2]
+step P1: The courier attempts delivery
+  next P2
+step P2: If nobody is home, try again the next working day
+  next P3
+step P3: After the third failed attempt, return the parcel to the depot
 
-  - id: C1
-    lane: code
-    text: "Scan handler stores the attempt"
-    realizes: [S1]
-    ref: "gh:src/scan/handler.py#L30-L77"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Drop duplicate scans"
-    ref: "gh:src/scan/dedupe.py#L8-L29"
-    why: "the depot's scanner sends each scan twice"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "Count attempts on the parcel row"
-    realizes: [S2]
-    ref: "gh:src/redelivery/counter.py#L14-L52"
-    why: "joining the attempts table on every scan was too slow"
-    next:
-      C4: "first or second failure"
-      C5: "third failure"
-  - id: C4
-    lane: code
-    text: "Schedule the next attempt"
-    realizes: [S2]
-    ref: "gh:src/redelivery/schedule.py#L20-L64"
-  - id: C5
-    lane: code
-    text: "Create the return order"
-    realizes: [P3]
-    ref: "gh:src/returns/create.py#L11-L40"
+lane service
+
+step S1: Delivery attempt recorded
+  next S2
+  realizes P1
+step S2: Redelivery scheduled
+  realizes P2
+
+lane code
+
+step C1: Scan handler stores the attempt
+  next C2
+  realizes S1
+  ref gh:src/scan/handler.py#L30-L77
+step C2: Drop duplicate scans
+  next C3
+  ref gh:src/scan/dedupe.py#L8-L29
+  why the depot's scanner sends each scan twice
+step C3: Count attempts on the parcel row
+  next C4: first or second failure
+  next C5: third failure
+  realizes S2
+  ref gh:src/redelivery/counter.py#L14-L52
+  why joining the attempts table on every scan was too slow
+step C4: Schedule the next attempt
+  realizes S2
+  ref gh:src/redelivery/schedule.py#L20-L64
+step C5: Create the return order
+  realizes P3
+  ref gh:src/returns/create.py#L11-L40
 ```
 
 Divergences:
@@ -454,56 +389,40 @@ Divergences:
 
 ### 8.3 A branch with an error path
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: D1
-    lane: business
-    text: "Receive uploaded files"
-    next: [D2]
-  - id: D2
-    lane: business
-    text: "Extract text"
-    next: [D3]
-  - id: D3
-    lane: business
-    text: "Classify the document"
-    next: [D4]
-  - id: D4
-    lane: business
-    text: "Notify the user"
+```trace v2
+lane business
 
-  - id: I1
-    lane: code
-    text: "Upload endpoint handlers"
-    realizes: [D1]
-    ref: "gh:src/upload/handlers.py#L40-L120"
-    next: [I2]
-  - id: I2
-    lane: code
-    text: "Is the file larger than 20 MB?"
-    ref: "gh:src/import/size_guard.py#L12-L48"
-    why: "the parser runs out of memory on larger files"
-    next:
-      I3: "yes"
-      I4: "no"
-  - id: I3
-    lane: code
-    text: "Reject: tell the user the file is too large"
-    ref: "gh:src/import/size_guard.py#L50-L61"
-    why: "otherwise the user waits for an import that never finishes"
-  - id: I4
-    lane: code
-    text: "Extract and classify in one pass"
-    realizes: [D2, D3]
-    ref: "gh:src/import/parse.py#L200-L310"
-    why: "avoids parsing each file twice"
-    next: [I5]
-  - id: I5
-    lane: code
-    text: "Batch notifications, at most one per user per minute"
-    realizes: [D4]
-    ref: "gh:src/notify/batch.py#L15-L90"
+step D1: Receive uploaded files
+  next D2
+step D2: Extract text
+  next D3
+step D3: Classify the document
+  next D4
+step D4: Notify the user
+
+lane code
+
+step I1: Upload endpoint handlers
+  next I2
+  realizes D1
+  ref gh:src/upload/handlers.py#L40-L120
+step I2: Is the file larger than 20 MB?
+  next I3: yes
+  next I4: no
+  ref gh:src/import/size_guard.py#L12-L48
+  why the parser runs out of memory on larger files
+step I3: Reject: tell the user the file is too large
+  ref gh:src/import/size_guard.py#L50-L61
+  why otherwise the user waits for an import that never finishes
+step I4: Extract and classify in one pass
+  next I5
+  realizes D2
+  realizes D3
+  ref gh:src/import/parse.py#L200-L310
+  why avoids parsing each file twice
+step I5: Batch notifications, at most one per user per minute
+  realizes D4
+  ref gh:src/notify/batch.py#L15-L90
 ```
 
 Divergences:
@@ -516,47 +435,34 @@ Divergences:
 
 The archive returns documents a page at a time. `F3` returns to `F1` under `back`; the forward flow stays `F1 → F2 → F3 → F4`.
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: A1
-    lane: business
-    text: "Fetch the list of documents from the archive"
-    next: [A2]
-  - id: A2
-    lane: business
-    text: "Import each document"
-    next: [A3]
-  - id: A3
-    lane: business
-    text: "Report how many were imported"
+```trace v2
+lane business
 
-  - id: F1
-    lane: code
-    text: "Request one page of 100 document ids"
-    realizes: [A1]
-    ref: "gh:src/archive/client.py#L22-L60"
-    next: [F2]
-  - id: F2
-    lane: code
-    text: "Import the documents on the page"
-    realizes: [A2]
-    ref: "gh:src/archive/import_page.py#L10-L88"
-    next: [F3]
-  - id: F3
-    lane: code
-    text: "Read the cursor for the next page"
-    realizes: [A1]
-    ref: "gh:src/archive/client.py#L62-L79"
-    why: "the archive refuses requests for more than 100 ids"
-    next: [F4]
-    back:
-      F1: "while a cursor is returned"
-  - id: F4
-    lane: code
-    text: "Write the totals row"
-    realizes: [A3]
-    ref: "gh:src/archive/report.py#L5-L31"
+step A1: Fetch the list of documents from the archive
+  next A2
+step A2: Import each document
+  next A3
+step A3: Report how many were imported
+
+lane code
+
+step F1: Request one page of 100 document ids
+  next F2
+  realizes A1
+  ref gh:src/archive/client.py#L22-L60
+step F2: Import the documents on the page
+  next F3
+  realizes A2
+  ref gh:src/archive/import_page.py#L10-L88
+step F3: Read the cursor for the next page
+  next F4
+  back F1: while a cursor is returned
+  realizes A1
+  ref gh:src/archive/client.py#L62-L79
+  why the archive refuses requests for more than 100 ids
+step F4: Write the totals row
+  realizes A3
+  ref gh:src/archive/report.py#L5-L31
 ```
 
 Divergences:
@@ -566,29 +472,23 @@ Divergences:
 
 ### 8.5 Reordered
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "Check the address"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "Store the parcel"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Insert the parcel row"
-    realizes: [B2]
-    ref: "gh:src/intake/store.py#L12-L40"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Validate the address in a background job"
-    realizes: [B1]
-    ref: "gh:src/intake/address_job.py#L8-L55"
-    why: "the address service takes up to 3 s"
+step B1: Check the address
+  next B2
+step B2: Store the parcel
+
+lane code
+
+step C1: Insert the parcel row
+  next C2
+  realizes B2
+  ref gh:src/intake/store.py#L12-L40
+step C2: Validate the address in a background job
+  realizes B1
+  ref gh:src/intake/address_job.py#L8-L55
+  why the address service takes up to 3 s
 ```
 
 Divergences:
@@ -599,69 +499,49 @@ Divergences:
 
 The plan adds a reservation check on the server, changes the eligibility check, and deletes two things: the desk app's own warning and the nightly reminder job.
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "A member asks to borrow a book"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "Check the member may borrow"
-    next: [B3]
-  - id: B3
-    lane: business
-    text: "Refuse if another member reserved the copy"
-    change: new
-    next: [B4]
-  - id: B4
-    lane: business
-    text: "Hand over the book and set the due date"
-    next: [B5]
-  - id: B5
-    lane: business
-    text: "Remind the member before the due date"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "POST /loans handler"
-    realizes: [B1]
-    ref: "gh:src/loans/api.py#L20-L58"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Check overdue items and the loan limit"
-    realizes: [B2]
-    ref: "gh:src/loans/rules.py#L10-L47"
-    change: modified
-    why: "returns a reason code instead of true or false, so the desk can show it"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "Look up open reservations for the copy"
-    realizes: [B3]
-    change: new
-    next: [C4]
-  - id: C4
-    lane: code
-    text: "Desk app warns about a reservation"
-    ref: "gh:desk/src/loan_dialog.ts#L88-L120"
-    change: removed
-    why: "the warning could be dismissed; the server decides now"
-    next: [C5]
-  - id: C5
-    lane: code
-    text: "Create the loan row with the due date"
-    realizes: [B4]
-    ref: "gh:src/loans/store.py#L80-L112"
-    next: [C6]
-  - id: C6
-    lane: code
-    text: "Nightly job sends reminders 2 days before the due date"
-    realizes: [B5]
-    ref: "gh:src/jobs/reminders.py#L5-L40"
-    change: removed
+step B1: A member asks to borrow a book
+  next B2
+step B2: Check the member may borrow
+  next B3
+step B3: Refuse if another member reserved the copy
+  next B4
+  change new
+step B4: Hand over the book and set the due date
+  next B5
+step B5: Remind the member before the due date
+
+lane code
+
+step C1: POST /loans handler
+  next C2
+  realizes B1
+  ref gh:src/loans/api.py#L20-L58
+step C2: Check overdue items and the loan limit
+  next C3
+  realizes B2
+  ref gh:src/loans/rules.py#L10-L47
+  why returns a reason code instead of true or false, so the desk can show it
+  change modified
+step C3: Look up open reservations for the copy
+  next C4
+  realizes B3
+  change new
+step C4: Desk app warns about a reservation
+  next C5
+  ref gh:desk/src/loan_dialog.ts#L88-L120
+  why the warning could be dismissed; the server decides now
+  change removed
+step C5: Create the loan row with the due date
+  next C6
+  realizes B4
+  ref gh:src/loans/store.py#L80-L112
+step C6: Nightly job sends reminders 2 days before the due date
+  realizes B5
+  ref gh:src/jobs/reminders.py#L5-L40
+  change removed
 ```
 
 Divergences:
@@ -681,62 +561,55 @@ A trace block shows one process at two or more levels (lanes), most abstract fir
 *Why agents benefit:* the next agent finds the code for each step of the plan without searching, and the reviewer sees at once which code steps the plan never mentioned.
 
 ````markdown
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "A member returns a book"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "The next member waiting for it is told"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Close the loan and free the copy"
-    realizes: [B1]
-    ref: "gh:src/loans/return.py#L18-L52"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Email the first open reservation"
-    realizes: [B2]
-    ref: "gh:src/reservations/notify.py#L9-L40"
+step B1: A member returns a book
+  next B2
+step B2: The next member waiting for it is told
+
+lane code
+
+step C1: Close the loan and free the copy
+  next C2
+  realizes B1
+  ref gh:src/loans/return.py#L18-L52
+step C2: Email the first open reservation
+  realizes B2
+  ref gh:src/reservations/notify.py#L9-L40
 ```
 ````
 
 **Format**
 
-- Fence the block as `trace v1`, never as `yaml`.
-- One key per line for every node. Never write a node as `{id: …, text: …}`.
-- Put `text`, `why`, `ref` and labels in double quotes. Inside them write `\"` for a quote and `\\` for a backslash.
-- Keys: `id`, `lane`, `text` always; `next`, `back`, `realizes`, `ref`, `why`, `change` when they apply. Do not invent other keys; a key of your own must start with `x-`.
-- List the nodes lane by lane, each lane in the order things happen.
+- Fence the block as `trace v2`.
+- A `lane <name>` line opens each lane, most abstract first; the steps of a lane follow it, in the order things happen.
+- `step <id>: <text>` is one step; its attributes are indented below it: `next`, `back`, `realizes`, `covers`, `ref`, `guards`, `why`, `change`. Do not invent other keywords; one of your own must start with `x-`.
 
 **Content**
 
 - Each lane describes the *same* process. The top lane is how a user or the business would tell it; the bottom lane is what the code does. Add a middle lane only if the reader needs it.
-- `text` is one short line saying what happens. Keep it under 100 characters.
+- The step's text is one short line saying what happens. Keep it under 100 characters.
 - Describe the code as it is, including the steps nobody asked for: guards, retries, caches, batching, clean-up. Do not leave a code step out to make the lanes match, and do not add `realizes` to a step that implements nothing above it. The differences are what the reviewer needs.
 - A step that realizes nothing gets a `why`.
-- Every node in the bottom lane gets a `ref` to the lines it describes, unless it is `change: new`.
-- `next` names what follows in the same lane. For a branch, use the labelled form and say when each edge is taken:
+- Every step in the bottom lane gets a `ref` to the lines it describes, unless it is `change new`.
+- `next` names what follows in the same lane, one per line. For a branch, add a label after `: ` saying when each edge is taken:
 
-  ```yaml
-  next:
-    I3: "file larger than 20 MB"
-    I4: "otherwise"
+  ```text
+    next C3: queue not empty
+    next C5: queue empty
   ```
 
-- A loop or retry goes under `back`, on the node where the flow returns, with a label saying when: `back: {F1: "while pages remain"}` or the block form. `next` must never lead back to an earlier node.
-- `realizes` names nodes in lanes above. In three lanes, link each node to the lane directly above where you can; do not also link it to the top lane.
-- When the trace describes a plan, mark what the plan does: `change: new`, `change: modified` or `change: removed`. Leave unchanged steps unmarked. Keep removed steps in the flow where they are today.
-- Aim for 20 nodes or fewer in a block; 40 is the limit. For a larger process, put an overview block under one heading and one block per phase under its own heading, and repeat the last step of a phase as the first step of the next.
+- A loop or retry is a `back` on the step where the flow returns, with a label saying when: `back C1: while pages remain`. `next` must never lead back to an earlier step.
+- `realizes` names steps in lanes above. In three lanes, link each step to the lane directly above where you can; do not also link it to the top lane.
+- `covers` names an acceptance criterion of the document that a business step demonstrates.
+- A step that keeps an invariant true names it with `guards`: the document's own by id, the parent plan node's as `parent#<id>`, a domain's as `<domain>#<id>`. Put it on the step where the property is enforced, in the lowest lane that shows it.
+- When the trace describes a plan, mark what the plan does: `change new`, `change modified` or `change removed`. Leave unchanged steps unmarked. Keep removed steps in the flow where they are today.
+- Aim for 20 steps or fewer in a block; 40 is the limit. For a larger process, put an overview block under one heading and one block per phase under its own heading, and repeat the last step of a phase as the first step of the next.
 
 **Ids are permanent**
 
-Reviewers' comments are attached to node ids. When you change an existing trace:
+Reviewers' comments are attached to step ids. When you change an existing trace:
 
 - read the existing block first and keep the id of every step that is still the same step, even if its text changes or it moves;
 - give a new step an id that was never used in that block; do not renumber the others to make room;
@@ -745,4 +618,4 @@ Reviewers' comments are attached to node ids. When you change an existing trace:
 
 **Check**
 
-Run `kalka check <file> --json` after writing. Fix every error (the block is shown as plain code until you do) and read every warning. Then read the divergence list: each item should be something true about the code. If one is an artefact of how you wrote the trace, fix the trace; if it is real, leave it, and make sure the node's `why` explains it.
+Run `kalka check <file> --json` after writing. Fix every error (the block is shown as plain code until you do) and read every warning. Then read the divergence list: each item should be something true about the code. If one is an artefact of how you wrote the trace, fix the trace; if it is real, leave it, and make sure the step's `why` explains it.

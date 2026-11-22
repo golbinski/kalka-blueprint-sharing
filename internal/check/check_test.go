@@ -89,14 +89,14 @@ func writeDomain(t *testing.T, dir string, v int, snapshot bool, glossary, invar
 	if snapshot {
 		name = "lending-loans-domain@v" + string(rune('0'+v)) + ".md"
 	}
-	domainFile(t, filepath.Join(dir, name), "lending", v, "```glossary v1\n"+glossary+"```\n\n## Rules\n\n```invariants v1\ninvariants:\n"+invariants+"```")
+	domainFile(t, filepath.Join(dir, name), "lending", v, "```glossary v2\n"+glossary+"```\n\n## Rules\n\n```invariants v2\n"+invariants+"```")
 }
 
 const (
-	glossV1 = "- term: \"loan\"\n  definition: \"One item lent to one member\"\n  aliases: [\"borrowing\"]\n- term: \"member\"\n  definition: \"Someone with a card\"\n"
-	glossV2 = glossV1 + "  aliases: [\"patron\"]\n"
-	invV1   = "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n  - id: I3\n    statement: \"A member has at most ten loans\"\n"
-	invV2   = "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n"
+	glossV1 = "term loan: One item lent to one member\n  alias borrowing\nterm member: Someone with a card\n"
+	glossV2 = glossV1 + "  alias patron\n"
+	invV1   = "invariant I1: A loan is renewed at most twice\ninvariant I3: A member has at most ten loans\n"
+	invV2   = "invariant I1: A loan is renewed at most twice\n"
 )
 
 func lendingFolder(t *testing.T) *Folder {
@@ -125,7 +125,7 @@ func ruleList(ps []bp.Problem, prefixes string) string {
 	return strings.Join(ids, " ")
 }
 
-const guardsTrace = "```trace v1\nlanes: [business, code]\nnodes:\n  - id: B1\n    lane: business\n    text: \"A borrowing is renewed\"\n    guards: [\"loans#I1\", \"loans#I3\"]\n```\n"
+const guardsTrace = "```trace v2\nlane business\nstep B1: A borrowing is renewed\n  guards loans#I1\n  guards loans#I3\nlane code\n```\n"
 
 func TestDomainInvariantsAndTerms(t *testing.T) {
 	f := lendingFolder(t)
@@ -167,7 +167,7 @@ func TestDomainInvariantsAndTerms(t *testing.T) {
 // A blueprint that names no domain is linked and checked against its own
 // glossary, as a domain document is against its (spec 6.16).
 func TestOwnGlossary(t *testing.T) {
-	src := "# Shelving\n\n```glossary v1\n- term: \"returns cart\"\n  definition: \"The trolley returned books wait on\"\n  aliases: [\"trolley\"]\n```\n\nEach book on the Trolley is labelled.\n"
+	src := "# Shelving\n\n```glossary v2\nterm returns cart: The trolley returned books wait on\n  alias trolley\n```\n\nEach book on the Trolley is labelled.\n"
 	d, err := bp.Parse([]byte(src))
 	if err != nil {
 		t.Fatal(err)
@@ -198,9 +198,10 @@ func TestOwnGlossary(t *testing.T) {
 
 func TestMatrixAndImpact(t *testing.T) {
 	f := lendingFolder(t)
-	p := plan(t, "v1", "## Plan\n\n```invariants v1\naffects: [\"loans#I3\"]\ninvariants:\n  - id: N1\n    statement: \"A renewal is logged\"\n```\n\nThe member returns the borrowing.\n\n"+guardsTrace)
+	p := plan(t, "v1", "## Plan\n\n```invariants v2\naffects loans#I3\ninvariant N1: A renewal is logged\n```\n\nThe member returns the borrowing.\n\n"+guardsTrace)
 	r := Document(p, Options{Domains: f})
-	rows := Matrix(p, r.Domain)
+	rows := Matrix(p, r.Context, nil)
+	_ = r
 	var got []string
 	for _, row := range rows {
 		got = append(got, row.Ref+"/"+strings.Join(row.Gaps, ",")+"/"+itoa(len(row.GuardedBy))+"/"+row.Statement)
@@ -213,12 +214,12 @@ func TestMatrixAndImpact(t *testing.T) {
 	// The owner of loans, releasing v3 from a text without I1 and with
 	// "returning" as a new alias of loan.
 	dom := f.Version("lending", "loans", 2)
-	next, _ := bp.Parse([]byte(strings.Replace(strings.Replace(string(dom.Bytes()), "aliases: [\"borrowing\"]", "aliases: [\"borrowing\", \"returns\"]", 1), "  - id: I1\n    statement: \"A loan is renewed at most twice\"\n", "  - id: I2\n    statement: \"x\"\n", 1)))
+	next, _ := bp.Parse([]byte(strings.Replace(strings.Replace(string(dom.Bytes()), "  alias borrowing\n", "  alias borrowing\n  alias returns\n", 1), "invariant I1: A loan is renewed at most twice\n", "invariant I2: x\n", 1)))
 	imp := Impact(next, map[string]*bp.Document{"renewals.md": p}, f)
 	if len(imp) != 1 || ruleList(imp[0].Problems, "GI") != "I040 I040 G030" {
 		t.Fatalf("impact %+v", imp)
 	}
-	rows = Matrix(dom, nil)
+	rows = Matrix(dom, DomainContext{}, nil)
 	ReferencedBy(rows, dom, map[string]*bp.Document{"renewals.md": p})
 	if len(rows) != 1 || len(rows[0].ReferencedBy) != 1 {
 		t.Errorf("referenced by %+v", rows)

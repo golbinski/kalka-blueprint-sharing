@@ -26,7 +26,7 @@ func TestBud(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The seed: status, one owner, parent, origin, created, a new id.
-	if !seed.IsSeed() || seed.Owner() != "bob@example.org" || seed.Parent() != p.KalkaID() || seed.Origin() != dev.ID || seed.KalkaID() != sid || sid == p.KalkaID() {
+	if !seed.IsSeed() || seed.Owner() != "bob@example.org" || seed.OriginDoc() != p.KalkaID() || func() string { _, e, _ := seed.Origin(); return e }() != dev.ID || seed.KalkaID() != sid || sid == p.KalkaID() {
 		t.Fatalf("seed:\n%s", seed.Bytes())
 	}
 	if c, ok := seed.Created(); !ok || !c.Equal(at.Add(time.Hour)) {
@@ -73,7 +73,7 @@ func TestBudWithoutOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seed.Origin() != "" || e.Anchor != "" || e.ReplyTo() != "" {
+	if _, o, _ := seed.Origin(); o != "" || e.Anchor != "" || e.ReplyTo() != "" {
 		t.Fatalf("origin set: %+v", e)
 	}
 	if _, _, err := Bud(p, SeedSpec{KalkaID: NewKalkaID(), Owner: "dana@example.org", Title: "x", At: time.Now()}, Signer{}); err == nil {

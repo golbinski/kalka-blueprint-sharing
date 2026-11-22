@@ -383,4 +383,3 @@ func cmdLogin(args []string, st *store, stdin io.Reader, stdout, stderr io.Write
 	fmt.Fprintf(stdout, "logged in to %s; the token is in %s\n", clean, where)
 	return 0
 }
-

@@ -319,12 +319,12 @@ func (g *graph) inverted(a, b string, l int) ([2]string, bool) {
 
 // graphWarnings are the warnings of a valid block that look at more than
 // one node (T105 to T108, T110, T111).
-func (p *traceParser) graphWarnings(raws []rawNode) {
+func (p *traceParser) graphWarnings() {
 	t := p.t
 	g := newGraph(t)
 	line := map[string]int{}
-	for _, r := range raws {
-		line[r.ID] = r.line
+	for _, n := range t.Nodes {
+		line[n.ID] = n.Line
 	}
 	for _, n := range t.Nodes {
 		for _, m := range n.Realizes {
@@ -344,7 +344,7 @@ func (p *traceParser) graphWarnings(raws []rawNode) {
 			}
 		}
 		if len(ids) == 0 {
-			p.warn("T106", "", p.lanesLine, "lane %s has no nodes; give it steps or remove it from lanes", l)
+			p.warn("T106", "", p.laneLine[li], "lane %s has no steps; give it steps or remove the lane line", l)
 			continue
 		}
 		if groups := g.groups(ids); len(groups) > 1 {
@@ -356,7 +356,7 @@ func (p *traceParser) graphWarnings(raws []rawNode) {
 		}
 	}
 	if len(t.Nodes) > AdvisedTraceNodes {
-		p.warn("T108", "", 1, "%d nodes; aim for %d or fewer, and split a larger process into one block per phase", len(t.Nodes), AdvisedTraceNodes)
+		p.warn("T108", "", t.Line, "%d nodes; aim for %d or fewer, and split a larger process into one block per phase", len(t.Nodes), AdvisedTraceNodes)
 	}
 	for _, n := range t.Nodes {
 		if n.Live() && g.lane(n.ID) > 0 && !g.realizesLive(&n) && n.Why == "" {

@@ -65,7 +65,7 @@ func TestCheckParity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res := check.Document(doc, check.Options{Domains: folder})
+		res := check.Document(doc, check.Options{Domains: folder.Tree(), Docs: folder})
 		want := res.Problems
 		if !reflect.DeepEqual(v.Problems, want) {
 			t.Errorf("%s:\n app   %+v\n check %+v", filepath.Base(p), v.Problems, want)
@@ -73,7 +73,7 @@ func TestCheckParity(t *testing.T) {
 		if !reflect.DeepEqual(v.Glossary, res.Glossary) {
 			t.Errorf("%s: glossary\n app   %+v\n check %+v", filepath.Base(p), v.Glossary, res.Glossary)
 		}
-		if m := check.Matrix(doc, res.Domain); !doc.IsDomain() && !reflect.DeepEqual(v.Invariants, m) {
+		if m := check.Matrix(doc, res.Context, folder); !doc.IsDomain() && !reflect.DeepEqual(v.Invariants, m) {
 			t.Errorf("%s: invariants\n app   %+v\n check %+v", filepath.Base(p), v.Invariants, m)
 		}
 		for _, pr := range want {

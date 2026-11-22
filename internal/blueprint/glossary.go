@@ -2,13 +2,13 @@ package blueprint
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark/ast"
-	"go.yaml.in/yaml/v3"
 )
 
 // GlossaryInfo is the first word of a glossary block's fence (spec 6.16).
@@ -21,10 +21,6 @@ const (
 	advisedDefinition = 400
 )
 
-var glossaryKeys = []string{"term", "definition", "aliases", "forms", "context", "see"}
-
-var glossaryCodes = blockCodes{parse: "G001", feature: "G002", dupKey: "G003", shape: "G004", version: "G005", noVersion: "G006", unknownKey: "G007"}
-
 // Term is one entry of a domain's glossary.
 type Term struct {
 	Term       string   `json:"term"`
@@ -34,6 +30,20 @@ type Term struct {
 	Context    string   `json:"context,omitempty"`
 	See        []string `json:"see,omitempty"`
 	Line       int      `json:"line"`
+	// Domain is the domain node that defines the term, set where a
+	// glossary is put together from a domain path (spec 6.16).
+	Domain string `json:"domain,omitempty"`
+	// Refined are the invariants of domain nodes on the path that narrow
+	// the term (refines).
+	Refined []Refinement `json:"refined,omitempty"`
+}
+
+// Refinement is an invariant that narrows a term: its domain, id and
+// statement.
+type Refinement struct {
+	Domain    string `json:"domain"`
+	ID        string `json:"id"`
+	Statement string `json:"statement"`
 }
 
 // Glossary returns the terms of the document's valid glossary blocks, in
@@ -55,7 +65,7 @@ func (d *Document) buildGlossary(fences []fence) {
 			d.problem("G008", f.line, what+": this blueprint is linked against the glossary of the domain its "+KeyDomain+": names; its own is shown as code")
 			continue
 		}
-		p := &blockParser{codes: glossaryCodes, base: f.line}
+		p := &langParser{lang: glossaryLang, base: f.line}
 		terms := p.glossary(f)
 		// Across blocks and within one: a term, form or alias names one entry.
 		var keep []Term
@@ -79,13 +89,17 @@ func (d *Document) buildGlossary(fences []fence) {
 		if len(p.errors) == 0 || len(keep) > 0 && onlyCode(p.errors, "G012") {
 			d.glossary = append(d.glossary, keep...)
 		}
-		d.blockProblems(what, p.errors, p.warns)
+		d.blockProblems(what, "", p.errors, p.warns)
 	}
 	if len(d.glossary) > MaxGlossaryTerms {
 		d.problem("G014", 0, fmt.Sprintf("the glossary has %d terms; at most %d are read", len(d.glossary), MaxGlossaryTerms))
 		d.glossary = d.glossary[:MaxGlossaryTerms]
 	}
-	// see names a term of the same glossary.
+	// see names a term of the same glossary; a subdomain's may also name
+	// its ancestors' terms, which the checker resolves.
+	if _, sub := d.DomainParent(); sub {
+		return
+	}
 	known := map[string]bool{}
 	for _, t := range d.glossary {
 		known[PhraseKey(t.Term)] = true
@@ -110,54 +124,26 @@ func onlyCode(es []TraceError, code string) bool {
 	return true
 }
 
-// glossary reads one block: a list of entries.
-func (p *blockParser) glossary(f fence) []Term {
-	if !p.version(f.info, GlossaryInfo) {
+// glossary reads one block: term lines with their attributes.
+func (p *langParser) glossary(f fence) []Term {
+	if !p.version(f.info) {
 		return nil
 	}
-	root := p.read(f.source)
-	if root == nil {
-		if len(p.errors) == 0 {
-			p.fail("G004", "", 1, "the block is a list of entries, each with term and definition")
-		}
-		return nil
-	}
-	if root.Kind != yaml.SequenceNode || len(root.Content) == 0 {
-		p.fail("G004", "", root.Line, "the block is a list of entries, each starting \"- term: …\"")
+	items := p.parse(f.source)
+	if len(items) == 0 && len(p.errors) == 0 {
+		p.fail("S031", "", f.line, "the block has no terms; write term copy: <what it means here>")
 		return nil
 	}
 	var out []Term
-	for _, e := range root.Content {
-		if e.Kind != yaml.MappingNode || e.Style&yaml.FlowStyle != 0 {
-			p.fail("G004", "", e.Line, "an entry is a block mapping, one key per line, starting \"- term: …\"")
-			continue
-		}
-		t := Term{Line: p.base + e.Line}
-		var ok [6]bool
-		t.Term, ok[0] = p.text(e, "term", "")
-		node := t.Term
-		p.unknownKeys(e, glossaryKeys, node)
-		t.Definition, ok[1] = p.text(e, "definition", node)
-		t.Context, ok[2] = p.text(e, "context", node)
-		t.Aliases, ok[3] = p.texts(e, "aliases", node)
-		t.Forms, ok[4] = p.texts(e, "forms", node)
-		t.See, ok[5] = p.texts(e, "see", node)
-		if ok != [6]bool{true, true, true, true, true, true} {
-			continue
-		}
-		switch {
-		case t.Term == "":
-			p.fail("G010", "", e.Line, "the entry has no term; add term: with the word as the team uses it")
-			continue
-		case utf8.RuneCountInString(t.Term) > maxTermLen:
-			p.fail("G013", node, e.Line, "the term is longer than %d characters; a term is a word or a short phrase", maxTermLen)
-			continue
-		case t.Definition == "":
-			p.fail("G011", node, e.Line, "the term has no definition; say in a sentence what it means here")
+	for _, it := range items {
+		t := Term{Term: it.Name, Definition: it.Text, Line: it.Line,
+			Forms: it.values("form"), Aliases: it.values("alias"), See: it.values("see"), Context: it.one("context")}
+		if utf8.RuneCountInString(t.Term) > maxTermLen {
+			p.fail("G013", t.Term, it.Line, "the term is longer than %d characters; a term is a word or a short phrase", maxTermLen)
 			continue
 		}
 		if utf8.RuneCountInString(t.Definition) > advisedDefinition {
-			p.warn("G015", node, e.Line, "the definition is longer than %d characters; keep it to what a reader needs on hover", advisedDefinition)
+			p.warn("G015", t.Term, it.Line, "the definition is longer than %d characters; keep it to what a reader needs on hover", advisedDefinition)
 		}
 		out = append(out, t)
 	}
@@ -373,7 +359,11 @@ type TermUse struct {
 	Term    int    `json:"term"`
 	Alias   bool   `json:"alias,omitempty"`
 	Surface string `json:"surface"`
-	// Where: body, trace (a node's text) or invariant (a statement).
+	// Qualifier is the domain written right before the word,
+	// library.reservations in library.reservations#hold, or "".
+	Qualifier string `json:"qualifier,omitempty"`
+	// Where: body, trace (a step's text), invariant (a statement) or goal
+	// (a goal's or criterion's text and steps).
 	Where     string `json:"where"`
 	Node      string `json:"node,omitempty"`
 	Line      int    `json:"line"`
@@ -382,8 +372,18 @@ type TermUse struct {
 	EndColumn int    `json:"end_column,omitempty"`
 }
 
-// TermUses finds the terms in the document's prose, trace node texts and
-// invariant statements, in that order.
+var qualifierRe = regexp.MustCompile(`([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*)#$`)
+
+// qualifier is the domain name written right before offset at in s.
+func qualifier(s string, at int) string {
+	if m := qualifierRe.FindStringSubmatch(s[:at]); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// TermUses finds the terms in the document's prose, trace step texts,
+// invariant statements and goals, in that order.
 func (d *Document) TermUses(m *Matcher) []TermUse {
 	var out []TermUse
 	for i := range d.runs {
@@ -391,19 +391,26 @@ func (d *Document) TermUses(m *Matcher) []TermUse {
 		for _, x := range m.Match(r.text) {
 			l, c := r.src.pos(r.srcOffset(x.Start))
 			el, ec := r.src.pos(r.srcOffset(x.End))
-			out = append(out, TermUse{Term: x.Term, Alias: x.Alias, Surface: r.text[x.Start:x.End], Where: "body", Line: l, Column: c, EndLine: el, EndColumn: ec})
+			out = append(out, TermUse{Term: x.Term, Alias: x.Alias, Surface: r.text[x.Start:x.End], Qualifier: qualifier(r.text, x.Start), Where: "body", Line: l, Column: c, EndLine: el, EndColumn: ec})
+		}
+	}
+	add := func(where, node, text string, line int) {
+		for _, x := range m.Match(text) {
+			out = append(out, TermUse{Term: x.Term, Alias: x.Alias, Surface: text[x.Start:x.End], Qualifier: qualifier(text, x.Start), Where: where, Node: node, Line: line})
 		}
 	}
 	for _, t := range d.traces {
 		for _, n := range t.Nodes {
-			for _, x := range m.Match(n.Text) {
-				out = append(out, TermUse{Term: x.Term, Alias: x.Alias, Surface: n.Text[x.Start:x.End], Where: "trace", Node: n.ID, Line: n.Line})
-			}
+			add("trace", n.ID, n.Text, n.Line)
 		}
 	}
 	for _, inv := range d.invariants {
-		for _, x := range m.Match(inv.Statement) {
-			out = append(out, TermUse{Term: x.Term, Alias: x.Alias, Surface: inv.Statement[x.Start:x.End], Where: "invariant", Node: inv.ID, Line: inv.Line})
+		add("invariant", inv.ID, inv.Statement, inv.Line)
+	}
+	for _, g := range d.goals {
+		add("goal", g.ID, g.Text, g.Line)
+		for _, s := range g.Steps {
+			add("goal", g.ID, s.Text, s.Line)
 		}
 	}
 	return out

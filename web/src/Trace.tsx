@@ -3,6 +3,7 @@
 // Layout is computed in traceLayout.ts; nothing is saved.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { GuardsList, Linked } from './Aids'
+import { ownNodes } from './Goals'
 import type { Divergence, Doc, Entry, RefView, Trace, TraceNode, TraceProblem } from './api'
 import { Composer, EntryCard } from './Review'
 import { clampWidth, DEFAULT_PANEL, loadWidth, saveWidth, widePreset } from './panelWidth'
@@ -501,6 +502,21 @@ function NodePanel({ t, doc, id, onClose, reload }: { t: Trace; doc: Doc; id: st
         )}
       </div>
       <GuardsList doc={doc} guards={n.guards} />
+      {(n.covers ?? []).length > 0 && (
+        <div className="mt2">
+          <b>Covers:</b>{' '}
+          {n.covers!.map((c, i) => {
+            const g = ownNodes(doc).find((x) => x.kind === 'criterion' && x.id === c)
+            return (
+              <span key={c}>
+                {i > 0 && ', '}
+                <span className="mono">{c}</span>
+                {g && <span className="muted"> ({g.text})</span>}
+              </span>
+            )
+          })}
+        </div>
+      )}
       {n.ref && <RefBox info={doc.refs[n.ref]} raw={n.ref} />}
       <div className="hr" />
       <div className="small b">{notes.length ? plural(notes.length, 'comment') + ' on this step' : 'No comments on this step yet'}</div>

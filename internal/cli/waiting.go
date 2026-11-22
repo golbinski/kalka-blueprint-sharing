@@ -193,8 +193,8 @@ func cmdBacklink(args []string, stdout, stderr io.Writer, now func() time.Time) 
 	if err != nil {
 		return fail(err)
 	}
-	if seed.Parent() == "" {
-		return fail(errors.New("this document names no parent"))
+	if seed.OriginDoc() == "" {
+		return fail(errors.New("this document is not a seed split off from another (no kalka_origin)"))
 	}
 	st, err := store.Open(cfg.Folder)
 	if err != nil {
@@ -203,7 +203,7 @@ func cmdBacklink(args []string, stdout, stderr io.Writer, now func() time.Time) 
 	var entry *bp.Entry
 	parentPath := ""
 	for attempt := 0; ; attempt++ {
-		pf, err := st.Resolve(seed.Parent())
+		pf, err := st.Resolve(seed.OriginDoc())
 		if err == nil && pf == nil {
 			err = errors.New("the parent blueprint is not in the folder")
 		}

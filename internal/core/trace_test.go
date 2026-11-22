@@ -11,32 +11,23 @@ import (
 	"github.com/golbinski/kalka/internal/plugin"
 )
 
-const tracePlan = "# Import pipeline refactor\n\n## Plan\n\n```trace v1\n" + `lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "Receive files"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "Notify"
-  - id: C1
-    lane: code
-    text: "Upload handler"
-    realizes: [B1]
-    ref: "gh:src/upload.py#L1-L9"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Skip large files"
-    ref: "https://example.com/x"
-    why: "the parser runs out of memory"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "Notify in batches"
-    realizes: [B2]
-    ref: "gh:src/notify.py"
+const tracePlan = "# Import pipeline refactor\n\n## Plan\n\n```trace v2\n" + `lane business
+step B1: Receive files
+  next B2
+step B2: Notify
+
+lane code
+step C1: Upload handler
+  realizes B1
+  ref gh:src/upload.py#L1-L9
+  next C2
+step C2: Skip large files
+  ref https://example.com/x
+  why the parser runs out of memory
+  next C3
+step C3: Notify in batches
+  realizes B2
+  ref gh:src/notify.py
 ` + "```\n"
 
 func findEntry(v *DocView, anchor string) *EntryView {
@@ -75,10 +66,10 @@ func TestNodeCommentRoundTrip(t *testing.T) {
 
 	// The owner renames the node and releases the revision.
 	src := alice.read(name)
-	src = strings.Replace(src, "id: C2\n", "id: C9\n", 1)
-	src = strings.Replace(src, "next: [C2]", "next: [C9]", 1)
+	src = strings.Replace(src, "step C2:", "step C9:", 1)
+	src = strings.Replace(src, "next C2\n", "next C9\n", 1)
 	alice.write(name, src)
-	waitStored(t, alice, alice.path(name), "id: C9\n")
+	waitStored(t, alice, alice.path(name), "step C9:")
 	alice.share(name, bob)
 	v, _ = bob.d.Document(ctx, bob.rel(id))
 	if e := findEntry(v, "plan#C2"); e == nil || !e.Orphaned {
@@ -177,24 +168,19 @@ func TestTraceViewReferences(t *testing.T) {
 func TestTraceViewChange(t *testing.T) {
 	w := newWorld(t)
 	alice := w.node("alice@library.example")
-	alice.write("plan.md", "# Renewals\n\n## Plan\n\n```trace v1\n"+`lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "A member renews a loan"
-    ref: "https://example.com/policy"
-  - id: C1
-    lane: code
-    text: "Extend the due date"
-    realizes: [B1]
-    change: new
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Old renewal form"
-    why: "replaced by the API"
-    ref: "gh:src/form.py"
-    change: removed
+	alice.write("plan.md", "# Renewals\n\n## Plan\n\n```trace v2\n"+`lane business
+step B1: A member renews a loan
+  ref https://example.com/policy
+
+lane code
+step C1: Extend the due date
+  realizes B1
+  change new
+  next C2
+step C2: Old renewal form
+  why replaced by the API
+  ref gh:src/form.py
+  change removed
 `+"```\n")
 	v, err := alice.d.Document(context.Background(), "plan.md")
 	if err != nil {

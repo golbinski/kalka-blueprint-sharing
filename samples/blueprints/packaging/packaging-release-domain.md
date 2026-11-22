@@ -12,35 +12,37 @@ The language of how kalka is built, packaged and published, and what must hold f
 
 ## Glossary
 
-```glossary v1
-- term: "release"
-  definition: "The set of artifacts published for one tag, with the checksum file that covers them"
-  forms: ["releases"]
-  context: "publish"
-  see: ["tag", "pre-release"]
-- term: "tag"
-  definition: "A git tag of the form v1.2.3, or v1.2.3-rc1 with a suffix, that starts a release"
-  forms: ["tags"]
-  context: "publish"
-- term: "pre-release"
-  definition: "A release whose tag has a hyphen; it is published but not offered as the latest"
-  forms: ["pre-releases"]
-  aliases: ["release candidate", "release candidates"]
-  context: "publish"
-- term: "artifact"
-  definition: "One file a release publishes: an archive, an installer or the checksum file"
-  forms: ["artifacts"]
-  aliases: ["build output", "build outputs"]
-  context: "build"
-- term: "archive"
-  definition: "A zip or tar.gz holding the binaries and a readme for one platform and architecture"
-  forms: ["archives"]
-  context: "build"
-- term: "installer"
-  definition: "A per-user Windows setup executable built with NSIS, for one architecture"
-  forms: ["installers"]
-  aliases: ["setup program"]
-  context: "build"
+```glossary v2
+term release: The set of artifacts published for one tag, with the checksum file that covers them
+  form releases
+  see tag
+  see pre-release
+  context publish
+
+term tag: A git tag of the form v1.2.3, or v1.2.3-rc1 with a suffix, that starts a release
+  form tags
+  context publish
+
+term pre-release: A release whose tag has a hyphen; it is published but not offered as the latest
+  form pre-releases
+  alias release candidate
+  alias release candidates
+  context publish
+
+term artifact: One file a release publishes: an archive, an installer or the checksum file
+  form artifacts
+  alias build output
+  alias build outputs
+  context build
+
+term archive: A zip or tar.gz holding the binaries and a readme for one platform and architecture
+  form archives
+  context build
+
+term installer: A per-user Windows setup executable built with NSIS, for one architecture
+  form installers
+  alias setup program
+  context build
 ```
 
 ## Parts
@@ -50,25 +52,21 @@ The language of how kalka is built, packaged and published, and what must hold f
 
 ## Invariants
 
-```invariants v1
-invariants:
-  - id: I1
-    statement: "The checksum file lists every artifact of a release, and only those"
-    context: "build"
-    why: "a user verifies a download against it; a missing line reads as a bad download"
-    verified_by: ["gh:tools/release/release_test.go#L217-L277"]
-  - id: I2
-    statement: "kalka.exe is a console program and kalka-desktop.exe a GUI one"
-    context: "build"
-    why: "a mix-up opens a console at every logon, or makes the command line print nothing"
-    verified_by: ["gh:tools/release/release_test.go#L86-L127", "gh:tools/release/pe.go#L33-L49"]
-  - id: I3
-    statement: "A tag with a hyphen is published as a pre-release, and a tag without one is not"
-    context: "publish"
-    verified_by: ["gh:.github/workflows/ci.yml#L137-L141", "Reviewer: push a tag ending in -rc1 to a fork and read the release page"]
-  - id: I4
-    statement: "A release never publishes a desktop executable without the app icon"
-    context: "build"
-    why: "a user sees the default icon on the taskbar and takes the app for a leftover"
-    verified_by: ["gh:tools/release/pe.go#L50-L58"]
+```invariants v2
+invariant I1: The checksum file lists every artifact of a release, and only those
+  why a user verifies a download against it; a missing line reads as a bad download
+  verified-by gh:tools/release/release_test.go#L217-L277
+
+invariant I2: kalka.exe is a console program and kalka-desktop.exe a GUI one
+  why a mix-up opens a console at every logon, or makes the command line print nothing
+  verified-by gh:tools/release/release_test.go#L86-L127
+  verified-by gh:tools/release/pe.go#L33-L49
+
+invariant I3: A tag with a hyphen is published as a pre-release, and a tag without one is not
+  verified-by gh:.github/workflows/ci.yml#L137-L141
+  verified-by Reviewer: push a tag ending in -rc1 to a fork and read the release page
+
+invariant I4: A release never publishes a desktop executable without the app icon
+  why a user sees the default icon on the taskbar and takes the app for a leftover
+  verified-by gh:tools/release/pe.go#L50-L58
 ```

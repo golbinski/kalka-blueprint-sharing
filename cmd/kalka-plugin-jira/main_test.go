@@ -38,7 +38,7 @@ func newFakeJira(t *testing.T) (*fakeJira, *httptest.Server) {
 			"DEV-123": {"summary": "Redelivery after a failed attempt", "issuetype": map[string]any{"name": "Story"},
 				"status":   map[string]any{"name": "In Progress", "statusCategory": map[string]any{"key": "indeterminate"}},
 				"assignee": map[string]any{"displayName": "Ewa Nowak"}, "labels": []string{"delivery"},
-				"parent":   map[string]any{"key": "DEV-90"}, "updated": "2026-11-19T15:02:00.000+0100",
+				"parent": map[string]any{"key": "DEV-90"}, "updated": "2026-11-19T15:02:00.000+0100",
 				"customfield_10020": []map[string]any{{"name": "Sprint 40", "state": "closed"}, {"name": "Sprint 41", "state": "active"}}},
 			"DEV-140": {"summary": "Locker pickup", "issuetype": map[string]any{"name": "Task"},
 				"status": map[string]any{"name": "Done", "statusCategory": map[string]any{"key": "done"}}},

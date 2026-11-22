@@ -5,8 +5,6 @@ import (
 	"regexp"
 	"slices"
 	"unicode/utf8"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // InvariantsInfo is the first word of an invariants block's fence (spec
@@ -26,22 +24,23 @@ const (
 	StatusRemoved = "removed"
 )
 
-var (
-	invBlockKeys = []string{"invariants", "affects"}
-	invKeys      = []string{"id", "statement", "context", "why", "verified_by", "status"}
-	invCodes     = blockCodes{parse: "I001", feature: "I002", dupKey: "I003", shape: "I004", version: "I005", noVersion: "I006", unknownKey: "I007"}
-	// invRefRe is an invariant reference: an id, or <domain>#<id>.
-	invRefRe = regexp.MustCompile(`^(?:([a-z0-9][a-z0-9-]*)#)?([A-Za-z][A-Za-z0-9_-]{0,31})$`)
-)
+// ParentRef is the reserved name of a reference to the parent plan node,
+// parent#<id> (spec 6.18); it cannot be a domain name.
+const ParentRef = "parent"
+
+// invRefRe is a reference to an invariant, goal or criterion: an id,
+// parent#<id> or <domain>#<id>, the domain a dotted path.
+var invRefRe = regexp.MustCompile(`^(?:([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*)#)?([A-Za-z][A-Za-z0-9_-]{0,31})$`)
 
 // Invariant is one invariant of a document.
 type Invariant struct {
 	ID         string   `json:"id"`
 	Statement  string   `json:"statement"`
-	Context    string   `json:"context,omitempty"`
 	Why        string   `json:"why,omitempty"`
 	VerifiedBy []string `json:"verified_by,omitempty"`
-	Status     string   `json:"status,omitempty"`
+	// Refines are the ancestor domains' terms the invariant narrows.
+	Refines []string `json:"refines,omitempty"`
+	Status  string   `json:"status,omitempty"`
 	// Section is the slug of the heading above its block: its comment
 	// anchor is §<section>#<id>.
 	Section string `json:"section,omitempty"`
@@ -51,11 +50,15 @@ type Invariant struct {
 // Live reports whether the invariant holds after the plan.
 func (v *Invariant) Live() bool { return v.Status != StatusRemoved }
 
-// InvRef is a parsed invariant reference.
+// InvRef is a parsed reference: Domain is "" for the document's own,
+// "parent" for the parent plan node's, or a domain name.
 type InvRef struct {
-	Domain string // "" for the document's own
+	Domain string
 	ID     string
 }
+
+// IsParent reports a parent#<id> reference.
+func (r InvRef) IsParent() bool { return r.Domain == ParentRef }
 
 func (r InvRef) String() string {
 	if r.Domain == "" {
@@ -64,7 +67,7 @@ func (r InvRef) String() string {
 	return r.Domain + "#" + r.ID
 }
 
-// ParseInvRef parses `I3` or `parcel-delivery#I3`.
+// ParseInvRef parses `I3`, `parent#E1` or `library.reservations#R1`.
 func ParseInvRef(s string) (InvRef, bool) {
 	m := invRefRe.FindStringSubmatch(s)
 	if m == nil {
@@ -109,27 +112,23 @@ func (d *Document) buildInvariants(fences []fence) {
 		}
 		n++
 		what := fmt.Sprintf("invariants %d", n)
-		p := &blockParser{codes: invCodes, base: f.line}
+		p := &langParser{lang: invariantsLang, base: f.line}
 		invs, affects := d.invariantBlock(p, f)
 		section := ""
 		if h := d.sectionHeading(f.line); h != nil {
 			section = h.Slug
 		}
-		var keep []Invariant
 		for _, v := range invs {
 			if first, dup := byID[v.ID]; dup {
-				p.errors = append(p.errors, TraceError{Code: "I011", Node: v.ID, Line: v.Line, Message: fmt.Sprintf("the id is used twice (first at line %d); give this invariant a new id", first)})
+				p.fail("I011", v.ID, v.Line, "the id is used twice (first at line %d); give this invariant a new id", first)
 				continue
 			}
 			byID[v.ID] = v.Line
 			v.Section = section
-			keep = append(keep, v)
+			d.invariants = append(d.invariants, v)
 		}
-		if len(p.errors) == 0 || onlyCode(p.errors, "I011") {
-			d.invariants = append(d.invariants, keep...)
-			d.affects = append(d.affects, affects...)
-		}
-		d.blockProblems(what, p.errors, p.warns)
+		d.affects = append(d.affects, affects...)
+		d.blockProblems(what, "invariant ", p.errors, p.warns)
 	}
 	if len(d.invariants) > MaxInvariants {
 		d.problem("I014", 0, fmt.Sprintf("the document has %d invariants; at most %d are read", len(d.invariants), MaxInvariants))
@@ -138,92 +137,47 @@ func (d *Document) buildInvariants(fences []fence) {
 	d.invariantChecks()
 }
 
-// invariantBlock reads one block: a mapping with invariants and, in a
-// blueprint, affects.
-func (d *Document) invariantBlock(p *blockParser, f fence) ([]Invariant, []Affect) {
-	if !p.version(f.info, InvariantsInfo) {
+// invariantBlock reads one block: invariant lines and, in a blueprint,
+// affects lines.
+func (d *Document) invariantBlock(p *langParser, f fence) ([]Invariant, []Affect) {
+	if !p.version(f.info) {
 		return nil, nil
 	}
-	root := p.read(f.source)
-	if root == nil {
-		if len(p.errors) == 0 {
-			p.fail("I004", "", 1, "the block is a mapping with invariants: and a list of them")
-		}
-		return nil, nil
-	}
-	if root.Kind != yaml.MappingNode {
-		p.fail("I004", "", root.Line, "the block is a mapping with invariants: and a list of them")
-		return nil, nil
-	}
-	p.unknownKeys(root, invBlockKeys, "")
-	var affects []Affect
-	if v := mapValue(root, "affects"); !absent(v) {
-		if d.IsDomain() {
-			p.warn("I008", "", v.Line, "affects is for blueprints; a domain document's invariants are its own, so it is ignored")
-		} else if items, ok := p.texts(root, "affects", ""); ok {
-			for _, s := range items {
-				r, ok := ParseInvRef(s)
-				if !ok || r.Domain == "" {
-					p.fail("I004", "", v.Line, "affects names domain invariants as <domain>#<id>, such as \"loans#I3\", not %q", s)
-					continue
-				}
-				if !slices.ContainsFunc(affects, func(a Affect) bool { return a.Text == s }) {
-					affects = append(affects, Affect{Ref: r, Text: s, Line: p.base + v.Line})
-				}
-			}
-		}
-	}
-	list := mapValue(root, "invariants")
-	switch {
-	case absent(list) && len(affects) > 0:
-		return nil, affects // a plan may only touch the domain's invariants
-	case absent(list) || list.Kind != yaml.SequenceNode || len(list.Content) == 0:
-		line := root.Line
-		if list != nil {
-			line = list.Line
-		}
-		p.fail("I004", "", line, "invariants is a list, each entry starting \"- id: I1\"")
+	items := p.parse(f.source)
+	if len(items) == 0 && len(p.errors) == 0 {
+		p.fail("S031", "", f.line, "the block is empty; write invariant I1: <what must hold>, or affects <domain>#<id>")
 		return nil, nil
 	}
 	var out []Invariant
-	for _, e := range list.Content {
-		if e.Kind != yaml.MappingNode || e.Style&yaml.FlowStyle != 0 {
-			p.fail("I004", "", e.Line, "an invariant is a block mapping, one key per line, starting \"- id: I1\"")
+	var affects []Affect
+	for _, it := range items {
+		if it.Keyword == "affects" {
+			if d.IsDomain() {
+				p.warn("I008", "", it.Line, "affects is for blueprints; a domain document's invariants are its own, so it is ignored")
+				continue
+			}
+			r, ok := ParseInvRef(it.Text)
+			switch {
+			case !ok:
+				p.fail("S009", "", it.Line, "affects names an invariant as parent#<id> or <domain>#<id>, such as library#L1, not %q", it.Text)
+				continue
+			case r.Domain == "":
+				p.fail("I017", "", it.Line, "affects names another document's invariant, parent#%s or <domain>#%s; the document's own invariants are written as invariant lines", r.ID, r.ID)
+				continue
+			}
+			if !slices.ContainsFunc(affects, func(a Affect) bool { return a.Text == it.Text }) {
+				affects = append(affects, Affect{Ref: r, Text: it.Text, Line: it.Line})
+			}
 			continue
 		}
-		v := Invariant{Line: p.base + e.Line}
-		var ok [6]bool
-		v.ID, ok[0] = p.text(e, "id", "")
-		node := v.ID
-		p.unknownKeys(e, invKeys, node)
-		v.Statement, ok[1] = p.text(e, "statement", node)
-		v.Context, ok[2] = p.text(e, "context", node)
-		v.Why, ok[3] = p.text(e, "why", node)
-		v.VerifiedBy, ok[4] = p.texts(e, "verified_by", node)
-		v.Status, ok[5] = p.text(e, "status", node)
-		if ok != [6]bool{true, true, true, true, true, true} {
-			continue
-		}
-		switch {
-		case v.ID == "" || utf8.RuneCountInString(v.ID) > maxNodeID || !nodeIDRe.MatchString(v.ID):
-			p.fail("I010", node, e.Line, "an id starts with a letter, uses only letters, digits, - and _, and has at most %d characters, such as I1", maxNodeID)
-			continue
-		case v.Statement == "":
-			p.fail("I012", node, e.Line, "the invariant has no statement; say in one sentence what must hold")
-			continue
-		}
-		switch v.Status {
-		case "", StatusNew, StatusChanged, StatusRemoved:
-		default:
-			p.fail("I013", node, e.Line, "status is new, changed or removed, not %q; leave it out for an unchanged invariant", v.Status)
-			continue
-		}
+		v := Invariant{ID: it.Name, Statement: it.Text, Line: it.Line, Why: it.one("why"),
+			VerifiedBy: it.values("verified-by"), Refines: it.values("refines"), Status: it.one("status")}
 		if v.Status != "" && d.IsDomain() {
-			p.warn("I008", node, e.Line, "status is for blueprints; a domain document says what holds now, so it is ignored")
+			p.warn("I008", v.ID, it.Line, "status is for blueprints; a domain document says what holds now, so it is ignored")
 			v.Status = ""
 		}
 		if utf8.RuneCountInString(v.Statement) > advisedStatement {
-			p.warn("I015", node, e.Line, "the statement has %d characters; keep it under %d and put the rest in why", utf8.RuneCountInString(v.Statement), advisedStatement)
+			p.warn("I015", v.ID, it.Line, "the statement has %d characters; keep it under %d and put the rest in why", utf8.RuneCountInString(v.Statement), advisedStatement)
 		}
 		out = append(out, v)
 	}
@@ -265,16 +219,16 @@ func (d *Document) invariantChecks() {
 			continue
 		}
 		if hasTrace && !guarded[v.ID] {
-			d.invProblem("I030", v, "no trace step guards it; add guards: [%s] to the steps that keep it true, or say in the text why none does", v.ID)
+			d.invProblem("I030", v, "no trace step guards it; add guards %s to the steps that keep it true, or say in the text why none does", v.ID)
 		}
 		if len(v.VerifiedBy) == 0 {
-			d.invProblem("I031", v, "nothing says how it is verified; add verified_by with a test reference or a check a reviewer makes")
+			d.invProblem("I031", v, "nothing says how it is verified; add verified-by with a test reference or a check a reviewer makes")
 		}
 	}
 	if hasTrace {
 		for _, a := range d.affects {
 			if !guarded[a.Text] {
-				p := NewProblem("I030", a.Line, fmt.Sprintf("the plan affects %s, and no trace step guards it; add guards: [\"%s\"] to the steps that keep it true", a.Text, a.Text))
+				p := NewProblem("I030", a.Line, fmt.Sprintf("the plan affects %s, and no trace step guards it; add guards %s to the steps that keep it true", a.Text, a.Text))
 				p.Node = a.Text
 				d.problems = append(d.problems, p)
 			}
@@ -291,10 +245,22 @@ func (d *Document) invProblem(rule string, v Invariant, format string, a ...any)
 // DomainRefs are the references to domain invariants in affects and in
 // trace guards, each once, with the line of its first use.
 func (d *Document) DomainRefs() []Affect {
+	return d.invRefs(func(r InvRef) bool {
+		return r.Domain != "" && !r.IsParent() && !(d.IsDomain() && r.Domain == d.DomainName())
+	})
+}
+
+// ParentRefs are the references to the parent plan node's invariants,
+// parent#<id>, in affects and in trace guards.
+func (d *Document) ParentRefs() []Affect {
+	return d.invRefs(InvRef.IsParent)
+}
+
+func (d *Document) invRefs(keep func(InvRef) bool) []Affect {
 	var out []Affect
 	add := func(s string, line int) {
 		r, ok := ParseInvRef(s)
-		if !ok || r.Domain == "" || (d.IsDomain() && r.Domain == d.DomainName()) {
+		if !ok || !keep(r) {
 			return
 		}
 		if !slices.ContainsFunc(out, func(a Affect) bool { return a.Text == s }) {

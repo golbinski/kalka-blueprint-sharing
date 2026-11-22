@@ -1,5 +1,5 @@
 ---
-kalka_reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v2
 kalka_domain: lending/loans@v1
 ---
 # Loan limits

@@ -86,3 +86,52 @@ describe('plugin references, shared with the daemon', () => {
     it(JSON.stringify(c.target), () => expect(pluginRef(c.target)).toBe(c.scheme))
   }
 })
+
+describe('the kalka language v2 blocks', () => {
+  it('cuts out a goals block with its file lines', async () => {
+    const { renderParts, plainText } = await import('./markdown')
+    const src = 'Intro\n\n```goals v2\ngoal G1: The queue head learns\n```\n\nAfter\n'
+    const parts = renderParts(src, 10)
+    expect(parts.map((p) => p.kind)).toEqual(['html', 'goals', 'html'])
+    const g = parts[1] as { kind: 'goals'; line: number; end: number }
+    expect([g.line, g.end]).toEqual([12, 14])
+    expect(plainText(src)).toBe('Intro [goals] After')
+  })
+  it('says where a term is defined and what narrows it', async () => {
+    const { termDef } = await import('./markdown')
+    const def = termDef({
+      term: 'loan',
+      definition: 'One copy lent to one member',
+      line: 3,
+      domain: 'library',
+      refined: [{ domain: 'library.reservations', id: 'R2', statement: 'A loan with a queue cannot be renewed' }],
+    })
+    expect(def).toBe('One copy lent to one member — library\nNarrowed by library.reservations#R2: A loan with a queue cannot be renewed')
+  })
+})
+
+describe('ownNodes', () => {
+  it('lists the document’s own goals and criteria, not other documents’', async () => {
+    const { ownNodes } = await import('./Goals')
+    const doc = {
+      plan: {
+        path: [],
+        children: [],
+        goals: [
+          {
+            kind: 'goal',
+            id: 'G1',
+            text: 'a',
+            state: 'claimed',
+            own: true,
+            claimants: [
+              { kind: 'criterion', id: 'AC1', text: 'b', state: 'open', own: true },
+              { kind: 'criterion', id: 'AC9', text: 'c', state: 'open' },
+            ],
+          },
+        ],
+      },
+    } as unknown as import('./api').Doc
+    expect(ownNodes(doc).map((n) => n.id)).toEqual(['G1', 'AC1'])
+  })
+})

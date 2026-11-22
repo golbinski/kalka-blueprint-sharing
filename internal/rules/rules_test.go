@@ -16,7 +16,7 @@ var update = flag.Bool("update", false, "rewrite docs/rules.md and the rule list
 func emitted(t *testing.T) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
-	re := regexp.MustCompile(`"([FBTGIRH][0-9]{3})"`)
+	re := regexp.MustCompile(`"([FBSTGIPDRH][0-9]{3})"`)
 	root := filepath.Join("..", "..")
 	for _, dir := range []string{"internal", "cmd"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d os.DirEntry, err error) error {
@@ -87,10 +87,14 @@ func TestSets(t *testing.T) {
 	if n, err := ParseSet(""); n != Newest || err != nil {
 		t.Fatal(n, err)
 	}
-	if n, err := ParseSet("v1"); n != 1 || err != nil {
+	if n, err := ParseSet("v2"); n != 2 || err != nil {
 		t.Fatal(n, err)
 	}
-	if _, err := ParseSet("v2"); err == nil || !strings.Contains(err.Error(), "needs a newer kalka") {
+	// Set 1 went with the retired language v1.
+	if _, err := ParseSet("v1"); err == nil || !strings.Contains(err.Error(), "no longer reads") {
+		t.Fatal(err)
+	}
+	if _, err := ParseSet("v3"); err == nil || !strings.Contains(err.Error(), "needs a newer kalka") {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{"1", "v0", "vx", "latest"} {

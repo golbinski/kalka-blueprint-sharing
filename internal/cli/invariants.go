@@ -47,14 +47,15 @@ func cmdInvariants(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "invariants: %s: %v\n", paths[0], err)
 		return checkErrors
 	}
-	res := check.Document(doc, check.Options{Domains: checkDomains(*domain)})
-	out := invariantsOutput{File: paths[0], Invariants: check.Matrix(doc, res.Domain), Diagnostics: []bp.Problem{}}
-	if res.Domain != nil {
+	folder := checkFolder(*domain, paths)
+	res := check.Document(doc, check.Options{Domains: folder.Tree(), Docs: folder})
+	out := invariantsOutput{File: paths[0], Invariants: check.Matrix(doc, res.Context, folder), Diagnostics: []bp.Problem{}}
+	if len(res.Context.ByName) > 0 {
 		out.Domain = res.Glossary.Ref
 	}
 	errs, warns := 0, 0
 	for _, p := range res.Problems {
-		if p.Rule[0] != 'I' && p.Rule != "R001" {
+		if p.Rule[0] != 'I' && p.Rule != "R001" && p.Rule != "P023" {
 			continue
 		}
 		out.Diagnostics = append(out.Diagnostics, p)

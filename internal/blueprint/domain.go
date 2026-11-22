@@ -20,8 +20,10 @@ const (
 )
 
 var (
-	domainNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-	domainRefRe  = regexp.MustCompile(`^([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)@v([1-9][0-9]{0,17})$`)
+	// A domain name is a path in the domain tree: segments joined by dots
+	// (spec 6.12).
+	domainNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*$`)
+	domainRefRe  = regexp.MustCompile(`^([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*)@v([1-9][0-9]{0,17})$`)
 	snapshotRe   = regexp.MustCompile(`(?i)@v[1-9][0-9]*\.md$`)
 )
 
@@ -34,10 +36,22 @@ func (d *Document) DomainName() string {
 	if !d.IsDomain() {
 		return ""
 	}
-	if v := d.get(KeyDomain); domainNameRe.MatchString(v) {
+	if v := d.get(KeyDomain); domainNameRe.MatchString(v) && v != ParentRef {
 		return v
 	}
 	return ""
+}
+
+// ValidDomainName reports a domain name: dotted segments, not "parent".
+func ValidDomainName(s string) bool { return domainNameRe.MatchString(s) && s != ParentRef }
+
+// DomainParent is the parent version a domain node pins with
+// kalka_parent: <team>/<domain>@v<N> (spec 6.12).
+func (d *Document) DomainParent() (DomainRef, bool) {
+	if !d.IsDomain() {
+		return DomainRef{}, false
+	}
+	return ParseDomainRef(d.get(KeyParent))
 }
 
 // DomainVersion is a domain document's `kalka_version:`, or 0.
@@ -71,13 +85,48 @@ func ParseDomainRef(s string) (DomainRef, bool) {
 	return DomainRef{Team: m[1], Domain: m[2], Version: v}, true
 }
 
-// DomainRef is the `kalka_domain:` reference of a document that is not itself a
-// domain document.
+// DomainRef is the `kalka_domain:` reference of a document that is not
+// itself a domain document: the first when it names several.
 func (d *Document) DomainRef() (DomainRef, bool) {
-	if d.IsDomain() {
+	refs := d.DomainRefsNamed()
+	if len(refs) == 0 {
 		return DomainRef{}, false
 	}
-	return ParseDomainRef(d.get(KeyDomain))
+	return refs[0], true
+}
+
+// DomainRefsNamed are the domain versions `kalka_domain:` names: one, or
+// a plan node's several, written as a list [a, b] (spec 6.12). Malformed
+// items are left out.
+func (d *Document) DomainRefsNamed() []DomainRef {
+	if d.IsDomain() {
+		return nil
+	}
+	var out []DomainRef
+	for _, s := range DomainList(d.get(KeyDomain)) {
+		if r, ok := ParseDomainRef(s); ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// DomainList splits a kalka_domain value: one item, or [a, b].
+func DomainList(v string) []string {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]") {
+		var out []string
+		for _, s := range strings.Split(v[1:len(v)-1], ",") {
+			if s = strings.Trim(strings.TrimSpace(s), `"'`); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	if v == "" {
+		return nil
+	}
+	return []string{v}
 }
 
 // IsSnapshotName reports a domain snapshot's file name, `*@v<N>.md`
@@ -97,8 +146,19 @@ func (d *Document) domainProblems() []Problem {
 		return nil
 	}
 	var out []Problem
-	if v := d.get(KeyDomain); !domainNameRe.MatchString(v) {
-		out = append(out, NewProblem("F010", d.fm.KeyLine(KeyDomain), fmt.Sprintf("a domain document needs `kalka_domain:` with a name of lower-case letters, digits and dashes (have %q)", v)))
+	v := d.get(KeyDomain)
+	switch {
+	case v == ParentRef:
+		out = append(out, NewProblem("F012", d.fm.KeyLine(KeyDomain), "parent is a reserved name (parent#<id> names the parent plan node); choose another domain name"))
+	case !domainNameRe.MatchString(v):
+		out = append(out, NewProblem("F010", d.fm.KeyLine(KeyDomain), fmt.Sprintf("a domain document needs `kalka_domain:` with a name of lower-case letters, digits and dashes, a subdomain's segments joined by dots, such as library.reservations (have %q)", v)))
+	}
+	if raw := d.get(KeyParent); raw != "" {
+		if pr, ok := ParseDomainRef(raw); !ok {
+			out = append(out, NewProblem("F013", d.fm.KeyLine(KeyParent), fmt.Sprintf("a domain node names its parent as <team>/<domain>@v<N>, such as team-lending/library@v2 (have %q)", raw)))
+		} else if domainNameRe.MatchString(v) && !strings.HasPrefix(v, pr.Domain+".") {
+			out = append(out, NewProblem("D001", d.fm.KeyLine(KeyDomain), fmt.Sprintf("a subdomain's name starts with its parent's: %s is not under %s; name it %s.<segment>", v, pr.Domain, pr.Domain)))
+		}
 	}
 	if v := d.get(KeyVersion); v != "" && d.DomainVersion() == 0 {
 		out = append(out, NewProblem("F011", d.fm.KeyLine(KeyVersion), fmt.Sprintf("`kalka_version:` must be a positive number (have %q)", v)))

@@ -1,5 +1,5 @@
 ---
-kalka_reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v2
 kalka_domain: kalka-core/sync@v1
 repo: golbinski/kalka-blueprint-sharing
 base_sha: 618f7edcaba5b7419069a76c039151fd26366718
@@ -37,62 +37,50 @@ flowchart LR
 
 ### The push path
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "The owner releases a version"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "Online teammates get it within seconds"
-    next: [B3]
-  - id: B3
-    lane: business
-    text: "A release during a sync is not held back"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Set the push flag and kick after PushDelay"
-    realizes: [B1]
-    ref: "gh:internal/core/replicate.go#L845-L850"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "One round per team at a time; it clears the flag as it starts"
-    realizes: [B2]
-    ref: "gh:internal/core/replicate.go#L942-L955"
-    guards: [P2]
-    why: "two rounds of one team would fetch the same documents twice"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "When a round ends, kick again if the flag was set"
-    realizes: [B3]
-    guards: ["sync#I5", P1]
-    ref: "gh:internal/core/replicate.go#L930-L939"
-    next: [C4]
-  - id: C4
-    lane: code
-    text: "No new round once the daemon is stopping"
-    ref: "gh:internal/core/replicate.go#L936-L938"
-    why: "shutdown waits for running rounds, so a new one would delay it"
+step B1: The owner releases a version
+  next B2
+step B2: Online teammates get it within seconds
+  next B3
+step B3: A release during a sync is not held back
+
+lane code
+
+step C1: Set the push flag and kick after PushDelay
+  next C2
+  realizes B1
+  ref gh:internal/core/replicate.go#L845-L850
+step C2: One round per team at a time; it clears the flag as it starts
+  next C3
+  realizes B2
+  ref gh:internal/core/replicate.go#L942-L955
+  guards P2
+  why two rounds of one team would fetch the same documents twice
+step C3: When a round ends, kick again if the flag was set
+  next C4
+  realizes B3
+  ref gh:internal/core/replicate.go#L930-L939
+  guards sync#I5
+  guards P1
+step C4: No new round once the daemon is stopping
+  ref gh:internal/core/replicate.go#L936-L938
+  why shutdown waits for running rounds, so a new one would delay it
 ```
 
 ## Verification plan
 
-```invariants v1
-affects: ["sync#I5"]
-invariants:
-  - id: P1
-    statement: "A release made while a round runs reaches an online teammate before the next periodic round"
-    verified_by: ["gh:internal/core/replicate_test.go#L539-L589"]
-    status: new
-  - id: P2
-    statement: "Two rounds of one team never run at the same time"
-    why: "both would fetch the same documents"
-    verified_by: ["Reviewer: read the round's start under repl.mu"]
+```invariants v2
+affects sync#I5
+
+invariant P1: A release made while a round runs reaches an online teammate before the next periodic round
+  verified-by gh:internal/core/replicate_test.go#L539-L589
+  status new
+
+invariant P2: Two rounds of one team never run at the same time
+  why both would fetch the same documents
+  verified-by Reviewer: read the round's start under repl.mu
 ```
 
 - [TestPushDuringRound](gh:internal/core/replicate_test.go#L539-L589): a release made while a round runs reaches the teammate before the next periodic round could.

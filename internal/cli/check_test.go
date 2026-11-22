@@ -42,7 +42,7 @@ func TestCheckGolden(t *testing.T) {
 		t.Fatalf("output differs from %s; run with -update-check and review the diff\n%s", golden, out)
 	}
 	var res checkOutput
-	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Rules != "v1" {
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Rules != "v2" {
 		t.Fatalf("%v %+v", err, res)
 	}
 }
@@ -60,10 +60,11 @@ func TestCheckExitCodesByFile(t *testing.T) {
 		{[]string{f("warnings.md")}, checkWarnings},
 		{[]string{f("warnings.md"), "--strict"}, checkErrors},
 		{[]string{f("clean.md"), f("warnings.md")}, checkWarnings},
-		{[]string{f("clean.md"), "--rules", "v1"}, checkClean},
+		{[]string{f("clean.md"), "--rules", "v2"}, checkClean},
 		{[]string{filepath.Join(t.TempDir(), "missing.md")}, checkErrors}, // B000
 		{[]string{}, checkUsage},
-		{[]string{f("clean.md"), "--rules", "v2"}, checkUsage},
+		{[]string{f("clean.md"), "--rules", "v1"}, checkUsage},
+		{[]string{f("clean.md"), "--rules", "v3"}, checkUsage},
 		{[]string{f("clean.md"), "--rules", "latest"}, checkUsage},
 		{[]string{f("clean.md"), "--bogus"}, checkUsage},
 		{[]string{"--explain", "X999"}, checkUsage},
@@ -74,8 +75,8 @@ func TestCheckExitCodesByFile(t *testing.T) {
 			t.Errorf("check %v: exit %d, want %d\n%s%s", c.args, code, c.want, out, errs)
 		}
 	}
-	if _, _, errs := runCLI("check", f("clean.md"), "--rules", "v2"); !strings.Contains(errs, "needs a newer kalka") {
-		t.Errorf("v2: %q", errs)
+	if _, _, errs := runCLI("check", f("clean.md"), "--rules", "v3"); !strings.Contains(errs, "needs a newer kalka") {
+		t.Errorf("v3: %q", errs)
 	}
 }
 

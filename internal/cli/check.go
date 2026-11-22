@@ -68,7 +68,7 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 	strict := fs.Bool("strict", false, "warnings fail as errors do")
 	set := fs.String("rules", "", "the rule set to run, v1 to the newest (default the newest)")
 	withPlugins := fs.Bool("with-plugins", false, "resolve reference targets with the installed plugins")
-	domain := fs.String("domain", "", "a domain document, or a folder of them, to read domain versions from")
+	domain := fs.String("domain", "", "a document or a folder to read domain versions and plan nodes from (default the local folder)")
 	paths, err := parseInterspersed(fs, args)
 	if err != nil {
 		return checkUsage
@@ -100,7 +100,8 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "check:", err)
 		return checkUsage
 	}
-	opt := check.Options{Set: n, Domains: checkDomains(*domain)}
+	folder := checkFolder(*domain, files)
+	opt := check.Options{Set: n, Domains: folder.Tree(), Docs: folder}
 	if *withPlugins {
 		dir, _ := config.Dir()
 		opt.Plugins = &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: io.Discard}
@@ -162,20 +163,23 @@ func location(f string, p bp.Problem) string {
 	return f
 }
 
-// checkDomains is where domain versions are read: --domain, else the
-// local folder when one is set up, else nowhere (spec 12.4).
-func checkDomains(flagged string) check.Domains {
+// checkFolder is where domain versions and plan nodes are read: the files
+// checked, and --domain, else the local folder when one is set up (spec
+// 12.4).
+func checkFolder(flagged string, files []string) *check.Folder {
+	roots := []string{}
 	if flagged != "" {
-		return check.NewFolder(flagged)
+		roots = append(roots, flagged)
+	} else if cfg, err := config.Load(); err == nil && cfg.Folder != "" {
+		if st, err := os.Stat(cfg.Folder); err == nil && st.IsDir() {
+			roots = append(roots, cfg.Folder)
+		}
 	}
-	cfg, err := config.Load()
-	if err != nil || cfg.Folder == "" {
-		return nil
+	f := check.NewFolder(roots...)
+	for _, p := range files {
+		f.Add(p)
 	}
-	if st, err := os.Stat(cfg.Folder); err != nil || !st.IsDir() {
-		return nil
-	}
-	return check.NewFolder(cfg.Folder)
+	return f
 }
 
 // expandPaths turns folders into the *.md files under them, leaving out

@@ -10,12 +10,12 @@ import (
 // HintsVersion is the blueprint reference version whose hints this library
 // gives (spec 6.13). internal/reference embeds the matching text; a test
 // keeps the two equal.
-const HintsVersion = "kalka-blueprint@v1"
+const HintsVersion = "kalka-blueprint@v2"
 
 // ReferenceKey is the frontmatter key a document opts into hints with.
 const ReferenceKey = name.Product + "_reference"
 
-// hintSections are the recommended body sections of v1 with the heading
+// hintSections are the recommended body sections of v2 with the heading
 // slugs that count as present, in the reference's order. The deviation log
 // lives in the review log and gets no hint.
 var hintSections = []struct {
@@ -27,7 +27,6 @@ var hintSections = []struct {
 	{"H004", "critical-sections", "no critical sections: places that deliberately depart from the clean design, so agents leave them alone"},
 	{"H005", "operations", "no operations: failure modes, what to watch, how to roll back"},
 }
-
 
 // trailingDup strips the -1, -2 suffix the slug rule adds to repeated
 // headings, so a second "Scope" heading still counts.

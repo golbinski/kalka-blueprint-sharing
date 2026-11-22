@@ -1,5 +1,5 @@
 ---
-kalka_reference: kalka-blueprint@v1
+kalka_reference: kalka-blueprint@v2
 kalka_domain: packaging/release@v1
 kalka_status: draft
 repo: golbinski/kalka-blueprint-sharing
@@ -26,48 +26,41 @@ The `release` job in [ci.yml](gh:.github/workflows/ci.yml#L114-L143) and the [NS
 2. Publish a tag with a hyphen, such as `v0.1.0-rc1`, as a pre-release.
 3. Keep Kalka.app out of this job: it [needs a Mac](gh:tools/release/main.go#L267-L286).
 
-```trace v1
-lanes: [business, code]
-nodes:
-  - id: B1
-    lane: business
-    text: "A tagged release ships a Windows installer"
-    next: [B2]
-  - id: B2
-    lane: business
-    text: "A pre-release is clearly marked as one"
+```trace v2
+lane business
 
-  - id: C1
-    lane: code
-    text: "Install NSIS on the runner"
-    realizes: [B1]
-    change: new
-    ref: "gh:.github/workflows/ci.yml#L130-L135"
-    next: [C2]
-  - id: C2
-    lane: code
-    text: "Build and sign the installer when makensis is found"
-    realizes: [B1]
-    guards: [W1, "release#I1"]
-    ref: "gh:tools/release/desktop.go#L21-L51"
-    next: [C3]
-  - id: C3
-    lane: code
-    text: "A hyphen in the tag adds --prerelease"
-    realizes: [B2]
-    guards: ["release#I3"]
-    ref: "gh:.github/workflows/ci.yml#L137-L141"
+step B1: A tagged release ships a Windows installer
+  next B2
+step B2: A pre-release is clearly marked as one
+
+lane code
+
+step C1: Install NSIS on the runner
+  next C2
+  realizes B1
+  ref gh:.github/workflows/ci.yml#L130-L135
+  change new
+step C2: Build and sign the installer when makensis is found
+  next C3
+  realizes B1
+  ref gh:tools/release/desktop.go#L21-L51
+  guards W1
+  guards release#I1
+step C3: A hyphen in the tag adds --prerelease
+  realizes B2
+  ref gh:.github/workflows/ci.yml#L137-L141
+  guards release#I3
 ```
 
 ## Verification plan
 
-```invariants v1
-affects: ["release#I1", "release#I3"]
-invariants:
-  - id: W1
-    statement: "A tagged run publishes an installer for each Windows architecture, or fails"
-    verified_by: ["Reviewer: the tagged run's log has a wrote line for both installers"]
-    status: new
+```invariants v2
+affects release#I1
+affects release#I3
+
+invariant W1: A tagged run publishes an installer for each Windows architecture, or fails
+  verified-by Reviewer: the tagged run's log has a wrote line for both installers
+  status new
 ```
 
 - A local run of the release tool for `windows/amd64` with version `0.1.0-rc1` writes `kalka_0.1.0-rc1_windows_amd64_setup.exe`.

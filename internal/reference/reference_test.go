@@ -37,7 +37,7 @@ func TestVersionAndShape(t *testing.T) {
 	if strings.Join(heads, ",") != want {
 		t.Fatalf("sections %v", heads)
 	}
-	if n := strings.Count(string(Bytes()), "*Why agents benefit:*"); n != 7 {
+	if n := strings.Count(string(Bytes()), "*Why agents benefit:*"); n != 8 {
 		t.Fatalf("%d rationales", n)
 	}
 }

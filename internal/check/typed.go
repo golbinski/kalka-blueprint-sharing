@@ -2,6 +2,8 @@ package check
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -26,28 +28,56 @@ type Glossary struct {
 	Own bool `json:"own,omitempty"`
 }
 
-// GlossaryOf is the glossary of the domain version doc references (dom,
-// from Document's Result); for a domain document, or a blueprint that
-// names no domain, its own (spec 6.16).
-func GlossaryOf(doc, dom *bp.Document) Glossary {
-	if doc.IsDomain() || fmValue(doc, bp.KeyDomain) == "" {
+// GlossaryOf is the glossary doc is linked against (spec 6.16): the
+// terms on the paths of the domain nodes it names, at the pinned versions;
+// for a domain document, its own path; for a blueprint that names no
+// domain, its own blocks.
+func GlossaryOf(doc *bp.Document, c DomainContext) Glossary {
+	if !doc.IsDomain() && len(bp.DomainList(fmValue(doc, bp.KeyDomain))) == 0 {
 		g := Glossary{State: GlossaryNone, Terms: doc.Glossary()}
 		if len(g.Terms) > 0 {
 			g.State, g.Own = GlossaryHeld, true
-			if doc.IsDomain() {
-				g.Ref = fmt.Sprintf("%s@v%d", doc.DomainName(), doc.DomainVersion())
-			}
 		}
 		return g.norm()
 	}
-	ref, ok := bp.ParseDomainRef(fmValue(doc, bp.KeyDomain))
-	if !ok {
+	if doc.IsDomain() {
+		g := Glossary{State: GlossaryNone, Own: true, Ref: fmt.Sprintf("%s@v%d", doc.DomainName(), doc.DomainVersion())}
+		var terms []bp.Term
+		if len(c.Paths) == 1 {
+			terms = termsOf(c.Paths[0])
+		} else {
+			terms = refined(doc.Glossary(), []*bp.Document{doc})
+		}
+		g.Terms = terms
+		if len(terms) > 0 {
+			g.State = GlossaryHeld
+		}
+		return g.norm()
+	}
+	var refs []string
+	for _, p := range c.Paths {
+		refs = append(refs, p.Ref.String())
+	}
+	g := Glossary{Ref: strings.Join(refs, ", ")}
+	if len(c.Paths) == 0 {
 		return Glossary{State: GlossaryNone}.norm()
 	}
-	if dom == nil {
-		return Glossary{Ref: ref.String(), State: GlossaryNotKept}.norm()
+	if !c.Complete() {
+		g.State = GlossaryNotKept
+		return g.norm()
 	}
-	return Glossary{Ref: ref.String(), State: GlossaryHeld, Terms: dom.Glossary()}.norm()
+	g.State = GlossaryHeld
+	seen := map[string]bool{}
+	for _, p := range c.Paths {
+		for _, t := range termsOf(p) {
+			k := t.Domain + "#" + bp.PhraseKey(t.Term)
+			if !seen[k] {
+				seen[k] = true
+				g.Terms = append(g.Terms, t)
+			}
+		}
+	}
+	return g.norm()
 }
 
 func (g Glossary) norm() Glossary {
@@ -76,6 +106,8 @@ func termProblems(doc *bp.Document, g Glossary) []bp.Problem {
 			where = "node " + u.Node + ": "
 		case "invariant":
 			where = "invariant " + u.Node + ": "
+		case "goal":
+			where = u.Node + ": "
 		}
 		in := "the " + g.Ref + " glossary"
 		if g.Ref == "" {
@@ -105,21 +137,12 @@ func matchCase(term, surface string) string {
 
 // invariantProblems resolve the references to domain invariants (spec
 // 6.15): I020 for one that does not resolve, I040 for one a newer held
-// version no longer has. A version not held is R001, once, elsewhere.
-func invariantProblems(doc, dom *bp.Document, ds Domains) []bp.Problem {
+// version of the pinned node no longer has. A version not held is R001 or
+// D002, once, elsewhere.
+func invariantProblems(doc *bp.Document, c DomainContext, ds Domains) []bp.Problem {
 	refs := doc.DomainRefs()
 	if len(refs) == 0 {
 		return nil
-	}
-	ref, hasRef := bp.ParseDomainRef(fmValue(doc, bp.KeyDomain))
-	if doc.IsDomain() {
-		hasRef = false
-	}
-	var newer *bp.Document
-	if hasRef && dom != nil && ds != nil {
-		if l := ds.Latest(ref.Team, ref.Domain); l > ref.Version {
-			newer = ds.Version(ref.Team, ref.Domain, l)
-		}
 	}
 	var out []bp.Problem
 	add := func(rule string, a bp.Affect, format string, args ...any) {
@@ -127,18 +150,41 @@ func invariantProblems(doc, dom *bp.Document, ds Domains) []bp.Problem {
 		p.Node = a.Text
 		out = append(out, p)
 	}
+	var onPath []string
+	for _, p := range c.Paths {
+		for _, n := range p.Names() {
+			if !slices.Contains(onPath, n) {
+				onPath = append(onPath, n)
+			}
+		}
+	}
+	// newer versions of the pinned nodes, by name
+	newer := map[string]*bp.Document{}
+	team := map[string]string{}
+	if !doc.IsDomain() && ds != nil {
+		for _, p := range c.Paths {
+			if l := ds.Latest(p.Ref.Team, p.Ref.Domain); l > p.Ref.Version {
+				if v := ds.Version(p.Ref.Team, p.Ref.Domain, l); v != nil {
+					newer[p.Ref.Domain] = v
+					team[p.Ref.Domain] = p.Ref.Team
+				}
+			}
+		}
+	}
 	for _, a := range refs {
+		dom := c.ByName[a.Ref.Domain]
 		switch {
-		case !hasRef:
+		case len(c.Paths) == 0:
 			add("I020", a, "the document references no domain version; add kalka_domain: <team>/%s@v<N>", a.Ref.Domain)
-		case a.Ref.Domain != ref.Domain:
-			add("I020", a, "the document references domain %s, not %s; an invariant of another domain cannot be named", ref.Domain, a.Ref.Domain)
+		case dom == nil && c.Complete():
+			add("I020", a, "%s is not on the path from the named domain to the root (%s); name an invariant of one of those domains", a.Ref.Domain, strings.Join(onPath, ", "))
 		case dom == nil:
-			// R001 says the version is not here.
+			// R001 or D002 says a version is not here.
 		case dom.Invariant(a.Ref.ID) == nil:
-			add("I020", a, "%s has no invariant %s", ref, a.Ref.ID)
-		case newer != nil && newer.Invariant(a.Ref.ID) == nil:
-			add("I040", a, "v%d of %s/%s no longer has %s; the plan relies on something the domain no longer promises", newer.DomainVersion(), ref.Team, ref.Domain, a.Ref.ID)
+			add("I020", a, "%s@v%d has no invariant %s", a.Ref.Domain, dom.DomainVersion(), a.Ref.ID)
+		case newer[a.Ref.Domain] != nil && newer[a.Ref.Domain].Invariant(a.Ref.ID) == nil:
+			n := newer[a.Ref.Domain]
+			add("I040", a, "v%d of %s/%s no longer has %s; the plan relies on something the domain no longer promises", n.DomainVersion(), team[a.Ref.Domain], a.Ref.Domain, a.Ref.ID)
 		}
 	}
 	return out

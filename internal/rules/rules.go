@@ -20,8 +20,13 @@ const (
 	Info    Severity = "info"
 )
 
-// Newest is the newest rule set this kalka knows; sets are numbered from 1.
-const Newest = 1
+// Newest is the newest rule set this kalka knows. Set 2 goes with the
+// kalka language v2; set 1 went with the retired v1 blocks and is not
+// run any more (kalka is 0.x: no compatibility between versions).
+const (
+	Newest = 2
+	Oldest = 2
+)
 
 // Rule is one registered rule.
 type Rule struct {
@@ -45,14 +50,17 @@ type Rule struct {
 var Groups = []struct{ Letter, Name string }{
 	{"F", "Frontmatter"},
 	{"B", "Structure and the review log"},
+	{"S", "The kalka language v2"},
 	{"T", "Trace blocks"},
 	{"G", "Glossary"},
 	{"I", "Invariants"},
+	{"P", "Plan graph and goals"},
+	{"D", "Domain tree"},
 	{"R", "References to other documents"},
 	{"H", "Hints"},
 }
 
-var idRe = regexp.MustCompile(`^[FBTGIRH][0-9]{3}$`)
+var idRe = regexp.MustCompile(`^[FBSTGIPDRH][0-9]{3}$`)
 
 var byID = map[string]*Rule{}
 
@@ -66,7 +74,7 @@ func init() {
 			panic("rules: " + r.ID + " registered twice")
 		}
 		if r.Set == 0 {
-			r.Set = 1
+			r.Set = Oldest
 		}
 		byID[r.ID] = r
 	}
@@ -120,10 +128,13 @@ func ParseSet(s string) (int, error) {
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(s, "v"))
 	if !strings.HasPrefix(s, "v") || err != nil || n < 1 {
-		return 0, fmt.Errorf("%q is not a rule set; write v1", s)
+		return 0, fmt.Errorf("%q is not a rule set; write v%d", s, Newest)
+	}
+	if n < Oldest {
+		return 0, fmt.Errorf("rules v%d went with the kalka language v1, which this kalka no longer reads; run v%d", n, Newest)
 	}
 	if n > Newest {
-		return 0, fmt.Errorf("rules v%d needs a newer kalka (this one knows v1 to v%d)", n, Newest)
+		return 0, fmt.Errorf("rules v%d needs a newer kalka (this one knows v%d to v%d)", n, Oldest, Newest)
 	}
 	return n, nil
 }
