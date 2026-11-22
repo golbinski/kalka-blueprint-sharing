@@ -454,7 +454,7 @@ It also describes plan nodes, goals and acceptance criteria (6.18), the domain t
 - A keyword starting with `x-` belongs to the author and is ignored silently; another unknown keyword is ignored with a warning naming the nearest known one.
 - Drift into familiar formats, Gherkin (`Scenario:`, `Given`, `And`) or YAML (`- id:`, `lanes:`), is an error naming the v2 form to write.
 
-The fence names the block and the language version (`invariants v2`); a block with no version is read as v2 with a warning, and `v1` (the retired YAML form) or a newer version is shown as code. There is no migration from v1: kalka is not yet at 1.0 and keeps no compatibility between its versions. The lexical rules are the `S` group (6.17), shared by every block; each block's own rules follow. Each lexical diagnostic says what to write instead, and most carry the replacement line as a fix.
+The fence names the block and the language version (`invariants v2`); a block with no version is read as v2 with a warning, and any other version is shown as code: kalka is not yet at 1.0 and keeps no compatibility between its versions. The lexical rules are the `S` group (6.17), shared by every block; each block's own rules follow. Each lexical diagnostic says what to write instead, and most carry the replacement line as a fix.
 
 What `kalka` finds in a document is reported as **diagnostics** (6.17), the same from `kalka check` and in the app.
 
@@ -557,11 +557,11 @@ Every finding of `kalka check` and of the app is a diagnostic: a file and positi
 | `R` | References to other documents: domain versions, and with `--with-plugins` reference targets. |
 | `H` | The opt-in hints of 6.13. |
 
-**Rule sets.** The rules form a versioned set, `v2` now, which goes with the language v2. Within a language version, a later `kalka` adds rules to a new set and keeps running the older set when asked (`--rules v<N>`), so an agent's checks do not change under it. Set `v1` went with the retired language v1 and is refused; a set this `kalka` does not know is refused with "rules v<N> needs a newer kalka".
+**One set of rules.** `kalka check` runs every rule this `kalka` knows. kalka is pre-1.0: a release may add, change or remove rules, and there is no switch to run an earlier release's rules; the `--json` output names the `kalka` version that produced it.
 
 **The issue key needs no plugin.** `kalka_issue` that is not a `<scheme>:<payload>` reference is a warning (`F020`); a scheme no plugin shipped with kalka handles is information (`F021`), decided from a fixed list in the code, never from what is installed; a malformed `kalka_archived` is a warning (`F022`). None of these asks a tracker.
 
-**Determinism.** The checker reads only the files it is given and the domain versions and plan nodes it is pointed at (12.4). It uses no network, no daemon and no configuration beyond finding the local folder, and reads no keys: the same input, `kalka` version and rule set give byte-identical `--json` output. Plugins run only with `--with-plugins`.
+**Determinism.** The checker reads only the files it is given and the domain versions and plan nodes it is pointed at (12.4). It uses no network, no daemon and no configuration beyond finding the local folder, and reads no keys: the same input and `kalka` version give byte-identical `--json` output. Plugins run only with `--with-plugins`.
 
 **Severity and the network.** Diagnostics never stop a sync. A few structural errors (`F001`–`F004`, `B001`, `B012`, `B013`) make a file one that cannot be signed or merged safely: publishing, releasing and transfers refuse such a file, as before. Any other error is shown before Publish or Release with a confirmation, and never blocks.
 
@@ -1006,7 +1006,7 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka context <file> [--json] [--domain <path>]` | view | The document's flattened context for an agent: the plan path with goals and invariants, the domain path with terms and invariants (6.18). Reads files as `check` does. | Review More *Context for an agent* |
 | `kalka seeds [--team <t>\|personal]` | view | The pre-backlog of a team or Personal. | Seeds |
 | `kalka domains [--team <t>]` | view | Domain documents and versions. | Domains |
-| `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--rules v<N>] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
+| `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
 | `kalka invariants <file> [--json] [--domain <path>]` | file | The invariants matrix (12.4). | Review *Invariants* |
 | `kalka doctor [--json]` | view | Check this installation (12.5). | Settings *Check setup* |
 | `kalka samples` | file | Copy the sample blueprints, built into kalka, into `personal/samples/`, keeping files already there. Before setup it asks for them to be added once kalka is set up: the daemon adds them when it first starts. | Blueprints in Personal when empty, and Settings, *Add sample blueprints* |
@@ -1080,14 +1080,13 @@ A test checks this list against the kinds the code declares, and that each is re
 | `--json` | One object: `rules` (the set), `kalka` (the version), `files`, each with `file`, `diagnostics` and `traces` (each block's divergences, 6.10), and `summary` (counts per severity). A diagnostic has `line`, `column`, `end_line`, `end_column` (0 when unknown, then left out), `rule`, `severity`, `message`, and an optional `fix` with `text` and the `line`, `column`, `end_line`, `end_column` it replaces. Diagnostics are ordered by line, column and rule. |
 | `--explain <id>` | Print what the rule means, why it exists, and a wrong and a right example. Takes no files. |
 | `--strict` | Warnings fail the check as errors do. |
-| `--rules v<N>` | Run that rule set (6.17); the default is the newest. |
 | `--with-plugins` | Resolve reference targets (trace `ref`, invariant `verified-by`) with the installed plugins and report those that do not resolve (`R010`) or that warn (`R011`). Off by default, since plugins may use the network. |
 | `--domain <path>` | Where domain versions and plan nodes are read from: a document, or a folder searched like the files. The files checked are always read too. Without it the local `kalka` folder is used when one is set up; otherwise the rules that need a domain or a parent report "can't check" (`R001`, `P011`). |
 | `--verbose` | Also print information in the text output (`--json` always has it). |
 
 A domain version is found as its snapshot `*@v<N>.md` first, then as a domain document whose `kalka_version:` is that version (a repository that keeps only the live file).
 
-**Exit codes:** 0 when there are no errors or warnings (information is allowed), 1 when there is an error, 2 when there are warnings only (1 with `--strict`), 3 for a usage error, such as an unknown rule set or an option without its value. A file that cannot be read is an error diagnostic (`B000`), not a usage error.
+**Exit codes:** 0 when there are no errors or warnings (information is allowed), 1 when there is an error, 2 when there are warnings only (1 with `--strict`), 3 for a usage error, such as an unknown option or an option without its value. A file that cannot be read is an error diagnostic (`B000`), not a usage error.
 
 `kalka check` never writes: there is no formatter and no `--fix`. Agents run `kalka check --json` before handing a document over (6.13).
 

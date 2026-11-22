@@ -28,11 +28,9 @@ type Plugins interface {
 	Resolve(ctx context.Context, scheme string, frontmatter map[string]any, refs []plugin.Ref) []plugin.Result
 }
 
-// Options say what the checker may read. The zero value runs the newest
-// rule set with no domains and no plugins.
+// Options say what the checker may read. The zero value runs every rule
+// with no domains and no plugins.
 type Options struct {
-	// Set is the rule set (rules.ParseSet); 0 means the newest.
-	Set int
 	// Domains is where domain versions are read; nil means none is held.
 	Domains Domains
 	// Docs is where the plan graph is looked up; nil means it is not.
@@ -51,12 +49,8 @@ type Result struct {
 	Glossary Glossary
 }
 
-// Document runs every rule of the set on doc.
+// Document runs every rule on doc.
 func Document(doc *bp.Document, o Options) Result {
-	set := o.Set
-	if set == 0 {
-		set = rules.Newest
-	}
 	var r Result
 	ps := append([]bp.Problem(nil), doc.Problems()...)
 	ps = append(ps, bp.Hints(doc)...)
@@ -72,7 +66,7 @@ func Document(doc *bp.Document, o Options) Result {
 		ps = append(ps, refProblems(doc, o)...)
 	}
 	for _, p := range ps {
-		if rules.InSet(p.Rule, set) {
+		if rules.Known(p.Rule) {
 			r.Problems = append(r.Problems, p)
 		}
 	}

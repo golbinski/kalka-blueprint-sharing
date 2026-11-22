@@ -288,7 +288,7 @@ These keywords are reserved for later versions and must not be given another mea
 ### 6.3 Versions
 
 - The version is the number in the fence, the same for every typed block: the version of the kalka language (language.md, section 2). It changes only when a block that was valid before would be read differently, or when the syntax changes in a way an old reader cannot ignore.
-- v1, the YAML form, is retired: kalka shows a `trace v1` block as code with S012 and does not read it. There is no conversion; rewrite the block in v2.
+- Any version but v2 is shown as code with S012 and not read.
 - A reader that meets a newer version does not interpret the content. It shows the source as code with the note "needs a newer kalka" (S012). It does not guess.
 - Within v2, later revisions may add optional keywords, and only where a reader that ignores the keyword still reads a correct, less detailed trace and computes the same graph divergences for it. Such a keyword shows as S020 on an older reader.
 - Later revisions of v2 may add warnings. They may not add errors that reject blocks valid under this document, and may not change the definitions of section 5.2.

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -18,14 +17,6 @@ const (
 	Error   Severity = "error"
 	Warning Severity = "warning"
 	Info    Severity = "info"
-)
-
-// Newest is the newest rule set this kalka knows. Set 2 goes with the
-// kalka language v2; set 1 went with the retired v1 blocks and is not
-// run any more (kalka is 0.x: no compatibility between versions).
-const (
-	Newest = 2
-	Oldest = 2
 )
 
 // Rule is one registered rule.
@@ -39,8 +30,6 @@ type Rule struct {
 	Why     string `json:"why"`
 	Wrong   string `json:"wrong,omitempty"`
 	Right   string `json:"right,omitempty"`
-	// Set is the first rule set the rule belongs to.
-	Set int `json:"set"`
 	// Blocks marks the structural errors that make a file one that cannot
 	// be signed or merged safely: publishing refuses such a file.
 	Blocks bool `json:"blocks,omitempty"`
@@ -72,9 +61,6 @@ func init() {
 		}
 		if byID[r.ID] != nil {
 			panic("rules: " + r.ID + " registered twice")
-		}
-		if r.Set == 0 {
-			r.Set = Oldest
 		}
 		byID[r.ID] = r
 	}
@@ -121,29 +107,8 @@ func Must(id string) Rule {
 // All returns every rule, by group and number.
 func All() []Rule { return append([]Rule(nil), all...) }
 
-// ParseSet reads `v<N>`: the set, or an error saying why it cannot run.
-func ParseSet(s string) (int, error) {
-	if s == "" {
-		return Newest, nil
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(s, "v"))
-	if !strings.HasPrefix(s, "v") || err != nil || n < 1 {
-		return 0, fmt.Errorf("%q is not a rule set; write v%d", s, Newest)
-	}
-	if n < Oldest {
-		return 0, fmt.Errorf("rules v%d went with the kalka language v1, which this kalka no longer reads; run v%d", n, Newest)
-	}
-	if n > Newest {
-		return 0, fmt.Errorf("rules v%d needs a newer kalka (this one knows v%d to v%d)", n, Oldest, Newest)
-	}
-	return n, nil
-}
-
-// InSet reports whether the rule runs in the set.
-func InSet(id string, set int) bool {
-	r := byID[id]
-	return r != nil && r.Set <= set
-}
+// Known reports whether the rule is registered.
+func Known(id string) bool { return byID[id] != nil }
 
 // Explain is what `kalka check --explain` prints.
 func Explain(r Rule) string {

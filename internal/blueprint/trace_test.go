@@ -310,7 +310,7 @@ func TestTraceErrors(t *testing.T) {
 	many += "lane b\n"
 	cases := []struct{ name, info, src, code, node, want string }{
 		{"newer version", "trace v3", two + node("X", ""), "S012", "", "needs a newer kalka"},
-		{"retired version", "trace v1", "lanes: [a, b]\n", "S012", "", "no longer reads"},
+		{"older version", "trace v1", "lanes: [a, b]\n", "S012", "", "reads only trace v2"},
 		{"not a version", "trace lanes", two + node("X", ""), "S012", "", "not a version"},
 		{"tab", "", two + "step X: t\n\tnext A\n", "S001", "", "tab"},
 		{"capital", "", two + "Step X: t\n", "S002", "", "lower case"},
@@ -322,7 +322,7 @@ func TestTraceErrors(t *testing.T) {
 		{"empty value", "", two + "step X: t\n  next\n", "S007", "X", "no value"},
 		{"attribute in column 0", "", two + "step X: t\nwhy because\n", "S008", "", "indent it"},
 		{"list on a line", "", two + "step X: t\n  realizes A, B\n", "S009", "X", "one reference"},
-		{"yaml list", "", "lanes: [a, b]\nnodes:\n  - id: X\n", "S010", "", "retired YAML form"},
+		{"yaml list", "", "lanes: [a, b]\nnodes:\n  - id: X\n", "S010", "", "is YAML"},
 		{"yaml item", "", two + "- id: X\n", "S010", "", "YAML list item"},
 		{"comment", "", two + "# a remark\nstep X: t\n", "S011", "", "no comments"},
 		{"why twice", "", two + node("X", "why a\nwhy b"), "S021", "X", "once per step"},

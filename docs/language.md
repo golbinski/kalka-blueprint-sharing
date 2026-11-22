@@ -2,7 +2,7 @@
 
 kalka reads meaning from two places in a Markdown document: the frontmatter, and typed blocks, the fenced code blocks whose info string names a kind kalka knows (`goals`, `invariants`, `glossary`, `trace`). Everything else is prose, which kalka renders and links but never interprets. This document defines the language every typed block is written in: its lexis, its grammar, the keyword table, references, ids and anchors, and one chapter per block. `specification.md` section 6 says what kalka does with the blocks; `trace.md` defines the trace block in full.
 
-Version 2 replaces the YAML of version 1 for every block. There is no conversion and no compatibility: a `v1` block is shown as code (S012).
+kalka reads only v2; a block of any other version is shown as code (S012).
 
 ## 1. Design
 
@@ -21,7 +21,7 @@ version = "v" , nonzero , { digit } ;
 
 - `v2` is the version this document defines. It is the same number for every block: the version of the language, not of one block.
 - A fence with no version is read as v2 with warning S013.
-- `v1` (the retired YAML form), a newer version, or a second word that is not a version is S012: the block is shown as code and not read. A newer version says "needs a newer kalka".
+- Any other version, or a second word that is not a version, is S012: the block is shown as code and not read. A newer version says "needs a newer kalka".
 - A block inside a list item or a quote is not a typed block: it stays code.
 
 ## 3. Lines
@@ -185,7 +185,7 @@ step C2: Send the hold email
 | S009 | error | A reference with spaces; one reference per line. |
 | S010 | error | Gherkin or YAML: `Scenario:`, `Given`, `And`, `- id:`, `lanes:`. The message says the v2 form. |
 | S011 | error | A comment line. |
-| S012 | error | A fence version this kalka does not read: v1, a newer one, or not a version. |
+| S012 | error | A fence version this kalka does not read: anything but v2. |
 | S013 | warning | A fence with no version; read as v2. |
 | S020 | warning | An unknown keyword, not starting with `x-`; ignored, with the nearest known one suggested. |
 | S021 | error | A keyword of multiplicity one written twice under one item. |

@@ -83,27 +83,6 @@ func TestEveryRuleExplains(t *testing.T) {
 	}
 }
 
-func TestSets(t *testing.T) {
-	if n, err := ParseSet(""); n != Newest || err != nil {
-		t.Fatal(n, err)
-	}
-	if n, err := ParseSet("v2"); n != 2 || err != nil {
-		t.Fatal(n, err)
-	}
-	// Set 1 went with the retired language v1.
-	if _, err := ParseSet("v1"); err == nil || !strings.Contains(err.Error(), "no longer reads") {
-		t.Fatal(err)
-	}
-	if _, err := ParseSet("v3"); err == nil || !strings.Contains(err.Error(), "needs a newer kalka") {
-		t.Fatal(err)
-	}
-	for _, bad := range []string{"1", "v0", "vx", "latest"} {
-		if _, err := ParseSet(bad); err == nil {
-			t.Errorf("%q accepted", bad)
-		}
-	}
-}
-
 // RulesDoc is docs/rules.md, generated from the registry.
 func RulesDoc() string {
 	return "# kalka rules\n\n" +

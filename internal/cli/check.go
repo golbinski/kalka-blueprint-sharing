@@ -26,9 +26,8 @@ const (
 )
 
 // checkOutput is the --json output: byte-identical for the same input,
-// kalka version and rule set (spec 6.17).
+// kalka version (spec 6.17).
 type checkOutput struct {
-	Rules   string      `json:"rules"`
 	Kalka   string      `json:"kalka"`
 	Files   []checkFile `json:"files"`
 	Summary counts      `json:"summary"`
@@ -66,7 +65,6 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 	verbose := fs.Bool("verbose", false, "also print information")
 	explain := fs.String("explain", "", "print what a rule means, why it exists, and examples")
 	strict := fs.Bool("strict", false, "warnings fail as errors do")
-	set := fs.String("rules", "", "the rule set to run, v1 to the newest (default the newest)")
 	withPlugins := fs.Bool("with-plugins", false, "resolve reference targets with the installed plugins")
 	domain := fs.String("domain", "", "a document or a folder to read domain versions and plan nodes from (default the local folder)")
 	paths, err := parseInterspersed(fs, args)
@@ -86,11 +84,6 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 		}
 		return checkClean
 	}
-	n, err := rules.ParseSet(*set)
-	if err != nil {
-		fmt.Fprintln(stderr, "check:", err)
-		return checkUsage
-	}
 	if len(paths) == 0 {
 		fmt.Fprintln(stderr, "check: name at least one file or folder")
 		return checkUsage
@@ -101,12 +94,12 @@ func cmdCheck(args []string, stdout, stderr io.Writer) int {
 		return checkUsage
 	}
 	folder := checkFolder(*domain, files)
-	opt := check.Options{Set: n, Domains: folder.Tree(), Docs: folder}
+	opt := check.Options{Domains: folder.Tree(), Docs: folder}
 	if *withPlugins {
 		dir, _ := config.Dir()
 		opt.Plugins = &plugin.Host{Dir: filepath.Join(dir, "plugins"), ExeDir: exeDir(), Log: io.Discard}
 	}
-	out := checkOutput{Rules: fmt.Sprintf("v%d", n), Kalka: version, Files: []checkFile{}}
+	out := checkOutput{Kalka: version, Files: []checkFile{}}
 	for _, f := range files {
 		cf := checkPath(f, opt)
 		for _, p := range cf.Diagnostics {

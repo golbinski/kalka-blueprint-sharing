@@ -255,11 +255,11 @@ func (p *langParser) version(info string) bool {
 	case len(words) < 2:
 		p.warn("S013", "", p.base, "the fence names no version and is read as v2; write ```%s v2", name)
 	case words[1] == "v2":
-	case words[1] == "v1":
-		p.fail("S012", "", p.base, "%s v1 is the retired YAML form, which this kalka no longer reads; rewrite the block in the kalka language v2 and fence it ```%s v2 (kalka reference export shows the form)", name, name)
+	case langVerRe.MatchString(words[1]) && (len(words[1]) > 2 || words[1] > "v2"):
+		p.fail("S012", "", p.base, "%s %s: needs a newer kalka", name, words[1])
 		return false
 	case langVerRe.MatchString(words[1]):
-		p.fail("S012", "", p.base, "%s %s: needs a newer kalka", name, words[1])
+		p.fail("S012", "", p.base, "this kalka reads only %s v2; write the block in the kalka language v2 (kalka reference export shows the form)", name)
 		return false
 	default:
 		p.fail("S012", "", p.base, "%q after %s is not a version; write ```%s v2", words[1], name, name)
@@ -330,7 +330,7 @@ lines:
 				continue
 			}
 			if d, ok := driftWords[lower]; ok && p.lang.header(kw) == nil && (colon || kw != lower || strings.TrimSpace(rest) == "") {
-				p.drift(line, l, "%s is the retired YAML form; in v2 write %s", kw, d)
+				p.drift(line, l, "%s is YAML; in the kalka language write %s", kw, d)
 				cur, curHdr, skipping = nil, nil, true
 				continue
 			}

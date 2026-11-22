@@ -88,7 +88,7 @@ func usage(w io.Writer) {
                                    if installed; --headless: no window)
   %[1]s open [--print] [<link>]  open the running daemon's UI; with a kalka:// link, its join screen
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir>
-  %[1]s check <files or folders>... [--json] [--verbose] [--strict] [--rules v1]
+  %[1]s check <files or folders>... [--json] [--verbose] [--strict]
           [--with-plugins] [--domain <path>] | check --explain <rule>
   %[1]s invariants <file> [--json] [--domain <path>]   the invariants matrix
   %[1]s samples               copy the sample blueprints into Personal, to try kalka with

@@ -370,9 +370,9 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 | `S007` | error | **Empty value.** A keyword has no value after it, or a label after `: ` is empty. |
 | `S008` | error | **Keyword on the wrong level.** An attribute keyword starts a line in column 0, or a header keyword is indented. |
 | `S009` | error | **Reference with spaces.** A keyword of type reference has a value with spaces, or several references on one line. |
-| `S010` | error | **Familiar format instead of v2.** The block drifts into a familiar format: Gherkin (`Given`, `Scenario:`, `And`) or the retired YAML form (`- id:`, `lanes:`). The message, and where it can a fix, shows the v2 form. |
+| `S010` | error | **Familiar format instead of v2.** The block drifts into a familiar format: Gherkin (`Given`, `Scenario:`, `And`) or YAML (`- id:`, `lanes:`). The message, and where it can a fix, shows the v2 form. |
 | `S011` | error | **Comment in a block.** A line of a typed block starts with `#` or `//`. |
-| `S012` | error | **Block version not read.** The fence names a version this kalka does not read: v1, the retired YAML form, or a newer one. The block is shown as code. |
+| `S012` | error | **Block version not read.** The fence names a version this kalka does not read: anything but v2. A newer one says it needs a newer kalka. The block is shown as code. |
 | `S013` | warning | **Fence without a version.** The fence names the block (`goals`) with no version; it is read as v2. |
 | `S020` | warning | **Unknown keyword.** A line starts with a word that is not a keyword of the block and does not start with `x-`; the line, and for a header its attributes, is ignored. The message names the nearest keyword. |
 | `S021` | error | **Keyword written twice.** A keyword that takes one value (`why`, `ref`, `status`, `change`, `context`) appears twice under one item; the second is ignored. |
