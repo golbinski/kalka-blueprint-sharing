@@ -184,7 +184,15 @@ func applySettings(st *store, values map[string]any, secrets map[string]string, 
 	ctx, cancel := context.WithTimeout(context.Background(), applyBudget)
 	defer cancel()
 	if err := c.myself(ctx); err != nil {
-		return fail("Jira did not accept the credentials: "+err.Error(), map[string]string{"token": "check that the token is current and belongs to this account"})
+		// Only a refusal is the token's fault; a site that cannot be
+		// reached is the site's.
+		switch statusOf(err) {
+		case 401, 403:
+			return fail("Jira did not accept the credentials: "+err.Error(), map[string]string{"token": "check that the token is current and belongs to this account"})
+		case 0, 404:
+			return fail(err.Error(), map[string]string{"site": "check the site's address"})
+		}
+		return fail(err.Error(), nil)
 	}
 	if _, err := st.login(cfg, token); err != nil {
 		return fail(err.Error(), nil)

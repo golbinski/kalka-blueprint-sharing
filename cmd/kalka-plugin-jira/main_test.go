@@ -330,6 +330,8 @@ func TestSettingsRefusesBadInput(t *testing.T) {
 		{map[string]any{"site": srv.URL}, "atl-token-0123456789", "email"},
 		{map[string]any{"site": srv.URL, "email": "ewa@parcels.example"}, "", "token"},
 		{map[string]any{"site": srv.URL, "email": "ewa@parcels.example"}, "wrong-token-0000", "token"},
+		// A site that cannot be reached is the site's fault, not the token's.
+		{map[string]any{"site": "http://127.0.0.1:1", "email": "ewa@parcels.example"}, "atl-token-0123456789", "site"},
 	} {
 		sec := map[string]string{}
 		if c.token != "" {

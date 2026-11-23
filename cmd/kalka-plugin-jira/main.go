@@ -20,10 +20,10 @@ import (
 	"time"
 )
 
-const (
-	protocol = 2
-	version  = "0.1.0"
-)
+const protocol = 2
+
+// version is set at release build time with -ldflags "-X main.version=...".
+var version = "dev"
 
 // Budgets inside kalka's timeouts (10 s, and 60 s for export), so the
 // plugin answers with a message instead of being killed.

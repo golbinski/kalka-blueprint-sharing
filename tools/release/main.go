@@ -131,8 +131,8 @@ func (r *release) target(goos, goarch string) error {
 	stage := filepath.Join(r.tmp, base)
 	bins := []build{
 		{pkg: "./cmd/kalka", bin: "kalka" + exe},
-		{pkg: "./cmd/kalka-plugin-gh", bin: "kalka-plugin-gh" + exe},
-		{pkg: "./cmd/kalka-plugin-jira", bin: "kalka-plugin-jira" + exe},
+		{pkg: "./cmd/kalka-plugin-gh", bin: "kalka-plugin-gh" + exe, version: "main.version"},
+		{pkg: "./cmd/kalka-plugin-jira", bin: "kalka-plugin-jira" + exe, version: "main.version"},
 	}
 	if goos == "windows" {
 		bins = append(bins, build{pkg: "./cmd/kalka-desktop", bin: "kalka-desktop.exe", tags: "desktop,production", ldflags: " -H=windowsgui"})

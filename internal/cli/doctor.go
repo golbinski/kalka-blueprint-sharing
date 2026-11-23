@@ -60,10 +60,14 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		writeJSON(stdout, r)
 		return r.Exit()
 	}
+	w := 10
 	for _, x := range r.Results {
-		fmt.Fprintf(stdout, "%-4s  %-10s  %s\n", x.State, x.Check, x.Detail)
+		w = max(w, len(x.Check))
+	}
+	for _, x := range r.Results {
+		fmt.Fprintf(stdout, "%-4s  %-*s  %s\n", x.State, w, x.Check, x.Detail)
 		if x.Fix != "" {
-			fmt.Fprintf(stdout, "      %-10s  fix: %s\n", "", x.Fix)
+			fmt.Fprintf(stdout, "      %-*s  fix: %s\n", w, "", x.Fix)
 		}
 	}
 	return r.Exit()
