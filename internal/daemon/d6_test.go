@@ -92,3 +92,37 @@ func TestWindowCookie(t *testing.T) {
 		}
 	}
 }
+
+// TestShellStreamOpen: the stream's first event is ShellOpen, sent once the
+// daemon has subscribed the shell, so a shell that reads the state then
+// misses no change after it (the tray once stayed offline for 30 seconds
+// when the daemon went online in between).
+func TestShellStreamOpen(t *testing.T) {
+	a := newWorld(t).node("alice@corp.com")
+	c, _ := Connect(a.cfgDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := make(chan string, 1)
+	attached := make(chan bool, 1)
+	go func() {
+		_ = c.ShellEvents(ctx, func(typ string, _ json.RawMessage) {
+			select {
+			case first <- typ:
+				s, err := c.Summary(ctx)
+				attached <- err == nil && s.Shell == "desktop"
+			default:
+			}
+		})
+	}()
+	select {
+	case typ := <-first:
+		if typ != ShellOpen {
+			t.Fatalf("first event %q", typ)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no event")
+	}
+	if !<-attached {
+		t.Error("not subscribed when the stream said open")
+	}
+}

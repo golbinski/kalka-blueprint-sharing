@@ -201,9 +201,14 @@ func JoinRoute(link string) string {
 	return "#/join/" + t
 }
 
+// ShellOpen is the event ShellEvents gives once the stream is open.
+const ShellOpen = "open"
+
 // ShellEvents subscribes as a desktop shell (spec 22): while the stream
 // is open the daemon leaves prompts and notices to the shell. It calls on
-// for each bus event until ctx ends or the daemon goes away.
+// for each bus event until ctx ends or the daemon goes away, and first
+// with ShellOpen once the daemon has subscribed it, so that a caller
+// reading the state then misses nothing that happens after.
 func (c *Client) ShellEvents(ctx context.Context, on func(typ string, data json.RawMessage)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/events?shell=1", nil)
 	if err != nil {
@@ -218,6 +223,8 @@ func (c *Client) ShellEvents(ctx context.Context, on func(typ string, data json.
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("events: %s", resp.Status)
 	}
+	// The daemon subscribes before it answers (serveEvents).
+	on(ShellOpen, nil)
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64<<10), 8<<20)
 	var typ string

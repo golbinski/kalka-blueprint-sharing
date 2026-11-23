@@ -285,6 +285,8 @@ func (s *Shell) connected(c *daemon.Client) {
 }
 
 // events follows the daemon's bus as its shell, until the daemon goes.
+// Each time the stream opens, onEvent refreshes the tray: a change between
+// the first refresh and the subscription (going online, say) is not lost.
 func (s *Shell) events(c *daemon.Client) {
 	for {
 		_ = c.ShellEvents(s.ctx, s.onEvent)
