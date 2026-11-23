@@ -70,6 +70,7 @@ var commands = []command{
 	{"promote", ClassWorkflow, plain(cmdPromote)},
 	{"close", ClassWorkflow, plain(cmdClose)},
 	{"context", ClassView, plain(cmdContext)},
+	{"graph", ClassView, plain(cmdGraph)},
 	{"teams", ClassView, plain(cmdTeams)},
 	{"team", ClassWorkflow, plain(cmdTeam)},
 	{"join", ClassWorkflow, plain(cmdJoin)},

@@ -1,5 +1,4 @@
 // Grouping of review-log entries by where the linear view shows them.
-// The canvas uses the same grouping, so both views show the same entries.
 import type { Doc, Entry } from './api'
 
 export interface Grouped {

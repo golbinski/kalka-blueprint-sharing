@@ -37,3 +37,28 @@ func TestContextCommand(t *testing.T) {
 		t.Fatalf("no file: %d", code)
 	}
 }
+
+// kalka graph prints the lens the graph canvas draws, the same bytes for
+// the same files (spec 6.18, 11.1).
+func TestGraphCommand(t *testing.T) {
+	lib := filepath.Join("..", "..", "samples", "blueprints", "library")
+	leaf := filepath.Join(lib, "return-creates-hold.md")
+	code, out, errs := runCLI("graph", leaf, "--domain", lib)
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	for _, want := range []string{"Domains:\n  library@v2\n  library.reservations@v1", "DEV-123 Return creates a hold and notifies the queue head (focus)", "3 open in the documents held here", "goal G3 is unclaimed", "step C5: implementation-only"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	_, a, _ := runCLI("graph", leaf, "--domain", lib, "--json")
+	_, b, _ := runCLI("graph", leaf, "--domain", lib, "--json")
+	var g check.Graph
+	if err := json.Unmarshal([]byte(a), &g); err != nil || len(g.Open) != 3 || a != b {
+		t.Fatalf("json %v %d open, same %v", err, len(g.Open), a == b)
+	}
+	if code, _, _ := runCLI("graph"); code != exitUsage {
+		t.Fatalf("no file: %d", code)
+	}
+}

@@ -181,7 +181,7 @@ describe('the document rail', () => {
     expect(railHref({ rel: 'redelivery.md', traces: 2 }, 'trace')).toBe('#/trace/redelivery.md/1')
     expect(railHref({ rel: 'address-change.md' }, 'trace')).toBe('#/doc/address-change.md')
     expect(railHref({ rel: 'redelivery.md', traces: 2 }, 'doc')).toBe('#/doc/redelivery.md')
-    expect(railHref({ rel: 'redelivery.md', traces: 2 }, 'canvas')).toBe('#/doc/redelivery.md')
+    expect(railHref({ rel: 'redelivery.md', traces: 2 }, 'graph')).toBe('#/doc/redelivery.md')
     await render(<DocRail doc={doc('redelivery.md', { traces: [{}] as Doc['traces'] })} scope={TEAM} where="parcel-ops" list={list} view="trace" reloadKey={0} />)
     expect(links().map((a) => a.getAttribute('href'))).toEqual(['#/doc/address-change.md', '#/trace/redelivery.md/1'])
   })

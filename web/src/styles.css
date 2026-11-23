@@ -1396,126 +1396,245 @@ button.icon {
   font-weight: 600;
 }
 
-/* ---- Canvas review (spec 11.1); sizes match canvasLayout.ts ---- */
-.canvas-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px 32px 24px;
-  min-width: 0;
+/* ---- Graph canvas (spec 6.18, 11.1); sizes match graphLayout.ts ---- */
+.cv-flag {
+  color: var(--div-ink);
 }
-.canvas-area {
+.graph-area {
+  flex: 1;
   overflow: auto;
   min-height: 300px;
   background: var(--panel);
   border-radius: 12px;
+  padding: 12px;
 }
-.cv-card {
+.graph-bands {
+  display: flex;
+  margin-bottom: 8px;
+}
+.graph-canvas {
+  position: relative;
+}
+.gcard {
   position: absolute;
-  display: block;
-  overflow: hidden;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  color: var(--text);
-  text-decoration: none;
 }
-a.cv-card:hover {
-  border-color: var(--accent);
-  color: var(--text);
+.gcard.focus {
+  border: 2px solid var(--accent);
 }
-a.cv-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.cv-sec {
-  padding: 12px 16px;
-}
-.cv-sec-title {
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 24px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cv-sec-text,
-.cv-note-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--text-2);
-}
-.cv-sec-text {
-  line-height: 20px;
-}
-.cv-foot {
-  line-height: 24px;
-  height: 24px;
-}
-.cv-general,
-.cv-orphaned {
-  background: var(--ground);
+.gcard.placeholder {
   border-style: dashed;
+  background: transparent;
 }
-.cv-note {
-  padding: 10px 12px;
+.gcard.archived {
+  opacity: 0.6;
 }
-.cv-note.kind-deviation {
-  background: var(--div-soft);
-  border-color: var(--div-line);
+.gcard.selected,
+.gitem.selected,
+.gstep.selected {
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent);
 }
-.cv-note.kind-release,
-.cv-note.kind-budded {
-  background: var(--ground);
-}
-.cv-note-head {
+.gcard-head {
   display: flex;
-  gap: 8px;
-  align-items: baseline;
-  height: 20px;
-  line-height: 20px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.cv-note-head .author {
-  color: var(--text);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cv-flag {
-  color: var(--div-ink);
-}
-.cv-note-text {
-  font-size: 13px;
-  line-height: 18px;
-}
-.cv-ref {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: 84px;
   padding: 8px 12px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 18px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: 10px;
+  overflow: hidden;
 }
-.cv-ref .ref {
-  display: block;
+.gcard-head:hover {
+  background: var(--card-hover);
+}
+.gcard-title {
+  font-weight: 600;
+  line-height: 20px;
+  max-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
+}
+.gcard-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.gcard-talk {
+  white-space: nowrap;
+}
+.gnew {
+  margin-left: 6px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.gitem {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--card);
+  text-align: left;
+  font-size: 13px;
+  min-height: 0;
+  overflow: hidden;
+}
+.gitem.kind-criterion[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.gitem.attention,
+.gstep.attention {
+  border-color: var(--div-line);
+  background: var(--div-soft);
+}
+.gitem-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gcount {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+.gdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.gmore,
+.gother {
+  position: absolute;
+  left: 10px;
+  height: 26px;
+}
+.ggroup {
+  position: absolute;
+  white-space: nowrap;
+}
+.gstep {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  text-align: left;
+  overflow: hidden;
+  min-height: 0;
+}
+.gstep-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.gstep-head .tbadge {
+  flex-shrink: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cv-ref-state {
-  font-family: var(--sans);
+.gstep-text,
+.gref {
+  line-height: 1.4;
 }
-.cv-edge {
+.gstep-text,
+.gref {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gref {
+  color: var(--muted);
+}
+.gw-struct,
+.gw-realizes,
+.gw-link {
   fill: none;
-  stroke: var(--edge-soft);
+  stroke-linecap: round;
+}
+.gw-struct {
+  stroke: var(--line-strong);
   stroke-width: 1.5;
 }
-.cv-edge-ref {
+.gw-realizes {
   stroke: var(--accent);
-  stroke-dasharray: 5 4;
+  stroke-width: 2;
+  stroke-dasharray: 6 6;
+}
+.gw-link {
+  stroke: var(--edge-soft);
+  stroke-width: 1.25;
+}
+.gw-dashed {
+  stroke-dasharray: 3 5;
+}
+.gw-parent-newer {
+  stroke: var(--div);
+}
+.gw-cycle {
+  stroke: var(--danger);
+  stroke-width: 2;
+}
+.gw-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.legend-line {
+  display: inline-block;
+  width: 24px;
+  vertical-align: middle;
+  border-top: 2px solid var(--line-strong);
+  margin-right: 4px;
+}
+.legend-line.realizes {
+  border-top: 2px dashed var(--accent);
+}
+.legend-line.link {
+  border-top: 1px solid var(--edge-soft);
+}
+.graph-panel h3 {
+  margin: 4px 0;
+  font-size: 15px;
+}
+.gdetail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.gopen-title {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.gopen-group {
+  margin-bottom: 12px;
+}
+.gthreads li {
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
 }
 .flash {
   animation: flash 2s ease-out;

@@ -99,6 +99,7 @@ func usage(w io.Writer) {
   %[1]s promote <file> [--status <s>] [--json]   a seed becomes a blueprint (default draft)
   %[1]s close <file> [--reopen] [--json]   the owner confirms the document delivered
   %[1]s context <file> [--domain <path>] [--json]   the plan and domain path for an agent
+  %[1]s graph <file> [--domain <path>] [--json]     the graph canvas's lens: documents, items, open items
   %[1]s seeds [--team <t>|personal] [--json]   list the pre-backlog
   %[1]s teams [--json]        the teams you hold, your role and what waits in each
   %[1]s team create <name> | invite <email> [--expires 72h] | uninvite <id> | members | log | invites | sync

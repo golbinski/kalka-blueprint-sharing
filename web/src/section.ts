@@ -41,7 +41,7 @@ export function sectionOfRow(b: BlueprintInfo, scope: string): Section {
 // activeSection is what the top bar highlights: in a document, the section
 // it belongs to (nothing while it loads); elsewhere the view on screen.
 export function activeSection(view: string, doc: Doc | null): string {
-  if (view === 'doc' || view === 'trace' || view === 'canvas') return doc ? sectionOf(doc) : ''
+  if (view === 'doc' || view === 'trace' || view === 'graph') return doc ? sectionOf(doc) : ''
   return view
 }
 

@@ -148,6 +148,9 @@ kalka waiting
 - `kalka context <file>` prints what an agent needs before working on a
   document: the goals and invariants of every plan node above it, and the
   terms and invariants of every domain node it rests on.
+- `kalka graph <file>` prints the same documents, and the document's
+  children, as a graph with what needs attention; the *Graph* tab shows
+  it in the app.
 - Every command takes `--json`, and errors carry a stable `kind`.
   `kalka waiting --json` is what an agent polls.
 - An agent that is not acting for the owner adds entries

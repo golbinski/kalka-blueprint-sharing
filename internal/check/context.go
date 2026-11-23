@@ -44,7 +44,8 @@ type DomainLevel struct {
 // Context builds the agent context of doc (file is how it is named).
 func Context(file string, doc *bp.Document, o Options) AgentContext {
 	c := AgentContext{Document: file, Title: doc.Title(), Plan: []PlanLevel{}, Domains: []DomainLevel{}}
-	path, missing, cycle := PlanPath(doc, o.Docs)
+	lens := LensOf(doc, o)
+	path, missing, cycle := lens.Plan, lens.Missing, lens.Cycle
 	if missing != "" {
 		c.Missing = append(c.Missing, "plan node "+missing)
 	}
@@ -69,7 +70,7 @@ func Context(file string, doc *bp.Document, o Options) AgentContext {
 	}
 	c.Plan = append(c.Plan, level(doc, true))
 
-	dc := domainContext(doc, o.Domains)
+	dc := lens.Domains
 	seen := map[string]int{} // domain@version → index in c.Domains
 	for _, p := range dc.Paths {
 		if p.Missing != nil {

@@ -16,7 +16,8 @@ export type Route =
   /** scope is the route's `#/t/<scope>/`; '' when the route names none. */
   | { view: ScopedView; scope: string }
   | { view: 'doc'; path: string; version?: number }
-  | { view: 'canvas'; path: string }
+  /** The graph canvas: by kalka_id in a scope, or by path for a document with none. */
+  | { view: 'graph'; scope: string; id?: string; path?: string }
   | { view: 'trace'; path: string; index: number; node?: string }
   | { view: 'settings' }
   /** Needs you: every team at once (spec 11.3). */
@@ -38,7 +39,7 @@ export function parseRoute(hash: string): Route {
     const v = Number(q.get('v'))
     return { view: 'doc', path: decodeURIComponent(h.slice(4)), version: Number.isInteger(v) && v > 0 ? v : undefined }
   }
-  if (h.startsWith('canvas/')) return { view: 'canvas', path: decodeURIComponent(h.slice(7)) }
+  if (h.startsWith('graph/')) return { view: 'graph', scope: '', path: decode(h.slice(6)) ?? '' }
   if (h.startsWith('trace/')) {
     const rest = h.slice(6)
     const i = rest.lastIndexOf('/')
@@ -47,9 +48,10 @@ export function parseRoute(hash: string): Route {
   }
   if (h.startsWith('t/')) {
     // #/t/<scope>/<view>; a team's old waiting list is Needs you.
-    const [raw, view = ''] = h.slice(2).split('/')
+    const [raw, view = '', id = ''] = h.slice(2).split('/')
     if (view === 'waiting') return { view: 'needs' }
     const scope = decode(raw) ?? ''
+    if (view === 'graph' && id) return { view: 'graph', scope, id: decode(id) ?? '' }
     return { view: (scopedViews as string[]).includes(view) ? (view as ScopedView) : 'list', scope }
   }
   if ((scopedViews as string[]).includes(h)) return { view: h as ScopedView, scope: '' }
@@ -71,8 +73,17 @@ export function docHref(rel: string, version?: number): string {
   return '#/doc/' + encodeURIComponent(rel) + (version ? '?v=' + version : '')
 }
 
-export function canvasHref(rel: string): string {
-  return '#/canvas/' + encodeURIComponent(rel)
+// graphHref is the graph canvas centred on a document: by kalka_id in its
+// scope (spec 11.1), or by path when it has no id yet.
+export function graphHref(d: { rel: string; kalka_id?: string; scope?: string }): string {
+  if (d.kalka_id && d.scope) return '#/t/' + encodeURIComponent(d.scope) + '/graph/' + encodeURIComponent(d.kalka_id)
+  return '#/graph/' + encodeURIComponent(d.rel)
+}
+
+// atHref names a place in the document view: an entry, a section or an
+// item, scrolled to and flashed.
+export function atHref(rel: string, id: string, version?: number): string {
+  return docHref(rel, version) + (version ? '&' : '?') + 'at=' + encodeURIComponent(id)
 }
 
 // traceHref names trace block `index` (0-based) of a blueprint; the URL

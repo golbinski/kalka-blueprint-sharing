@@ -77,11 +77,12 @@ kalka invariants --domain samples/blueprints/lending/loans-domain.md samples/blu
 A plan tree on a domain tree: an epic with goals and invariants, a story
 that realizes them with acceptance criteria and a trace, and a root domain
 with a subdomain that narrows one of its terms. The files carry their
-`kalka_id`s, since `kalka_parent` names one. Check and read the context:
+`kalka_id`s, since `kalka_parent` names one. Check, read the context, and see the graph:
 
 ```sh
 kalka check --domain samples/blueprints/library samples/blueprints/library
 kalka context --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md
+kalka graph --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md
 ```
 
 | File | What it exercises |

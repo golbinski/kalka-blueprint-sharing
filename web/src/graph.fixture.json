@@ -1,0 +1,428 @@
+{
+  "focus": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+  "title": "Return creates a hold and notifies the queue head",
+  "nodes": [
+    {
+      "id": "domain:library@v2",
+      "kind": "domain",
+      "band": "domain",
+      "kalka_id": "0b6f3c2e-9a41-4d7b-8e15-6c2a9f0d4e77",
+      "title": "Library",
+      "owner": "ewa@example.org",
+      "domain": "library",
+      "version": 2
+    },
+    {
+      "id": "domain:library.reservations@v1",
+      "kind": "domain",
+      "band": "domain",
+      "kalka_id": "5d2e8a10-3c6f-4b9e-a7d4-1f0e6b8c2a93",
+      "title": "Reservations",
+      "owner": "marek@example.org",
+      "domain": "library.reservations",
+      "version": 1
+    },
+    {
+      "id": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "kind": "plan",
+      "band": "plan",
+      "kalka_id": "8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "title": "Holds and notification on return",
+      "issue": "jira:DEV-100",
+      "owner": "ewa@example.org",
+      "warnings": 1,
+      "open": 1
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "kind": "plan",
+      "band": "plan",
+      "kalka_id": "3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "title": "Return creates a hold and notifies the queue head",
+      "issue": "jira:DEV-123",
+      "owner": "marek@example.org",
+      "focus": true,
+      "open": 2
+    },
+    {
+      "id": "domain:library@v2/invariant:L1",
+      "kind": "invariant",
+      "card": "domain:library@v2",
+      "item": "L1",
+      "text": "A copy is on at most one loan at a time",
+      "anchor": "invariants#L1"
+    },
+    {
+      "id": "domain:library@v2/term:member",
+      "kind": "term",
+      "card": "domain:library@v2",
+      "item": "member",
+      "text": "A person registered with the library who may borrow copies"
+    },
+    {
+      "id": "domain:library@v2/term:copy",
+      "kind": "term",
+      "card": "domain:library@v2",
+      "item": "copy",
+      "text": "One physical item of a title that can be lent"
+    },
+    {
+      "id": "domain:library@v2/term:loan",
+      "kind": "term",
+      "card": "domain:library@v2",
+      "item": "loan",
+      "text": "A copy lent to one member for a fixed period"
+    },
+    {
+      "id": "domain:library@v2/term:reservation",
+      "kind": "term",
+      "card": "domain:library@v2",
+      "item": "reservation",
+      "text": "A member's request to borrow a title as soon as a copy is free"
+    },
+    {
+      "id": "domain:library@v2/term:return",
+      "kind": "term",
+      "card": "domain:library@v2",
+      "item": "return",
+      "text": "A member bringing a lent copy back"
+    },
+    {
+      "id": "domain:library.reservations@v1/invariant:R1",
+      "kind": "invariant",
+      "card": "domain:library.reservations@v1",
+      "item": "R1",
+      "text": "A copy on hold is lent only to the member it is held for",
+      "anchor": "invariants#R1"
+    },
+    {
+      "id": "domain:library.reservations@v1/invariant:R2",
+      "kind": "invariant",
+      "card": "domain:library.reservations@v1",
+      "item": "R2",
+      "text": "A loan of a copy whose title has open reservations cannot be renewed",
+      "anchor": "invariants#R2"
+    },
+    {
+      "id": "domain:library.reservations@v1/term:queue",
+      "kind": "term",
+      "card": "domain:library.reservations@v1",
+      "item": "queue",
+      "text": "The ordered list of open reservations for one title"
+    },
+    {
+      "id": "domain:library.reservations@v1/term:queue head",
+      "kind": "term",
+      "card": "domain:library.reservations@v1",
+      "item": "queue head",
+      "text": "The member whose reservation is first in the queue"
+    },
+    {
+      "id": "domain:library.reservations@v1/term:hold",
+      "kind": "term",
+      "card": "domain:library.reservations@v1",
+      "item": "hold",
+      "text": "A copy set aside for the queue head after a return"
+    },
+    {
+      "id": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G1",
+      "kind": "goal",
+      "card": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "item": "G1",
+      "text": "The queue head learns that a copy is waiting for them",
+      "state": "claimed",
+      "anchor": "goals#G1"
+    },
+    {
+      "id": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G2",
+      "kind": "goal",
+      "card": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "item": "G2",
+      "text": "A held copy is not lent to anyone else",
+      "state": "claimed",
+      "anchor": "goals#G2"
+    },
+    {
+      "id": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G3",
+      "kind": "goal",
+      "card": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "item": "G3",
+      "text": "Members can see their queue position",
+      "state": "unclaimed",
+      "anchor": "goals#G3"
+    },
+    {
+      "id": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/invariant:E1",
+      "kind": "invariant",
+      "card": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "item": "E1",
+      "text": "A member is notified at most once per hold",
+      "state": "new",
+      "anchor": "invariants#E1"
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC1",
+      "kind": "criterion",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "AC1",
+      "text": "The queue head is notified exactly once",
+      "state": "open",
+      "anchor": "acceptance-criteria#AC1"
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC2",
+      "kind": "criterion",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "AC2",
+      "text": "A held copy is refused to other members",
+      "state": "open",
+      "anchor": "acceptance-criteria#AC2"
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B1",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "B1",
+      "text": "A member returns a copy",
+      "anchor": "trace#B1",
+      "trace": 1,
+      "lane": "business",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B2",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "B2",
+      "text": "The copy is held for the queue head",
+      "anchor": "trace#B2",
+      "trace": 1,
+      "lane": "business",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B3",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "B3",
+      "text": "The queue head is told",
+      "anchor": "trace#B3",
+      "trace": 1,
+      "lane": "business",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C1",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "C1",
+      "text": "Close the loan and free the copy",
+      "anchor": "trace#C1",
+      "trace": 1,
+      "lane": "code",
+      "ref": "gh:src/loans/return.py#L18-L52",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C2",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "C2",
+      "text": "Look up the queue for the title",
+      "state": "new",
+      "anchor": "trace#C2",
+      "trace": 1,
+      "lane": "code",
+      "ref": "gh:src/holds/queue.py#L8-L30",
+      "lanes": [
+        "business",
+        "code"
+      ],
+      "divergences": [
+        {
+          "class": "implementation-only",
+          "node": "C2"
+        }
+      ],
+      "markers": [
+        "divergence:implementation-only"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C3",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "C3",
+      "text": "Create a hold for the queue head",
+      "state": "new",
+      "anchor": "trace#C3",
+      "trace": 1,
+      "lane": "code",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C4",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "C4",
+      "text": "Email the queue head unless already notified for this hold",
+      "state": "new",
+      "anchor": "trace#C4",
+      "trace": 1,
+      "lane": "code",
+      "lanes": [
+        "business",
+        "code"
+      ]
+    },
+    {
+      "id": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C5",
+      "kind": "step",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "item": "C5",
+      "text": "Put the copy back on the shelf",
+      "anchor": "trace#C5",
+      "trace": 1,
+      "lane": "code",
+      "ref": "gh:src/loans/return.py#L54-L70",
+      "lanes": [
+        "business",
+        "code"
+      ],
+      "divergences": [
+        {
+          "class": "implementation-only",
+          "node": "C5"
+        }
+      ],
+      "markers": [
+        "divergence:implementation-only"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "domain:library@v2",
+      "to": "domain:library.reservations@v1",
+      "kind": "domain-parent",
+      "label": "v2"
+    },
+    {
+      "from": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "kind": "parent"
+    },
+    {
+      "from": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "to": "domain:library.reservations@v1",
+      "kind": "pin",
+      "label": "v1"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "to": "domain:library.reservations@v1",
+      "kind": "pin",
+      "label": "v1"
+    },
+    {
+      "from": "domain:library.reservations@v1/invariant:R2",
+      "to": "domain:library@v2/term:loan",
+      "kind": "refines"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC1",
+      "to": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G1",
+      "kind": "realizes"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC2",
+      "to": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G2",
+      "kind": "realizes"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "to": "domain:library.reservations@v1/invariant:R1",
+      "kind": "affects"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "to": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/invariant:E1",
+      "kind": "affects"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B2",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC2",
+      "kind": "covers"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B3",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/criterion:AC1",
+      "kind": "covers"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C1",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B1",
+      "kind": "step-realizes"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C1",
+      "to": "domain:library@v2/invariant:L1",
+      "kind": "guards"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C3",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B2",
+      "kind": "step-realizes"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C3",
+      "to": "domain:library.reservations@v1/invariant:R1",
+      "kind": "guards"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C4",
+      "to": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:B3",
+      "kind": "step-realizes"
+    },
+    {
+      "from": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C4",
+      "to": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/invariant:E1",
+      "kind": "guards"
+    }
+  ],
+  "open": [
+    {
+      "node": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11/goal:G3",
+      "card": "plan:8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11",
+      "kind": "unclaimed",
+      "text": "goal G3 is unclaimed"
+    },
+    {
+      "node": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C2",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "kind": "implementation-only",
+      "text": "step C2: implementation-only"
+    },
+    {
+      "node": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803/step:1:C5",
+      "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
+      "kind": "implementation-only",
+      "text": "step C5: implementation-only"
+    }
+  ]
+}

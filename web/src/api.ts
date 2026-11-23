@@ -526,6 +526,73 @@ export interface PlanView {
   closed?: boolean
 }
 
+/** A card or an item of the graph canvas (spec 6.18, 11.1; kalka graph). */
+export interface GraphNode {
+  id: string
+  kind: 'domain' | 'plan' | 'goal' | 'criterion' | 'invariant' | 'term' | 'step'
+  /** The card an item belongs to; absent for a card. */
+  card?: string
+  band?: 'domain' | 'plan'
+  kalka_id?: string
+  rel?: string
+  /** A kept domain version: open it with ?v=. */
+  kept?: boolean
+  /** Where it is held: personal, or a team's name. */
+  scope?: string
+  title?: string
+  issue?: string
+  owner?: string
+  domain?: string
+  version?: number
+  focus?: boolean
+  child?: boolean
+  placeholder?: boolean
+  errors?: number
+  warnings?: number
+  prose?: number
+  general?: number
+  orphaned?: number
+  item?: string
+  text?: string
+  state?: string
+  anchor?: string
+  threads?: number
+  trace?: number
+  lane?: string
+  ref?: string
+  lanes?: string[]
+  divergences?: Divergence[]
+  markers?: string[]
+  open?: number
+  new?: number
+}
+
+export interface GraphEdge {
+  from: string
+  to: string
+  kind: 'parent' | 'domain-parent' | 'pin' | 'realizes' | 'refines' | 'affects' | 'covers' | 'step-realizes' | 'guards'
+  label?: string
+  dashed?: boolean
+  marker?: string
+}
+
+export interface OpenItem {
+  node: string
+  card: string
+  kind: string
+  text: string
+}
+
+/** The lens around a document, as the graph canvas draws it. */
+export interface Graph {
+  focus: string
+  title: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  open: OpenItem[]
+  alone?: boolean
+}
+
 /** The flattened context of a document for an agent (kalka context). */
 export interface AgentContextResult {
   context: unknown
@@ -874,6 +941,11 @@ export const api = {
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
   close: (path: string, reopen = false) => call<{ ok: boolean }>('POST', '/api/close', { path, reopen }),
+  graph: (where: { path: string } | { team: string; id: string }) =>
+    call<{ graph: Graph; rel: string }>(
+      'GET',
+      '/api/graph?' + ('path' in where ? 'path=' + encodeURIComponent(where.path) : 'team=' + encodeURIComponent(where.team) + '&id=' + encodeURIComponent(where.id)),
+    ),
   agentContext: (path: string) => call<AgentContextResult>('GET', '/api/context?path=' + encodeURIComponent(path)),
   issues: (team = '') => call<IssuesView>('GET', '/api/issues' + scope(team)).then((v) => ({ caps: v.caps, issues: v.issues ?? {} })),
   exportDoc: (path: string) => call<ExportResult>('POST', '/api/export', { path }),

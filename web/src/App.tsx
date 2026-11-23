@@ -17,7 +17,7 @@ import {
 import { PublishDialog, SeedDialog } from './Dialogs'
 import { noticeHref, notifyNotice, permission, requestPermission } from './notify'
 import { SettingsPage } from './Settings'
-import { CanvasPage } from './Canvas'
+import { GraphPage } from './Graph'
 import { blocking } from './diag'
 import { Review } from './Review'
 import { Blueprints, PreBacklog, Setup } from './Views'
@@ -67,7 +67,24 @@ export function App() {
       return false
     }
   })
-  const docPath = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas' ? route.path : ''
+  // The graph route names a document by kalka_id in a scope: where it is
+  // held comes from the graph itself.
+  const graphKey = route.view === 'graph' && route.id ? route.scope + '/' + route.id : ''
+  const [graphRel, setGraphRel] = useState<{ key: string; rel: string } | null>(null)
+  useEffect(() => {
+    if (!graphKey || route.view !== 'graph' || !route.id) return
+    api.graph({ team: route.scope, id: route.id }).then(
+      (r) => setGraphRel({ key: graphKey, rel: r.rel }),
+      (e: Error) => setDocErr(e.message),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphKey])
+  const docPath =
+    route.view === 'doc' || route.view === 'trace'
+      ? route.path
+      : route.view === 'graph'
+        ? (route.path ?? (graphRel?.key === graphKey ? graphRel.rel : ''))
+        : ''
   const docVersion = route.view === 'doc' ? route.version : undefined
   const docPathRef = useRef(docPath)
   const docVersionRef = useRef(docVersion)
@@ -244,7 +261,7 @@ export function App() {
       settings: 'Settings',
       join: 'Join a team',
     }
-    const what = doc && (route.view === 'doc' || route.view === 'trace' || route.view === 'canvas') ? doc.title : (view[route.view] ?? '')
+    const what = doc && (route.view === 'doc' || route.view === 'trace' || route.view === 'graph') ? doc.title : (view[route.view] ?? '')
     document.title = what ? `${what} · kalka` : 'kalka'
   }, [route.view, doc])
 
@@ -275,7 +292,7 @@ export function App() {
   if (!status) return <div className="page muted">Loading…</div>
   if (status.setup) return <Setup status={status} />
 
-  const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'canvas'
+  const inDoc = route.view === 'doc' || route.view === 'trace' || route.view === 'graph'
   const personal = scope === PERSONAL
   // In a document, the section it belongs to stays highlighted (sectionOf).
   const active = activeSection(route.view, doc)
@@ -377,7 +394,7 @@ export function App() {
               </div>
             )}
             {route.view === 'doc' && doc && <Review doc={doc} reload={loadDoc} onSeed={(e) => setSeedFor({ from: e })} onPublish={() => setPublishing(true)} />}
-            {route.view === 'canvas' && doc && <CanvasPage doc={doc} />}
+            {route.view === 'graph' && doc && <GraphPage doc={doc} />}
             {route.view === 'trace' && doc && <TracePage doc={doc} index={route.index} nodeId={route.node} reload={loadDoc} />}
           </div>
         )}

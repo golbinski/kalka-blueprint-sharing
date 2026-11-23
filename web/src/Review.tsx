@@ -12,7 +12,7 @@ import { hintsOf } from './diag'
 import { DocHeader } from './DocHeader'
 import { GoalsBlock } from './Goals'
 import { GlossaryBlock, InvariantBlock, InvariantsPanel, LinkContext, linkerOf, showInvariant, TermsPanel, useLink } from './Aids'
-import { canvasHref, docHref, localTime, plural } from './util'
+import { docHref, localTime, plural } from './util'
 
 export function Markdown({ src, className }: { src: string; className?: string }) {
   // render() escapes raw HTML and filters links (markdown.ts), so its output
@@ -554,7 +554,7 @@ export function Review({
     const el = id ? document.getElementById(id) : null
     if (!el) return
     el.scrollIntoView({ block: 'center' })
-    // Show which one was meant (from the canvas, say).
+    // Show which one was meant (from the graph, say).
     el.classList.add('flash')
     const t = setTimeout(() => el.classList.remove('flash'), 2000)
     return () => clearTimeout(t)
@@ -700,7 +700,7 @@ export function Review({
 
 // Outline is the rail beside the document (spec 11.1): its sections with
 // how many comments each has and a dot where there is a deviation, the
-// general comments, and the map of the document (the canvas).
+// and the general comments.
 function Outline({
   doc,
   bySlug,
@@ -754,9 +754,6 @@ function Outline({
           </li>
         )}
       </ul>
-      <a className="small" href={canvasHref(doc.rel)}>
-        Open as map
-      </a>
     </nav>
   )
 }

@@ -7,7 +7,7 @@ import { groupRows, levels, loadGroupBy, loadShowArchived, usable, type Group } 
 import { ExportButton, IssueChip, IssueParents } from './Issue'
 import { loadCollapsed, NARROW, railHref, saveCollapsed, type DocView } from './rail'
 import { blueprintRows, SECTION_LABEL, sectionOf, type Section } from './section'
-import { docHref, scopeHref, traceHref, type ScopedView } from './util'
+import { docHref, graphHref, scopeHref, traceHref, type ScopedView } from './util'
 
 /** SectionsNav is the top bar's sections; active is activeSection's answer. */
 export function SectionsNav({ scope, personal, active, needs }: { scope: string; personal: boolean; active: string; needs: number }) {
@@ -71,7 +71,7 @@ export function DocBar({ doc, scope, view, traceIndex, reload }: { doc: Doc; sco
       <span className="grow" />
       {reload && <ExportButton doc={doc} reload={reload} />}
       <div className="tabs" role="group" aria-label="Views">
-        <a className={view === 'doc' || view === 'canvas' ? 'active' : ''} href={docHref(doc.rel)}>
+        <a className={view === 'doc' ? 'active' : ''} href={docHref(doc.rel)}>
           Document
         </a>
         {doc.traces.length > 0 ? (
@@ -83,6 +83,9 @@ export function DocBar({ doc, scope, view, traceIndex, reload }: { doc: Doc; sco
             Trace
           </span>
         )}
+        <a className={view === 'graph' ? 'active' : ''} href={graphHref(doc)}>
+          Graph
+        </a>
       </div>
     </nav>
   )

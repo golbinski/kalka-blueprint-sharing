@@ -32,11 +32,11 @@ export function saveCollapsed(collapsed: boolean, storage?: Pick<Storage, 'setIt
 }
 
 /** The views a document opens in. */
-export type DocView = 'doc' | 'trace' | 'canvas'
+export type DocView = 'doc' | 'trace' | 'graph'
 
 // railHref opens a document in the same view where it has one: from a
 // trace, its first trace when it has any, else its document; from the
-// document or its map, its document.
+// document or its graph, its document.
 export function railHref(target: { rel: string; traces?: number }, view: DocView): string {
   if (view === 'trace' && (target.traces ?? 0) > 0) return traceHref(target.rel, 0)
   return docHref(target.rel)

@@ -105,6 +105,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
 	mux.HandleFunc("POST /api/close", d.apiClose)
 	mux.HandleFunc("GET /api/context", d.apiContext)
+	mux.HandleFunc("GET /api/graph", d.apiGraph)
 	d.mountTeams(mux)
 	mux.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]int{"pid": os.Getpid()})
@@ -350,6 +351,31 @@ func (d *Daemon) apiContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"context": c, "markdown": c.Markdown()})
+}
+
+// apiGraph is the graph canvas around a document (spec 6.18, 11.1), the
+// same lens kalka graph prints: ?path=, or ?team= and ?id= (the route
+// names documents by kalka_id). rel says where the focus is held.
+func (d *Daemon) apiGraph(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if id := r.URL.Query().Get("id"); id != "" {
+		sc, ok := d.scope(w, r)
+		if !ok {
+			return
+		}
+		rel, err := d.Locate(sc, id)
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		path = rel
+	}
+	g, rel, err := d.Graph(path)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"graph": g, "rel": rel})
 }
 
 func (d *Daemon) apiPromote(w http.ResponseWriter, r *http.Request) {

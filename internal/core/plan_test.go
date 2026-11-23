@@ -129,3 +129,37 @@ func TestPlanGraphScope(t *testing.T) {
 		t.Fatalf("team epic plan %+v", epic.Plan)
 	}
 }
+
+// The app's graph is kalka graph's, with where each card is held; the
+// graph route finds a document by kalka_id in its scope (spec 11.1).
+func TestGraphView(t *testing.T) {
+	w := newWorld(t)
+	alice := w.node("alice@library.example")
+	alice.write("epic.md", planEpic)
+	alice.write("leaf.md", planLeaf)
+	waitIndexed(t, alice, 2)
+	g, rel, err := alice.d.Graph("leaf.md")
+	if err != nil || rel != "leaf.md" {
+		t.Fatalf("%v %q", err, rel)
+	}
+	var cards []string
+	for _, n := range g.Nodes {
+		if n.Card == "" {
+			cards = append(cards, n.Rel+" "+n.Scope)
+		}
+	}
+	if strings.Join(cards, ", ") != "epic.md personal, leaf.md personal" {
+		t.Errorf("cards %q", cards)
+	}
+	// The leaf has no trace, so nothing covers its criterion.
+	if len(g.Open) != 1 || g.Open[0].Kind != "uncovered" {
+		t.Errorf("open %+v", g.Open)
+	}
+	sc, _ := alice.d.ResolveScope(ScopePersonal)
+	if r, err := alice.d.Locate(sc, "6A4C2E18-7b3d-4f91-8c05-d2e9a1b7f430"); err != nil || r != "leaf.md" {
+		t.Errorf("locate %q %v", r, err)
+	}
+	if _, err := alice.d.Locate(sc, "00000000-0000-4000-8000-000000000000"); err == nil {
+		t.Error("located a document that is not here")
+	}
+}
