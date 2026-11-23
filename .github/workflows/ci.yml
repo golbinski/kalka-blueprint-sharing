@@ -8,8 +8,11 @@
 # that reach the public PeerJS cloud or GitHub stay off: they need
 # KALKA_CLOUD_TEST or KALKA_GH_LIVE.
 #
-# A v* tag also builds the release archives (tools/release) and publishes
-# them as a GitHub release, once every check has passed.
+# A v* tag also builds the release archives (tools/release) into a draft
+# GitHub release once every check has passed, adds Kalka.app, then signs
+# SHA256SUMS with the release key, attests the build provenance of every
+# file and publishes the release (SECURITY.md). Actions are pinned to
+# commits; Dependabot proposes updates.
 name: CI
 
 on:
@@ -34,8 +37,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -45,7 +48,7 @@ jobs:
       - run: npx --no-install vitest run
       - run: npm run build
       # The Go tests serve the built page (internal/ui embeds it).
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ui-dist
           path: internal/ui/dist
@@ -56,8 +59,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
       - name: go vet, every system
@@ -68,6 +71,10 @@ jobs:
           done
       - name: go vet, the Windows desktop shell (pure Go)
         run: GOOS=windows go vet -tags desktop ./cmd/kalka-desktop ./internal/desktop
+      # Known vulnerabilities in the code kalka calls, the standard library's
+      # included, fail the build.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   test:
     needs: web
@@ -80,11 +87,11 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ui-dist
           path: internal/ui/dist
@@ -119,11 +126,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ui-dist
           path: internal/ui/dist
@@ -134,15 +141,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nsis libgtk-4-dev libwebkitgtk-6.0-dev
       - run: go run ./tools/release -version "${GITHUB_REF_NAME#v}"
-      # A version with a hyphen (v0.1.0-rc1) is published as a pre-release.
+      # A draft: the updater lists published releases only, so nobody sees
+      # the release before publish has signed it. A version with a hyphen
+      # (v0.1.0-rc1) becomes a pre-release.
       - run: |
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
+          gh release create "$GITHUB_REF_NAME" dist/* --draft --title "$GITHUB_REF_NAME" --generate-notes $pre
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # Kalka.app needs a Mac (cgo). It joins the release the job above made:
+  # Kalka.app needs a Mac (cgo). It joins the draft the job above made:
   # the app zips are uploaded and SHA256SUMS gets their lines, so the
   # updater (spec 24) can verify them like every other package.
   release-mac:
@@ -155,11 +164,11 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ui-dist
           path: internal/ui/dist
@@ -171,3 +180,48 @@ jobs:
           grep '_darwin_.*_app\.zip$' dist-mac/SHA256SUMS >> sums/SHA256SUMS
           LC_ALL=C sort -k2 -o sums/SHA256SUMS sums/SHA256SUMS
           gh release upload "$GITHUB_REF_NAME" dist-mac/*_app.zip sums/SHA256SUMS --clobber
+
+  # The last step of a release: SHA256SUMS, now complete, is signed with the
+  # release key (SHA256SUMS.minisig; the updater refuses a release without
+  # it), every file it lists gets a build provenance attestation, and the
+  # draft is published. The key is a secret of the release environment,
+  # which only v* tags may use.
+  publish:
+    needs: release-mac
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Download the release's files
+        run: gh release download "$GITHUB_REF_NAME" -D dist
+      - name: Check every file against SHA256SUMS
+        run: |
+          set -eu
+          cd dist
+          sha256sum -c SHA256SUMS
+          # Every file is listed, and every listed file is there.
+          awk '{sub(/^\*/, "", $2); print $2}' SHA256SUMS | LC_ALL=C sort > ../listed
+          ls | grep -vx SHA256SUMS | LC_ALL=C sort > ../held
+          diff ../listed ../held
+      - name: Sign SHA256SUMS
+        run: go run ./tools/sign -tag "$GITHUB_REF_NAME" dist/SHA256SUMS
+        env:
+          KALKA_RELEASE_KEY: ${{ secrets.KALKA_RELEASE_KEY }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Upload the signature and publish
+        run: |
+          set -eu
+          gh release upload "$GITHUB_REF_NAME" dist/SHA256SUMS.minisig
+          gh release edit "$GITHUB_REF_NAME" --draft=false

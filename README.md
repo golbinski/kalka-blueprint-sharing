@@ -66,6 +66,9 @@ is written in one small line-oriented language, the
 Download the installer or archive for your system from the
 [releases](https://github.com/golbinski/kalka-blueprint-sharing/releases)
 page. [docs/install.md](docs/install.md) has the steps for each system.
+Every release is built by CI from its tag, its checksums are signed, and
+each file carries a build provenance attestation; [SECURITY.md](SECURITY.md)
+shows how to check a download and how to report a vulnerability.
 
 - **Desktop app:** a window plus a tray (or menu bar) icon. It starts at
   login and keeps syncing in the background.
@@ -128,6 +131,7 @@ kalka waiting
 |---|---|
 | [specification.md](specification.md) | What kalka does and why: file format, ownership, trust, transport, teams, replication, UI, CLI, API, threat model, packaging |
 | [docs/install.md](docs/install.md) | Installing on Windows, macOS and Linux |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability; what a release proves and how to check a download |
 | [docs/headless.md](docs/headless.md) | Running without the desktop app, for servers and agents |
 | [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
 | [docs/language.md](docs/language.md) | The kalka language v2: the syntax of goals, invariants, glossary and trace blocks |

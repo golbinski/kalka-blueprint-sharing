@@ -23,7 +23,7 @@ Every release has, per system:
 
 The release also has `kalka-rendezvous_<v>_<os>_<arch>.tar.gz` (`.zip` on Windows): the rendezvous server, for the one host your team runs it on, not for users ([rendezvous.md](rendezvous.md)).
 
-`SHA256SUMS` lists the checksums. The archives are reproducible from the tagged commit with `make release VERSION=x.y.z` (signatures and the installer aside).
+`SHA256SUMS` lists the checksums, `SHA256SUMS.minisig` signs them with the kalka release key, and every file has a build provenance attestation from the workflow that built it. [SECURITY.md](../SECURITY.md) shows how to check a download with `minisign` and `gh attestation verify`. The archives are reproducible from the tagged commit with `make release VERSION=x.y.z` (signatures and the installer aside).
 
 Where IT policy blocks the desktop app, autostart entries or the webview, see [headless.md](headless.md): every feature except the tray and the window works without them.
 
@@ -68,7 +68,7 @@ The tray icon uses StatusNotifierItem. Stock GNOME shows it only with an extensi
 
 ## Updates
 
-The desktop app looks for a new release on GitHub shortly after it starts and every six hours, and *Settings > Updates* (or `kalka update --check`) looks now. A release is compatible when it has the same major version (before 1.0, the same minor version); with *Install updates automatically* on, a compatible release is downloaded and checked against `SHA256SUMS`, and the window and the tray offer *Restart to update*. Nothing restarts until you click. With the setting off, or for a new major version, they show that an update is available, with its release notes, and *Download and restart* downloads it then.
+The desktop app looks for a new release on GitHub shortly after it starts and every six hours, and *Settings > Updates* (or `kalka update --check`) looks now. A release is compatible when it has the same major version (before 1.0, the same minor version); with *Install updates automatically* on, a compatible release is downloaded and checked against `SHA256SUMS`, whose signature by the release key is checked first, and the window and the tray offer *Restart to update*. Nothing restarts until you click. With the setting off, or for a new major version, they show that an update is available, with its release notes, and *Download and restart* downloads it then.
 
 kalka replaces itself only where it recognises the install: the Windows installer's folder, `Kalka.app` in a folder you can write to, or the three Linux programs side by side in a writable folder. Elsewhere (a headless install, a package manager) it only tells you about the release. `kalka update` does the same from a terminal. Builds without a release version (`dev`) never check. The Linux arm64 desktop archive is not published yet; there the release is announced only.
 

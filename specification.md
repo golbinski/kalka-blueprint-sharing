@@ -1671,7 +1671,9 @@ Signing is a configuration step of the release build, and its absence is not an 
 
 - Windows: an Authenticode code-signing certificate (on a hardware token or a cloud signing service, as certificate authorities issue them today) and a timestamp server. The build runs a configured signing command on every executable. Unsigned builds trigger SmartScreen; `docs/install.md` explains how to run them.
 - macOS: Apple Developer Program membership, a Developer ID Application certificate, the hardened runtime, notarization and stapling. The build reads the identity and the notary profile from the environment.
-- Linux: no signing; `SHA256SUMS` as today.
+- Linux: no signing of the programs.
+- **Every release**, whatever the system: the release workflow builds a draft release from the tagged commit once the tests pass, signs its complete `SHA256SUMS` with the release key into `SHA256SUMS.minisig` (minisign's prehashed Ed25519 form; the trusted comment is `kalka <tag> SHA256SUMS`), attests the build provenance of every file it lists (SLSA, through GitHub's Sigstore instance), and only then publishes the release. The key's secret is a secret of the repository's `release` environment, which only `v*` tags may use; the public keys are built into kalka (`update.ReleaseKeys`), and a new one is built in a release before it signs. `SECURITY.md` says how to report a vulnerability and how to check a download.
+- **Dependencies**: `govulncheck` fails the build on a known vulnerability in code kalka calls; the workflows' actions are pinned to commits and kept current by Dependabot.
 
 ---
 
@@ -1688,7 +1690,7 @@ The desktop app updates itself from the GitHub releases of the project; nothing 
 
 ### 24.2 Download
 
-- With *Install updates automatically* on (the default, `auto_update` in `state.yaml`), a compatible update is downloaded in the background to `<config>/updates/<version>/` and verified against the `SHA256SUMS` of the same release; a release without that file, or a package that does not match, is refused and removed. It is then *ready*: Settings and the tray say *Restart to update*, and one notice per version is raised (22.4).
+- With *Install updates automatically* on (the default, `auto_update` in `state.yaml`), a compatible update is downloaded in the background to `<config>/updates/<version>/` and verified against the `SHA256SUMS` of the same release, after `SHA256SUMS.minisig` is verified over it with one of the release keys built into the running kalka and its trusted comment names that release (23.5); a release without either file, a signature that does not verify, or a package that does not match, is refused and removed. It is then *ready*: Settings and the tray say *Restart to update*, and one notice per version is raised (22.4).
 - With the setting off, or for an update that is not compatible, the update is only *available*: Settings and the tray show it with a link to the release notes and a *Download and restart* button. Nothing is downloaded before the click.
 - `GET /api/update` is `{current, checks, latest, state, compatible, notes_url, can_install, checked_at, error}`; `state` is `none`, `available`, `downloading`, `ready` or `error`. `POST /api/update/check` checks now; `POST /api/update/install` downloads if need be, installs and restarts. The settings API carries `auto_update`.
 

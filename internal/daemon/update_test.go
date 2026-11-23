@@ -45,17 +45,23 @@ func githubWith(t *testing.T) (srv *httptest.Server, hits *atomic.Int64) {
 		fmt.Fprintf(w, `[{"tag_name":"v0.2.0","html_url":"%[1]s/notes/0.2.0","assets":[]},
 			{"tag_name":"v0.1.5","html_url":"%[1]s/notes/0.1.5","assets":[
 			{"name":%[2]q,"browser_download_url":"%[1]s/dl/pkg"},
-			{"name":"SHA256SUMS","browser_download_url":"%[1]s/dl/sums"}]}]`, base, asset)
+			{"name":"SHA256SUMS","browser_download_url":"%[1]s/dl/sums"},
+			{"name":"SHA256SUMS.minisig","browser_download_url":"%[1]s/dl/sig"}]}]`, base, asset)
 	})
 	mux.HandleFunc("/dl/pkg", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(pkg) })
-	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+	sums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), asset)
+	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, sums) })
+	mux.HandleFunc("/dl/sig", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(update.Sign(testReleaseKey, testReleasePub, []byte(sums), update.TrustedComment("v0.1.5")))
 	})
 	srv = httptest.NewServer(mux)
 	base = srv.URL
 	t.Cleanup(srv.Close)
 	return srv, hits
 }
+
+// testReleaseKey signs the fake GitHub's release; a test key only.
+var testReleaseKey, testReleasePub, _ = update.KeyFor(bytes.Repeat([]byte{7}, 32))
 
 // updating is a daemon whose update check talks to the fake GitHub, with
 // an install folder of the Linux desktop archive and a recording Apply.
@@ -69,7 +75,7 @@ func updating(t *testing.T, version string, delay time.Duration, applied *[]stri
 		}
 	}
 	opt := func(o *Options) {
-		o.Update = &UpdateOptions{Source: update.Source{API: srv.URL, Repo: "o/r", HTTP: srv.Client()}, Version: version,
+		o.Update = &UpdateOptions{Source: update.Source{API: srv.URL, Repo: "o/r", HTTP: srv.Client(), Keys: []string{testReleasePub.String()}}, Version: version,
 			GOOS: "linux", GOARCH: "amd64", Exe: filepath.Join(dir, "kalka-desktop"), Install: true,
 			Delay: delay, Every: time.Hour,
 			Apply: func(_ update.Target, pkg string) error { *applied = append(*applied, pkg); return nil }}

@@ -32,6 +32,9 @@ type Source struct {
 	API  string // default DefaultAPI
 	Repo string // owner/name, default DefaultRepo
 	HTTP *http.Client
+	// Keys are the public keys a release's SHA256SUMS may be signed with,
+	// default ReleaseKeys.
+	Keys []string
 }
 
 // Release is one published release.
@@ -156,7 +159,8 @@ func Sums(raw []byte) map[string]string {
 }
 
 // Fetch makes sure the release's package for asset is in dir, verified
-// against the release's SHA256SUMS, and returns its path. A package that
+// against the release's SHA256SUMS, itself signed with a release key and
+// naming the release, and returns its path. A package that
 // is already there and matches is kept; one that does not match is
 // refused and removed.
 func (s Source) Fetch(ctx context.Context, rel Release, asset, dir string) (string, error) {
@@ -170,6 +174,9 @@ func (s Source) Fetch(ctx context.Context, rel Release, asset, dir string) (stri
 	}
 	raw, err := s.body(ctx, sumsURL, 1<<20)
 	if err != nil {
+		return "", err
+	}
+	if err := s.verifySums(ctx, rel, raw); err != nil {
 		return "", err
 	}
 	want, ok := Sums(raw)[asset]
@@ -213,6 +220,34 @@ func (s Source) Fetch(ctx context.Context, rel Release, asset, dir string) (stri
 		return "", err
 	}
 	return dst, os.Rename(part, dst)
+}
+
+// verifySums checks the release's signature over its SHA256SUMS.
+func (s Source) verifySums(ctx context.Context, rel Release, sums []byte) error {
+	sigURL, ok := rel.Assets[SigAsset]
+	if !ok {
+		return fmt.Errorf("release %s has no %s: not installing what cannot be verified", rel.Tag, SigAsset)
+	}
+	sig, err := s.body(ctx, sigURL, 4<<10)
+	if err != nil {
+		return err
+	}
+	ks := s.Keys
+	if ks == nil {
+		ks = ReleaseKeys
+	}
+	keys, err := releaseKeys(ks)
+	if err != nil {
+		return err
+	}
+	trusted, err := Verify(sums, sig, keys)
+	if err != nil {
+		return fmt.Errorf("%s of release %s: %v; not installing it", SumsAsset, rel.Tag, err)
+	}
+	if trusted != TrustedComment(rel.Tag) {
+		return fmt.Errorf("%s of release %s is signed for %q; not installing it", SumsAsset, rel.Tag, trusted)
+	}
+	return nil
 }
 
 func (s Source) body(ctx context.Context, url string, limit int64) ([]byte, error) {

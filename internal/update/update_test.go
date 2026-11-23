@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,20 +121,99 @@ func TestAssetName(t *testing.T) {
 
 func sha(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 
+// testKey signs the fake releases; it is a test key, nothing else.
+func testKey(t *testing.T, b byte) (ed25519.PrivateKey, PublicKey) {
+	t.Helper()
+	priv, pub, err := KeyFor(bytes.Repeat([]byte{b}, ed25519.SeedSize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv, pub
+}
+
 // fake is a GitHub with one release, whose checksum for the package is
-// sum, and a count of its calls.
+// sum, signed with the test key for the release, and a count of its calls.
 func fake(t *testing.T, pkg []byte, sum string) (Source, Release, *int) {
 	t.Helper()
 	calls := new(int)
+	priv, pub := testKey(t, 7)
+	sums := fmt.Sprintf("%s  other.zip\n%s  pkg.bin\n", strings.Repeat("0", 64), sum)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dl/pkg", func(w http.ResponseWriter, _ *http.Request) { *calls++; w.Write(pkg) })
-	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, "%s  other.zip\n%s  pkg.bin\n", strings.Repeat("0", 64), sum)
+	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, sums) })
+	mux.HandleFunc("/dl/sig", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(Sign(priv, pub, []byte(sums), TrustedComment("v0.1.5")))
+	})
+	mux.HandleFunc("/dl/other-sig", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(Sign(priv, pub, []byte(sums), TrustedComment("v0.1.4")))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	rel := Release{Tag: "v0.1.5", Assets: map[string]string{"pkg.bin": srv.URL + "/dl/pkg", SumsAsset: srv.URL + "/dl/sums"}}
-	return Source{API: srv.URL, HTTP: srv.Client()}, rel, calls
+	rel := Release{Tag: "v0.1.5", Assets: map[string]string{"pkg.bin": srv.URL + "/dl/pkg", SumsAsset: srv.URL + "/dl/sums", SigAsset: srv.URL + "/dl/sig"}}
+	return Source{API: srv.URL, HTTP: srv.Client(), Keys: []string{pub.String()}}, rel, calls
+}
+
+// The checksums are trusted only when signed with a release key, for this
+// release; otherwise nothing is downloaded.
+func TestFetchNeedsTheSignature(t *testing.T) {
+	data := []byte("the package")
+	src, rel, calls := fake(t, data, sha(data))
+	dir := t.TempDir()
+	_, other := testKey(t, 8)
+	for name, change := range map[string]func(*Source, *Release){
+		"no signature": func(_ *Source, r *Release) { delete(r.Assets, SigAsset) },
+		"unknown key":  func(s *Source, _ *Release) { s.Keys = []string{other.String()} },
+		"no keys":      func(s *Source, _ *Release) { s.Keys = []string{} },
+		"another release": func(_ *Source, r *Release) {
+			r.Assets[SigAsset] = strings.Replace(r.Assets[SigAsset], "/dl/sig", "/dl/other-sig", 1)
+		},
+		"sums as sig": func(_ *Source, r *Release) { r.Assets[SigAsset] = r.Assets[SumsAsset] },
+	} {
+		s, r := src, rel
+		r.Assets = maps.Clone(rel.Assets)
+		change(&s, &r)
+		if _, err := s.Fetch(context.Background(), r, "pkg.bin", dir); err == nil {
+			t.Errorf("%s: fetched", name)
+		}
+	}
+	if *calls != 0 {
+		t.Errorf("%d downloads before the checksums were trusted", *calls)
+	}
+}
+
+// The signature is minisign's prehashed form: a changed file, a changed
+// trusted comment or a changed signature does not verify.
+func TestMinisign(t *testing.T) {
+	priv, pub := testKey(t, 7)
+	msg := []byte("abc  kalka.zip\n")
+	sig := Sign(priv, pub, msg, "kalka v1.2.3 SHA256SUMS")
+	if c, err := Verify(msg, sig, []PublicKey{pub}); err != nil || c != "kalka v1.2.3 SHA256SUMS" {
+		t.Fatalf("%q %v", c, err)
+	}
+	if _, err := Verify(append(msg, 'x'), sig, []PublicKey{pub}); err == nil {
+		t.Error("a changed file verified")
+	}
+	if _, err := Verify(msg, bytes.Replace(sig, []byte("v1.2.3"), []byte("v1.2.4"), 1), []PublicKey{pub}); err == nil {
+		t.Error("a changed trusted comment verified")
+	}
+	k, err := ParsePublicKey("untrusted comment: x\n" + pub.String() + "\n")
+	if err != nil || k.String() != pub.String() {
+		t.Errorf("parse: %v", err)
+	}
+	if _, err := ParsePublicKey("RWQ"); err == nil {
+		t.Error("parsed a bad key")
+	}
+	lines := strings.Split(string(sig), "\n")
+	if raw, _ := base64.StdEncoding.DecodeString(lines[1]); len(raw) < 2 || string(raw[:2]) != "ED" {
+		t.Errorf("not the prehashed form: %s", lines[1])
+	}
+}
+
+// The release keys built in parse.
+func TestReleaseKeys(t *testing.T) {
+	if ks, err := releaseKeys(ReleaseKeys); err != nil || len(ks) == 0 {
+		t.Fatalf("%v %d", err, len(ks))
+	}
 }
 
 func TestFetchVerifies(t *testing.T) {
