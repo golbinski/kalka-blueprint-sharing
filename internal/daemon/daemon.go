@@ -259,5 +259,8 @@ func (d *Daemon) doctorProbes() doctor.Probes {
 			return st.Enabled, st.Stale, err
 		}
 	}
+	if h := d.pluginHost(); h != nil {
+		p.Plugins = h.SurveyAll
+	}
 	return p
 }

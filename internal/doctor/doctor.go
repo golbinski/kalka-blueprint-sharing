@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"runtime"
 	"time"
+
+	"github.com/golbinski/kalka/internal/plugin"
 )
 
 // States of a check.
@@ -89,6 +91,9 @@ type Probes struct {
 	Autostart func() (enabled, stale bool, err error)
 	// URLScheme: whether kalka:// opens this installation, and why not.
 	URLScheme func() (ok bool, detail string, err error)
+	// Plugins: each installed plugin's state, checked against its service
+	// (spec 10.6).
+	Plugins func(ctx context.Context) []plugin.Survey
 }
 
 // ErrNoConfig is a configuration that does not exist.
@@ -238,7 +243,36 @@ func Run(ctx context.Context, p Probes) Report {
 			add("url-scheme", OK, "kalka:// links open this installation", "")
 		}
 	}
+	if p.Plugins != nil {
+		for _, s := range p.Plugins(ctx) {
+			pluginRow(add, s)
+		}
+	}
 	return r
+}
+
+// pluginRow is a plugin's row: never a failure, since plugins are
+// optional, and a plugin not set up is fine (spec 12.5).
+func pluginRow(add func(check, state, detail, fix string), s plugin.Survey) {
+	name := "plugin:" + s.Scheme
+	fix := "open Settings, Plugins, or run `kalka plugin settings " + s.Scheme + " --check`"
+	if s.Hint != nil && s.Hint.Command != "" {
+		fix += "; or run " + s.Hint.Command
+	}
+	switch {
+	case s.Problem != "":
+		add(name, Warn, s.Problem, fix)
+	case !s.Settings:
+		add(name, OK, "resolves references; nothing to set up", "")
+	case s.Status == nil:
+		add(name, Warn, "the plugin gave no state", fix)
+	case s.Status.State == plugin.StateReady:
+		add(name, OK, "ready: "+s.Status.Message, "")
+	case s.Status.State == plugin.StateNeedsSetup:
+		add(name, OK, "not set up: "+s.Status.Message, "")
+	default:
+		add(name, Warn, s.Status.Message, fix)
+	}
 }
 
 func clock(add func(check, state, detail, fix string), now, server time.Time) {

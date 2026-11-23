@@ -189,7 +189,7 @@ func TestSettingsForm(t *testing.T) {
 
 	res, err := h.Apply(ctx, "form", map[string]any{"site": "https://parcels.example.net", "email": "ewa@parcels.example", "verbose": true},
 		map[string]Secret{"token": " good-token-123\n"})
-	if err != nil || !res.OK || res.View.Status.State != StateReady || res.View.Status.Message != "https://parcels.example.net" {
+	if err != nil || res.Status.State != StateReady || res.Status.Message != "https://parcels.example.net" || !res.Can.Apply || !res.Can.Clear {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if st := readForm(t); st.Token != "good-token-123" || st.Applies != 1 {
@@ -201,9 +201,10 @@ func TestSettingsForm(t *testing.T) {
 	}
 
 	// A refusal: field errors for fields of the form only, nothing stored.
-	res, err = h.Apply(ctx, "form", nil, map[string]Secret{"token": "wrong-token"})
-	if err != nil || res.OK || res.Error == "" || res.FieldErrors["token"] != "Check the token." || res.FieldErrors["nope"] != "" {
-		t.Fatalf("%+v %v", res, err)
+	_, err = h.Apply(ctx, "form", nil, map[string]Secret{"token": "wrong-token"})
+	var rej *RejectedError
+	if !errors.As(err, &rej) || rej.Msg == "" || rej.Fields["token"] != "Check the token." || rej.Fields["nope"] != "" {
+		t.Fatalf("%+v", err)
 	}
 	if st := readForm(t); st.Token != "good-token-123" {
 		t.Fatalf("refusal changed the token: %+v", st)
@@ -240,12 +241,12 @@ func TestSettingsForm(t *testing.T) {
 	}
 
 	// A field shown only for another choice may be set with that choice.
-	if res, err := h.Apply(ctx, "form", map[string]any{"flavor": "dc"}, nil); err != nil || !res.OK {
+	if res, err := h.Apply(ctx, "form", map[string]any{"flavor": "dc"}, nil); err != nil {
 		t.Fatalf("%+v %v", res, err)
 	}
 
 	res, err = h.Clear(ctx, "form")
-	if err != nil || !res.OK || res.View.Status.State != StateNeedsSetup {
+	if err != nil || res.Status.State != StateNeedsSetup {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
@@ -267,12 +268,13 @@ func TestSettingsSecretsNeverLeak(t *testing.T) {
 		t.Fatalf("stored secret passed on: %s", raw)
 	}
 	const secret = "abc123-very-secret"
-	res, err := h.Apply(ctx, "leaky", nil, map[string]Secret{"token": secret})
-	if err != nil || res.OK {
-		t.Fatalf("%+v %v", res, err)
+	_, err = h.Apply(ctx, "leaky", nil, map[string]Secret{"token": secret})
+	var res *RejectedError
+	if !errors.As(err, &res) {
+		t.Fatalf("%v", err)
 	}
 	all, _ := json.Marshal(res)
-	if strings.Contains(string(all), secret) || !strings.Contains(res.Error, "[secret]") || !strings.Contains(res.FieldErrors["token"], "[secret]") {
+	if strings.Contains(string(all), secret) || !strings.Contains(res.Msg, "[secret]") || !strings.Contains(res.Fields["token"], "[secret]") {
 		t.Fatalf("answer: %s", all)
 	}
 	l := log.String()
@@ -298,6 +300,9 @@ func TestSettingsNewerPlugin(t *testing.T) {
 		if f.ID == "fingerprint" || f.ID == "extra" || len(f.Label) > maxLabel+len("…") {
 			t.Errorf("kept %+v", f)
 		}
+	}
+	if a, err := h.Settings(ctx, "newer", false); err != nil || a.Can.Apply || !a.Can.Clear {
+		t.Fatalf("can %+v %v", a, err)
 	}
 	if _, err := h.Apply(ctx, "newer", map[string]any{"f1": "x"}, nil); !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("applied an incomplete form: %v", err)
@@ -337,7 +342,8 @@ func TestSettingsTimeout(t *testing.T) {
 	defer func(d time.Duration) { SettingsTimeout = d }(SettingsTimeout)
 	SettingsTimeout = time.Second
 	_, err := h.Apply(context.Background(), "slowform", nil, map[string]Secret{"token": "slow-secret-1"})
-	if err == nil || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "slow-secret-1") {
+	var fe *FailedError
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "slow-secret-1") {
 		t.Fatal(err)
 	}
 }
@@ -374,5 +380,30 @@ func TestLocate(t *testing.T) {
 	}
 	if f, _ := h.Locate("pathonly"); f.Source != SourcePath || len(f.Shadowed) != 0 {
 		t.Fatalf("%+v", f)
+	}
+}
+
+func TestListAndSurvey(t *testing.T) {
+	h, _ := formHost(t, "form", "ok", "old", "status")
+	t.Setenv("KALKA_FAKE_STATUS", "ready")
+	l := h.List(context.Background())
+	if len(l.Plugins) != 4 || l.Dirs.Config != h.Dir {
+		t.Fatalf("%+v", l)
+	}
+	by := map[string]Listed{}
+	for _, p := range l.Plugins {
+		by[p.Scheme] = p
+	}
+	if by["old"].Problem == "" || by["old"].Capabilities != nil || by["form"].Source != SourceConfig || !by["form"].Capabilities.CanApply() {
+		t.Fatalf("%+v", by)
+	}
+	sv := map[string]Survey{}
+	for _, s := range h.SurveyAll(context.Background()) {
+		sv[s.Scheme] = s
+	}
+	if sv["ok"].Settings || sv["ok"].Problem != "" || sv["old"].Problem == "" ||
+		sv["form"].Status == nil || sv["form"].Status.State != StateNeedsSetup ||
+		sv["status"].Status == nil || sv["status"].Status.State != StateReady || sv["status"].Hint == nil {
+		t.Fatalf("%+v", sv)
 	}
 }

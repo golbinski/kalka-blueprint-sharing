@@ -195,6 +195,7 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings", d.apiSettings)
 	mux.HandleFunc("POST /api/rendezvous", d.apiRendezvous)
 	d.mountUpdates(mux)
+	d.mountPlugins(mux)
 	mux.HandleFunc("POST /api/pause", d.apiPause(true))
 	mux.HandleFunc("POST /api/resume", d.apiPause(false))
 	return gate{token: d.token, port: d.port, noUI: d.opts.NoUI}.wrap(mux)
@@ -217,10 +218,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 type APIError struct {
 	Error string `json:"error"`
 	Kind  string `json:"kind,omitempty"`
+	// Fields: messages per field of a plugin's settings (spec 10.6).
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 func fail(w http.ResponseWriter, code int, err error) {
-	writeJSON(w, code, APIError{Error: err.Error(), Kind: errKind(err)})
+	writeJSON(w, code, APIError{Error: err.Error(), Kind: errKind(err), Fields: core.FieldsOf(err)})
 }
 
 // errKind classifies an error for agents (spec 12.3).

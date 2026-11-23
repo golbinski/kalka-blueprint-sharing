@@ -1042,7 +1042,7 @@ A Go test checks that every command has a row, every workflow row has an action 
 
 ### 12.3 Errors
 
-With `--json`, a failure is `{"error": "...", "kind": "..."}` on stdout, and the exit code is 1 (2 for usage errors; `check` and `doctor` have their own codes, 12.4, 12.5). A view's JSON is an object carrying `"daemon"`, with live fields `null` when no daemon runs (unknown, not zero). The kinds are stable:
+With `--json`, a failure is `{"error": "...", "kind": "..."}` on stdout (with `"fields"`, messages per field, for `plugin-value` and `plugin-rejected`), and the exit code is 1 (2 for usage errors; `check` and `doctor` have their own codes, 12.4, 12.5). A view's JSON is an object carrying `"daemon"`, with live fields `null` when no daemon runs (unknown, not zero). The kinds are stable:
 
 <!-- error-kinds -->
 | Kind | Meaning |
@@ -1071,6 +1071,11 @@ With `--json`, a failure is `{"error": "...", "kind": "..."}` on stdout, and the
 | `invite-expired`, `invite-used`, `invite-email` | The invite has expired, was used, or names another email. |
 | `rendezvous-mismatch` | The invite names another rendezvous server. |
 | `rendezvous-silent` | The server to switch to did not answer; `--force` (or *Switch anyway*) switches regardless. |
+| `no-plugin` | No plugin is installed for that scheme (10.2). |
+| `no-plugin-settings` | The plugin has no settings that can be changed this way, or a form this kalka cannot show (10.6). |
+| `plugin-value` | A value does not fit the plugin's form; `fields` says which. The plugin was not asked. |
+| `plugin-rejected` | The plugin refused the settings and stored nothing; `fields` carries its messages. |
+| `plugin-failed` | The plugin crashed, timed out, or answered with something else than the protocol says. |
 | `error` | Anything else (a file that cannot be read, a network failure); the message says what. |
 <!-- /error-kinds -->
 

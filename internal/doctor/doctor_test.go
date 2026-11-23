@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golbinski/kalka/internal/plugin"
 )
 
 var t0 = time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
@@ -163,5 +165,37 @@ func TestWritable(t *testing.T) {
 	os.WriteFile(f, nil, 0o644)
 	if err := Writable(f); err == nil {
 		t.Fatal("a file is a folder")
+	}
+}
+
+// Plugin rows: never a failure; not set up is fine (spec 12.5).
+func TestPluginRows(t *testing.T) {
+	st := func(state, msg string) *plugin.Status { return &plugin.Status{State: state, Message: msg} }
+	r := Run(context.Background(), Probes{OS: "linux", Plugins: func(context.Context) []plugin.Survey {
+		return []plugin.Survey{
+			{Scheme: "gh", Settings: true, Status: st(plugin.StateNeedsSetup, "gh is not logged in"), Hint: &plugin.Hint{Command: "gh auth login"}},
+			{Scheme: "jira", Settings: true, Status: st(plugin.StateError, "Jira rejected the credentials")},
+			{Scheme: "lib", Problem: "plugin speaks protocol 1, kalka speaks 2"},
+			{Scheme: "code"},
+			{Scheme: "wiki", Settings: true, Status: st(plugin.StateReady, "wiki.example")},
+		}
+	}})
+	got := map[string]Result{}
+	for _, x := range r.Results {
+		got[x.Check] = x
+	}
+	want := map[string]string{"plugin:gh": OK, "plugin:jira": Warn, "plugin:lib": Warn, "plugin:code": OK, "plugin:wiki": OK}
+	for k, v := range want {
+		if got[k].State != v {
+			t.Errorf("%s: %+v", k, got[k])
+		}
+	}
+	if !strings.Contains(got["plugin:jira"].Fix, "kalka plugin settings jira --check") || got["plugin:wiki"].Detail != "ready: wiki.example" {
+		t.Errorf("%+v", got)
+	}
+	for _, x := range r.Results {
+		if x.State == Fail {
+			t.Errorf("fails: %+v", x)
+		}
 	}
 }

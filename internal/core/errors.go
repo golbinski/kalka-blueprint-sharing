@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/plugin"
 	"github.com/golbinski/kalka/internal/store"
 )
 
@@ -47,6 +48,13 @@ const (
 	// KindRendezvousSilent: a server to switch to did not answer; forcing
 	// switches anyway.
 	KindRendezvousSilent = "rendezvous-silent"
+
+	// Plugin settings (spec 10.6).
+	KindNoPlugin         = "no-plugin"
+	KindNoPluginSettings = "no-plugin-settings"
+	KindPluginValue      = "plugin-value"
+	KindPluginRejected   = "plugin-rejected"
+	KindPluginFailed     = "plugin-failed"
 )
 
 // Error is a failure with a stable kind.
@@ -63,16 +71,45 @@ func KindOf(err error) string {
 	var (
 		e   *Error
 		dup *store.ErrDuplicate
+		ve  *plugin.ValueError
+		rej *plugin.RejectedError
+		pf  *plugin.FailedError
 	)
 	switch {
 	case err == nil:
 		return ""
 	case errors.As(err, &e):
 		return e.Kind
+	case errors.Is(err, plugin.ErrNotFound):
+		return KindNoPlugin
+	case errors.Is(err, plugin.ErrNoSettings), errors.Is(err, plugin.ErrIncomplete):
+		return KindNoPluginSettings
+	case errors.As(err, &ve):
+		return KindPluginValue
+	case errors.As(err, &rej):
+		return KindPluginRejected
+	case errors.As(err, &pf):
+		return KindPluginFailed
 	case errors.As(err, &dup):
 		return KindDuplicate
 	case errors.Is(err, bp.ErrTooLarge), errors.Is(err, bp.ErrNotUTF8), errors.Is(err, bp.ErrOpenBlock):
 		return KindFormat
 	}
 	return KindError
+}
+
+// FieldsOf returns the messages per field of a plugin-value or
+// plugin-rejected error, or nil.
+func FieldsOf(err error) map[string]string {
+	var (
+		ve  *plugin.ValueError
+		rej *plugin.RejectedError
+	)
+	switch {
+	case errors.As(err, &ve):
+		return ve.Fields
+	case errors.As(err, &rej):
+		return rej.Fields
+	}
+	return nil
 }

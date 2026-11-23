@@ -7,14 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/golbinski/kalka/internal/core"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/plugin"
 	"github.com/golbinski/kalka/internal/teamlog"
 )
 
@@ -247,3 +249,33 @@ func (c *Client) ShellEvents(ctx context.Context, on func(typ string, data json.
 // URL is the UI's address with the session token, for a window or a
 // browser.
 func (c *Client) URL() string { return c.base + "/?token=" + c.token }
+
+// Plugins lists the installed plugins (GET /api/plugins).
+func (c *Client) Plugins(ctx context.Context) (plugin.List, error) {
+	var l plugin.List
+	return l, c.do(ctx, http.MethodGet, "/api/plugins", nil, &l)
+}
+
+// PluginSettings shows a plugin's state and form; check asks it to try
+// its credentials.
+func (c *Client) PluginSettings(ctx context.Context, scheme string, check bool) (*plugin.Answer, error) {
+	var a plugin.Answer
+	q := ""
+	if check {
+		q = "?check=1"
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/plugins/"+url.PathEscape(scheme)+"/settings"+q, nil, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// PluginRefresh tells the daemon a plugin's settings changed, and returns
+// its state as the daemon sees it.
+func (c *Client) PluginRefresh(ctx context.Context, scheme string) (*plugin.Answer, error) {
+	var a plugin.Answer
+	if err := c.do(ctx, http.MethodPost, "/api/plugins/"+url.PathEscape(scheme)+"/refresh", nil, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}

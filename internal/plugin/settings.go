@@ -135,14 +135,34 @@ type SettingsView struct {
 	Incomplete bool    `json:"incomplete"`
 }
 
-// ApplyResult is the answer to settings_apply or settings_clear. With OK,
-// View is the new state; without, Error and FieldErrors say why.
-type ApplyResult struct {
-	OK          bool              `json:"ok"`
-	Error       string            `json:"error,omitempty"`
-	FieldErrors map[string]string `json:"field_errors,omitempty"`
-	View        *SettingsView     `json:"view,omitempty"`
+// Answer is a plugin's settings as kalka shows them: the cleaned view,
+// and what can be done with it (apply is false for an incomplete form).
+type Answer struct {
+	Scheme string `json:"scheme"`
+	SettingsView
+	Can Can `json:"can"`
 }
+
+// Can says whether the settings can be applied and cleared.
+type Can struct {
+	Apply bool `json:"apply"`
+	Clear bool `json:"clear"`
+}
+
+// FailedError: the plugin crashed, timed out, or answered with something
+// else than the expected answer.
+type FailedError struct{ Msg string }
+
+func (e *FailedError) Error() string { return e.Msg }
+
+// RejectedError: the plugin refused the settings and stored nothing.
+// Fields are its messages for fields of the form.
+type RejectedError struct {
+	Msg    string
+	Fields map[string]string
+}
+
+func (e *RejectedError) Error() string { return e.Msg }
 
 // Secret is a value of a secret field. It prints as [secret] in every
 // form fmt and encoding/json give it; only the request to the plugin
@@ -526,7 +546,7 @@ func oneLine(s string, max int) string {
 
 // Settings asks the scheme's plugin for its state and form. check asks it
 // to try its credentials against the service.
-func (h *Host) Settings(ctx context.Context, scheme string, check bool) (*SettingsView, error) {
+func (h *Host) Settings(ctx context.Context, scheme string, check bool) (*Answer, error) {
 	path, d, err := h.settingsPlugin(ctx, scheme)
 	if err != nil {
 		return nil, err
@@ -534,21 +554,37 @@ func (h *Host) Settings(ctx context.Context, scheme string, check bool) (*Settin
 	if !d.Capabilities.CanSettings() {
 		return nil, ErrNoSettings
 	}
+	v, err := h.view(ctx, path, check)
+	if err != nil {
+		return nil, err
+	}
+	return answer(scheme, d, v), nil
+}
+
+func answer(scheme string, d *Description, v *SettingsView) *Answer {
+	return &Answer{Scheme: scheme, SettingsView: *v, Can: Can{Apply: d.Capabilities.CanApply() && !v.Incomplete, Clear: d.Capabilities.CanClear()}}
+}
+
+func (h *Host) view(ctx context.Context, path string, check bool) (*SettingsView, error) {
 	var r settingsResponse
 	if err := h.callOpts(ctx, path, Timeout, request{Protocol: Protocol, Op: "settings", Check: check}, &r, false); err != nil {
-		h.logf("%s: %v", filepath.Base(path), err)
-		return nil, fmt.Errorf("%s failed: %v", filepath.Base(path), err)
+		return nil, h.failed(path, err)
 	}
 	if r.Protocol != Protocol {
-		return nil, fmt.Errorf("%s answered with protocol %d", filepath.Base(path), r.Protocol)
+		return nil, &FailedError{fmt.Sprintf("%s answered with protocol %d", filepath.Base(path), r.Protocol)}
 	}
 	return h.cleanView(filepath.Base(path), r), nil
 }
 
+func (h *Host) failed(path string, err error) error {
+	h.logf("%s: %v", filepath.Base(path), err)
+	return &FailedError{fmt.Sprintf("%s failed: %v", filepath.Base(path), err)}
+}
+
 // Apply checks values and secrets against the plugin's form and, when
 // they fit, asks the plugin to apply them. A *ValueError means the plugin
-// was not asked; a result without OK means it refused and stored nothing.
-func (h *Host) Apply(ctx context.Context, scheme string, values map[string]any, secrets map[string]Secret) (*ApplyResult, error) {
+// was not asked; a *RejectedError that it refused and stored nothing.
+func (h *Host) Apply(ctx context.Context, scheme string, values map[string]any, secrets map[string]Secret) (*Answer, error) {
 	path, d, err := h.settingsPlugin(ctx, scheme)
 	if err != nil {
 		return nil, err
@@ -556,7 +592,7 @@ func (h *Host) Apply(ctx context.Context, scheme string, values map[string]any, 
 	if !d.Capabilities.CanApply() {
 		return nil, ErrNoSettings
 	}
-	form, err := h.Settings(ctx, scheme, false)
+	form, err := h.view(ctx, path, false)
 	if err != nil {
 		return nil, err
 	}
@@ -575,16 +611,18 @@ func (h *Host) Apply(ctx context.Context, scheme string, values map[string]any, 
 		plain[id] = s.reveal()
 	}
 	var r settingsResponse
-	err = h.callOpts(ctx, path, SettingsTimeout, request{Protocol: Protocol, Op: "settings_apply", Values: values, Secrets: plain}, &r, true)
-	if err != nil {
-		h.logf("%s: %v", filepath.Base(path), err)
-		return nil, fmt.Errorf("%s failed: %v", filepath.Base(path), err)
+	if err := h.callOpts(ctx, path, SettingsTimeout, request{Protocol: Protocol, Op: "settings_apply", Values: values, Secrets: plain}, &r, true); err != nil {
+		return nil, h.failed(path, err)
 	}
-	return h.applyResult(filepath.Base(path), r, form, sec)
+	v, err := h.applied(filepath.Base(path), r, form, sec)
+	if err != nil {
+		return nil, err
+	}
+	return answer(scheme, d, v), nil
 }
 
 // Clear asks the scheme's plugin to remove its stored settings.
-func (h *Host) Clear(ctx context.Context, scheme string) (*ApplyResult, error) {
+func (h *Host) Clear(ctx context.Context, scheme string) (*Answer, error) {
 	path, d, err := h.settingsPlugin(ctx, scheme)
 	if err != nil {
 		return nil, err
@@ -594,10 +632,13 @@ func (h *Host) Clear(ctx context.Context, scheme string) (*ApplyResult, error) {
 	}
 	var r settingsResponse
 	if err := h.callOpts(ctx, path, Timeout, request{Protocol: Protocol, Op: "settings_clear"}, &r, false); err != nil {
-		h.logf("%s: %v", filepath.Base(path), err)
-		return nil, fmt.Errorf("%s failed: %v", filepath.Base(path), err)
+		return nil, h.failed(path, err)
 	}
-	return h.applyResult(filepath.Base(path), r, nil, nil)
+	v, err := h.applied(filepath.Base(path), r, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return answer(scheme, d, v), nil
 }
 
 func (h *Host) settingsPlugin(ctx context.Context, scheme string) (string, *Description, error) {
@@ -607,19 +648,19 @@ func (h *Host) settingsPlugin(ctx context.Context, scheme string) (string, *Desc
 	}
 	d, err := h.describeCached(ctx, path)
 	if err != nil {
-		return "", nil, err
+		return "", nil, &FailedError{fmt.Sprintf("%s: %v", filepath.Base(path), err)}
 	}
 	return path, d, nil
 }
 
-// applyResult cleans an apply or clear answer and scrubs from it every
-// secret that was sent, so a plugin echoing one cannot pass it on.
-func (h *Host) applyResult(plugin string, r settingsResponse, form *SettingsView, sent map[string]Secret) (*ApplyResult, error) {
+// applied cleans an apply or clear answer and scrubs from it every secret
+// that was sent, so a plugin echoing one cannot pass it on.
+func (h *Host) applied(plugin string, r settingsResponse, form *SettingsView, sent map[string]Secret) (*SettingsView, error) {
 	if r.Protocol != Protocol {
-		return nil, fmt.Errorf("%s answered with protocol %d", plugin, r.Protocol)
+		return nil, &FailedError{fmt.Sprintf("%s answered with protocol %d", plugin, r.Protocol)}
 	}
 	if r.OK == nil {
-		return nil, fmt.Errorf("%s gave no ok in its answer", plugin)
+		return nil, &FailedError{fmt.Sprintf("%s gave no ok in its answer", plugin)}
 	}
 	secrets := make([]string, 0, len(sent))
 	for _, s := range sent {
@@ -633,8 +674,7 @@ func (h *Host) applyResult(plugin string, r settingsResponse, form *SettingsView
 		}
 		return s
 	}
-	res := &ApplyResult{OK: *r.OK}
-	if res.OK {
+	if *r.OK {
 		v := h.cleanView(plugin, r)
 		v.Status.Message, v.Status.Detail = scrub(v.Status.Message), scrub(v.Status.Detail)
 		for i := range v.Fields {
@@ -647,10 +687,9 @@ func (h *Host) applyResult(plugin string, r settingsResponse, form *SettingsView
 		if v.Hint != nil {
 			v.Hint.Text, v.Hint.Command = scrub(v.Hint.Text), scrub(v.Hint.Command)
 		}
-		res.View = v
-		return res, nil
+		return v, nil
 	}
-	res.Error = oneLine(scrub(r.Error), maxApplyError)
+	rej := &RejectedError{Msg: oneLine(scrub(r.Error), maxApplyError)}
 	for id, m := range r.FieldErrors {
 		if form != nil {
 			if _, ok := form.Field(id); !ok {
@@ -659,15 +698,15 @@ func (h *Host) applyResult(plugin string, r settingsResponse, form *SettingsView
 		} else if !fieldIDRe.MatchString(id) {
 			continue
 		}
-		if res.FieldErrors == nil {
-			res.FieldErrors = map[string]string{}
+		if rej.Fields == nil {
+			rej.Fields = map[string]string{}
 		}
-		res.FieldErrors[id] = oneLine(scrub(m), maxFieldError)
+		rej.Fields[id] = oneLine(scrub(m), maxFieldError)
 	}
-	if res.Error == "" && len(res.FieldErrors) == 0 {
-		res.Error = "the plugin did not accept the settings"
+	if rej.Msg == "" {
+		rej.Msg = "The plugin did not accept the settings."
 	}
-	return res, nil
+	return nil, rej
 }
 
 // Forget drops what is cached about the scheme's plugin, so the next
