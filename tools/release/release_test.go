@@ -146,7 +146,14 @@ func TestNSISScript(t *testing.T) {
 		// program to end and starts kalka again; no message box blocks it.
 		"${If} ${Silent}\n    Exec '\"$INSTDIR\\kalka-desktop.exe\"'", `/SD IDNO IDNO +2`,
 		// The samples, offered on the finish page.
-		`!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples`, `nsExec::Exec '"$INSTDIR\kalka.exe" samples'`} {
+		`!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples`, `nsExec::Exec '"$INSTDIR\kalka.exe" samples'`,
+		// The plugins are optional components; the choice is remembered
+		// for the next install, and one left out is removed.
+		"!insertmacro MUI_PAGE_COMPONENTS", "Section \"kalka\" SecCore\n  SectionIn RO",
+		"Section \"Jira\" SecJira\n    SetOutPath \"$INSTDIR\"\n    File \"/s/kalka-plugin-jira.exe\"",
+		`!insertmacro PLUGIN_CHOICE ${SecGh} "gh" "kalka-plugin-gh.exe"`,
+		`!insertmacro PLUGIN_REMEMBERED ${SecJira} "jira"`,
+		"Delete \"$INSTDIR\\${FILE}\"", "!insertmacro UnselectSection ${SEC}"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q", want)
 		}

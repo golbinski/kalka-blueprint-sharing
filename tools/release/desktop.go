@@ -275,7 +275,10 @@ same programs, for installing by hand:
   kalka-desktop.exe    the desktop app; with arguments, the CLI with no
                        console window
   kalka-plugin-gh.exe  the GitHub reference plugin
-  kalka-plugin-jira.exe  the Jira plugin (kalka-plugin-jira login)
+  kalka-plugin-jira.exe  the Jira plugin (set up in Settings > Plugins)
+
+The plugins are optional: leave out the ones you do not use (the
+installer asks which to install).
 
 Install by hand
   1. Unzip to a folder of your own, e.g. %LOCALAPPDATA%\Programs\kalka,

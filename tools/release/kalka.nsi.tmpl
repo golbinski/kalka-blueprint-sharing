@@ -4,6 +4,7 @@ Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "WinMessages.nsh"
+!include "Sections.nsh"
 
 !define PRODUCT "kalka"
 !define VERSION "[[.Version]]"
@@ -31,6 +32,11 @@ ShowUninstDetails show
 !define MUI_FINISHPAGE_SHOWREADME ""
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Add sample blueprints to Personal, to try kalka with"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION AddSamples
+; The plugins are components: each is optional, and the choice is kept
+; in the uninstall key (Plugin.<scheme>, 1 or 0) for the next install,
+; a silent update included.
+!define MUI_COMPONENTSPAGE_TEXT_TOP "Plugins link blueprints to issue trackers. Leave out the ones you do not use; run the installer again to add or remove one."
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -38,7 +44,8 @@ ShowUninstDetails show
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
-Section "kalka"
+Section "kalka" SecCore
+  SectionIn RO
   ; An upgrade: stop the running kalka (and its window) so the files can
   ; be replaced. Running rounds finish first.
   ${If} ${FileExists} "$INSTDIR\kalka.exe"
@@ -69,8 +76,6 @@ Section "kalka"
   SetOutPath "$INSTDIR"
   File "[[.Src]]/kalka.exe"
   File "[[.Src]]/kalka-desktop.exe"
-  File "[[.Src]]/kalka-plugin-gh.exe"
-  File "[[.Src]]/kalka-plugin-jira.exe"
   File "[[.Src]]/README.txt"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -91,7 +96,34 @@ Section "kalka"
   WriteRegStr HKCU "Software\Classes\kalka" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\kalka\DefaultIcon" "" '"$INSTDIR\kalka-desktop.exe",0'
   WriteRegStr HKCU "Software\Classes\kalka\shell\open\command" "" '"$INSTDIR\kalka-desktop.exe" "%1"'
+SectionEnd
 
+SectionGroup /e "Plugins" SecPlugins
+  Section "GitHub" SecGh
+    SetOutPath "$INSTDIR"
+    File "[[.Src]]/kalka-plugin-gh.exe"
+  SectionEnd
+  Section "Jira" SecJira
+    SetOutPath "$INSTDIR"
+    File "[[.Src]]/kalka-plugin-jira.exe"
+  SectionEnd
+SectionGroupEnd
+
+; PLUGIN_CHOICE records whether a plugin was chosen, and removes one that
+; was left out, so a plugin unticked on an upgrade does not stay behind.
+!macro PLUGIN_CHOICE SEC NAME FILE
+  ${If} ${SectionIsSelected} ${SEC}
+    WriteRegDWORD HKCU "${UNINST_KEY}" "Plugin.${NAME}" 1
+  ${Else}
+    Delete "$INSTDIR\${FILE}"
+    WriteRegDWORD HKCU "${UNINST_KEY}" "Plugin.${NAME}" 0
+  ${EndIf}
+!macroend
+
+; The last steps, once every chosen file is in place.
+Section "-finish"
+  !insertmacro PLUGIN_CHOICE ${SecGh} "gh" "kalka-plugin-gh.exe"
+  !insertmacro PLUGIN_CHOICE ${SecJira} "jira" "kalka-plugin-jira.exe"
   Call AddToPath
   Call CheckWebView2
   ; After a silent update there is no finish page to start kalka from.
@@ -99,6 +131,30 @@ Section "kalka"
     Exec '"$INSTDIR\kalka-desktop.exe"'
   ${EndIf}
 SectionEnd
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} "kalka itself: the desktop app and the kalka command."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugins} "Plugins link blueprints to issue trackers. Each is optional."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecGh} "gh: links to GitHub issues and pull requests. Needs the GitHub CLI (gh), logged in."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecJira} "jira: links to Jira issues, their status and parents, and export of released versions. Set up in kalka's Settings."
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+; PLUGIN_REMEMBERED unticks a plugin the last install left out. One never
+; chosen or refused before (a first install, or a plugin new in this
+; release) stays ticked.
+!macro PLUGIN_REMEMBERED SEC NAME
+  ClearErrors
+  ReadRegDWORD $0 HKCU "${UNINST_KEY}" "Plugin.${NAME}"
+  ${IfNot} ${Errors}
+  ${AndIf} $0 == 0
+    !insertmacro UnselectSection ${SEC}
+  ${EndIf}
+!macroend
+
+Function .onInit
+  !insertmacro PLUGIN_REMEMBERED ${SecGh} "gh"
+  !insertmacro PLUGIN_REMEMBERED ${SecJira} "jira"
+FunctionEnd
 
 ; CheckWebView2 offers the runtime's download page when it is missing
 ; (spec 23.2). kalka works without it, in the browser.

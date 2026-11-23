@@ -29,7 +29,7 @@ Where IT policy blocks the desktop app, autostart entries or the webview, see [h
 
 ## Windows
 
-1. Run `kalka_<v>_windows_amd64_setup.exe` (`arm64` on ARM machines). It needs no administrator rights. It installs into `%LOCALAPPDATA%\Programs\kalka`, adds that folder to your `PATH`, and adds *kalka* to the Start menu.
+1. Run `kalka_<v>_windows_amd64_setup.exe` (`arm64` on ARM machines). It needs no administrator rights. It installs into `%LOCALAPPDATA%\Programs\kalka`, adds that folder to your `PATH`, and adds *kalka* to the Start menu. Its *Choose Components* page lists the plugins, GitHub and Jira: untick the ones you do not use. To add or remove one later, run the installer again; updates keep your choice.
 2. Leave *Start kalka* ticked on the last page. The kalka window opens on the setup form: your email, your team's kalka server (the *rendezvous*, or the public demo server to try kalka), and your blueprint folder.
 3. From then on kalka starts at each login, without a window, with its icon in the notification area. Closing the window hides it; the icon, the Start menu, or `kalka` in a terminal brings it back. *Quit kalka* in the icon's menu stops syncing.
 

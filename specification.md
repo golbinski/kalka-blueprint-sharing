@@ -1360,6 +1360,7 @@ Decisions taken where the design left a choice, with the reason.
 37. **A login change drops what it fetched.** Issue metadata and references of the scheme are deleted, not marked stale, when its settings change or are cleared, and a fetch in flight across the change stores nothing: a cached title must not outlive the login that fetched it.
 38. **Not set up is fine for doctor.** Both shipped plugins are installed everywhere; a person who does not use Jira gets `ok`, not a warning.
 39. **The Jira terminal commands are gone.** `kalka-plugin-jira login`, `logout` and `status` are replaced by Settings and `kalka plugin set|settings|clear jira`; the plugin's own command line only prints how to set it up.
+40. **Plugins are optional in the Windows installer.** Not everyone uses every tracker, and a program nobody uses need not be on the machine. The choice is the installer's, kept where its uninstall entry is, so a silent update cannot bring back a plugin the user removed. The macOS bundle and the Linux archives keep every plugin: they have no installer to ask, and an unused plugin does nothing until set up.
 
 Future work:
 
@@ -1690,12 +1691,14 @@ On macOS, an unsigned build cannot post to the notification centre; notices show
 
 | Platform | Package | Contents |
 |---|---|---|
-| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme; its last page offers *Start kalka* and *Add sample blueprints to Personal* (`kalka samples`) | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe`, `kalka-plugin-jira.exe` |
+| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme; a components page lets the user leave out each plugin; its last page offers *Start kalka* and *Add sample blueprints to Personal* (`kalka samples`) | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe` and `kalka-plugin-jira.exe`, each optional |
 | macOS | `Kalka.app` in `~/Applications`, or anywhere | One executable, which is the shell without arguments and the CLI with them, and the plugins beside it; `kalka` on the `PATH` is a symlink to it |
 | Linux | One archive | `kalka` (static), `kalka-desktop`, the plugins, a `.desktop` file and an icon, and the list of system packages the shell needs |
 | Servers | `kalka-rendezvous_<v>_<os>_<arch>` archive | `kalka-rendezvous` (9.6) |
 
 The headless archives of 15 remain for servers, containers and machines without a desktop.
+
+The installer keeps the plugin choice in its uninstall key (`Plugin.<scheme>`, 1 or 0). The next install, a silent update (24.3) included, starts from it: a plugin left out stays out and its file is removed, one chosen or not yet decided (a plugin new in that release) is installed. A plugin left out shows nowhere: kalka lists only installed plugins (10.6), and a blueprint naming its scheme shows the bare key, as for a teammate without it.
 
 The Windows installer changes the user's `PATH` only when it can read the whole value and the result fits in an installer string (1024 characters): otherwise it leaves `PATH` as it is and says to add the folder by hand. A `PATH` it could not read is never written back. The uninstaller removes its folder under the same rule.
 
