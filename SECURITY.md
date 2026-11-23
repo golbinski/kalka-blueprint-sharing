@@ -41,7 +41,7 @@ With the [GitHub CLI](https://cli.github.com), the provenance of a file:
 gh attestation verify kalka_0.3.1_linux_amd64.tar.gz --repo golbinski/kalka-blueprint-sharing
 ```
 
-It checks that the file was built by this repository's workflow, and prints the commit.
+It fails unless the file was built by this repository's release workflow; with `--format json` it shows the workflow, tag and commit that built it.
 
 ## The release key
 
