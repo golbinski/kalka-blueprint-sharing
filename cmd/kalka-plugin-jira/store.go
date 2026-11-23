@@ -32,9 +32,13 @@ type siteConfig struct {
 	// when Token below holds it.
 	TokenIn string `json:"token_in"`
 	Token   string `json:"token,omitempty"`
-	// Fields caches each site's sprint field id.
-	Fields map[string]fieldCache `json:"fields,omitempty"`
 }
+
+// fieldsFile caches each site's sprint field id. It is apart from
+// config.json so that a lookup, which writes it, never writes back a
+// configuration it read before a login or a logout changed it: only
+// login and logout write config.json.
+const fieldsFile = "fields.json"
 
 type fieldCache struct {
 	ID string    `json:"id"`
@@ -143,7 +147,6 @@ func (s *store) login(c *siteConfig, token string) (where string, err error) {
 		c.Token = token
 	}
 	if old, err := s.load(); err == nil {
-		c.Fields = old.Fields
 		if old.Site != c.Site && old.TokenIn == "keychain" && s.keyring != nil {
 			_ = s.keyring.del(old.Site)
 		}
@@ -166,28 +169,48 @@ func (s *store) logout() error {
 		_ = s.keyring.del(c.Site)
 	}
 	s.cfg = nil
+	_ = os.Remove(filepath.Join(s.dir, fieldsFile))
 	return os.Remove(s.path())
 }
 
-func (s *store) cachedField(site string) (string, bool) {
-	c, err := s.load()
-	if err != nil || c.Fields == nil {
-		return "", false
+func (s *store) fields() map[string]fieldCache {
+	raw, err := os.ReadFile(filepath.Join(s.dir, fieldsFile))
+	if err != nil {
+		return nil
 	}
-	f, ok := c.Fields[site]
+	var m map[string]fieldCache
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	return m
+}
+
+func (s *store) cachedField(site string) (string, bool) {
+	f, ok := s.fields()[site]
 	return f.ID, ok && time.Since(f.At) < 24*time.Hour
 }
 
+// saveField records a site's sprint field id in fields.json, written
+// whole and renamed into place; config.json is not touched.
 func (s *store) saveField(site, id string) {
-	c, err := s.load()
+	m := s.fields()
+	if m == nil {
+		m = map[string]fieldCache{}
+	}
+	m[site] = fieldCache{ID: id, At: time.Now().UTC()}
+	if os.MkdirAll(s.dir, 0o700) != nil {
+		return
+	}
+	raw, _ := json.MarshalIndent(m, "", "  ")
+	tmp, err := os.CreateTemp(s.dir, fieldsFile+".*")
 	if err != nil {
 		return
 	}
-	if c.Fields == nil {
-		c.Fields = map[string]fieldCache{}
+	_, werr := tmp.Write(raw)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Chmod(tmp.Name(), 0o600) != nil || os.Rename(tmp.Name(), filepath.Join(s.dir, fieldsFile)) != nil {
+		_ = os.Remove(tmp.Name())
 	}
-	c.Fields[site] = fieldCache{ID: id, At: time.Now().UTC()}
-	_ = s.save(c)
 }
 
 // tokenRe is what an API token or personal access token looks like; it

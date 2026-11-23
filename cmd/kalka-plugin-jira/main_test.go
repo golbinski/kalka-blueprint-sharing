@@ -339,3 +339,48 @@ func TestSprintNames(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// A lookup that read the configuration before a logout, and records the
+// sprint field after it, leaves no login behind: the field cache is a file
+// of its own and config.json is written only by login and logout.
+func TestFieldCacheNeverWritesALoginBack(t *testing.T) {
+	_, srv := newFakeJira(t)
+	setup(t, srv)
+	dir := os.Getenv("KALKA_PLUGIN_JIRA_DIR")
+	lookup, _ := openStore()
+	if _, err := lookup.load(); err != nil { // the issue_meta process
+		t.Fatal(err)
+	}
+	other, _ := openStore()
+	if err := other.logout(); err != nil { // a logout meanwhile
+		t.Fatal(err)
+	}
+	lookup.saveField(srv.URL, "customfield_10020")
+	if _, err := os.Stat(filepath.Join(dir, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("config.json written back: %v", err)
+	}
+	fresh, _ := openStore()
+	if id, ok := fresh.cachedField(srv.URL); !ok || id != "customfield_10020" {
+		t.Fatalf("cache: %q %v", id, ok)
+	}
+	st, err := os.Stat(filepath.Join(dir, fieldsFile))
+	if err != nil || (os.PathSeparator == '/' && st.Mode().Perm()&0o077 != 0) {
+		t.Fatalf("fields.json: %v %v", st, err)
+	}
+	if _, err := fresh.load(); err != errNotLoggedIn {
+		t.Fatalf("logged in again: %v", err)
+	}
+}
+
+// The sprint field found by a lookup is kept apart from the configuration.
+func TestSprintFieldCachedApart(t *testing.T) {
+	_, srv := newFakeJira(t)
+	setup(t, srv)
+	call(t, map[string]any{"protocol": 2, "op": "issue_meta", "issues": []string{"DEV-123"}})
+	dir := os.Getenv("KALKA_PLUGIN_JIRA_DIR")
+	cfg, _ := os.ReadFile(filepath.Join(dir, "config.json"))
+	fields, _ := os.ReadFile(filepath.Join(dir, fieldsFile))
+	if strings.Contains(string(cfg), "customfield") || !strings.Contains(string(fields), "customfield_10020") {
+		t.Fatalf("config %s\nfields %s", cfg, fields)
+	}
+}
