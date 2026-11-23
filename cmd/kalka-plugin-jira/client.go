@@ -178,7 +178,7 @@ func (c *client) failure(status int, data []byte) error {
 	}
 	switch status {
 	case http.StatusUnauthorized:
-		return &apiError{status, fmt.Sprintf("Jira rejected the credentials for %s; run `kalka-plugin-jira login`", c.site)}
+		return &apiError{status, fmt.Sprintf("Jira rejected the credentials for %s; %s", c.site, setupHint)}
 	case http.StatusForbidden:
 		return &apiError{status, "no permission in Jira" + suffix(detail)}
 	case http.StatusNotFound:

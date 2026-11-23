@@ -2,27 +2,22 @@
 // resolves jira: references, answers issue_meta with an issue's title,
 // status and parents, and exports a released blueprint to its issue as an
 // attachment and one comment. It uses the user's own Jira credentials,
-// stored with `kalka-plugin-jira login`; nothing it reads is written into
-// a blueprint.
+// set up through kalka's settings ops (Settings, Plugins, or `kalka plugin
+// set jira`); nothing it reads is written into a blueprint.
 //
 // kalka runs it with no arguments, one JSON request on stdin and one JSON
-// answer on stdout (spec 10.3). With an argument it is a command for the
-// user: login, logout, status.
+// answer on stdout (spec 10.3).
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"golang.org/x/term"
 )
 
 const (
@@ -57,6 +52,10 @@ type request struct {
 		AttachmentID string `json:"attachment_id"`
 		CommentID    string `json:"comment_id"`
 	} `json:"previous"`
+	// settings ops
+	Check   bool              `json:"check"`
+	Values  map[string]any    `json:"values"`
+	Secrets map[string]string `json:"secrets"`
 }
 
 func main() {
@@ -72,7 +71,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, tweak func(*c
 		return 1
 	}
 	if len(args) > 0 {
-		return command(args, st, stdin, stdout, stderr)
+		if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+			usage(stdout)
+			return 0
+		}
+		usage(stderr)
+		return 2
 	}
 	raw, err := io.ReadAll(io.LimitReader(stdin, 16<<20))
 	if err != nil {
@@ -91,7 +95,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, tweak func(*c
 				"meta": true, "hierarchy": true,
 				"fields": []string{"status", "type", "assignee", "labels", "sprint"},
 				"export": map[string]bool{"attachment": true, "comment": true},
-			}}})
+			}, "settings": map[string]bool{"apply": true, "clear": true}}})
+		return 0
+	}
+	switch req.Op {
+	case "settings":
+		_ = enc.Encode(settingsAnswer(st, req.Check, tweak))
+		return 0
+	case "settings_apply":
+		_ = enc.Encode(applySettings(st, req.Values, req.Secrets, tweak))
+		return 0
+	case "settings_clear":
+		_ = enc.Encode(clearSettings(st))
 		return 0
 	}
 	c, cerr := connect(st)
@@ -244,63 +259,17 @@ func safeFileName(s string) string {
 	return n
 }
 
-// command runs a user command.
-func command(args []string, st *store, stdin io.Reader, stdout, stderr io.Writer) int {
-	switch args[0] {
-	case "login":
-		return cmdLogin(args[1:], st, stdin, stdout, stderr)
-	case "logout":
-		if err := st.logout(); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "logged out; the token was removed")
-		return 0
-	case "status":
-		cfg, err := st.load()
-		if err != nil {
-			fmt.Fprintln(stdout, err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "site    %s (%s)\n", cfg.Site, cfg.Flavor)
-		if cfg.Email != "" {
-			fmt.Fprintf(stdout, "email   %s\n", cfg.Email)
-		}
-		where := "the system's credential store"
-		if cfg.TokenIn == "file" {
-			where = st.path()
-		}
-		fmt.Fprintf(stdout, "token   in %s\n", where)
-		c, err := connect(st)
-		if err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			err = c.myself(ctx)
-		}
-		if err != nil {
-			fmt.Fprintf(stdout, "check   %v\n", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "check   Jira accepts the credentials")
-		return 0
-	case "-h", "--help", "help":
-		usage(stdout)
-		return 0
-	}
-	usage(stderr)
-	return 2
-}
-
 func usage(w io.Writer) {
 	fmt.Fprint(w, `kalka-plugin-jira links kalka blueprints to Jira issues.
 
-  kalka-plugin-jira login [--site <url>] [--email <email>] [--datacenter] [--token-stdin]
-  kalka-plugin-jira status
-  kalka-plugin-jira logout
+kalka runs it by itself. Set it up in kalka's Settings, under Plugins, or:
 
-kalka runs it by itself; the commands above store and check your credentials.
+  kalka plugin set jira site=https://example.atlassian.net email=you@example.org --secret-stdin token
+  kalka plugin settings jira --check
+  kalka plugin clear jira
+
 Jira Cloud needs your email and an API token (id.atlassian.com, Security, API
-tokens); Data Center needs a personal access token (--datacenter).
+tokens); Data Center needs a personal access token (flavor=datacenter).
 `)
 }
 
@@ -310,76 +279,4 @@ func (c *client) myself(ctx context.Context) error {
 		Name      string `json:"name"`
 	}
 	return c.do(ctx, http.MethodGet, "/myself", nil, &me)
-}
-
-func cmdLogin(args []string, st *store, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	site := fs.String("site", "", "the Jira site, such as https://example.atlassian.net")
-	email := fs.String("email", "", "your Atlassian account email (Jira Cloud)")
-	dc := fs.Bool("datacenter", false, "Jira Data Center or Server, with a personal access token")
-	tokenStdin := fs.Bool("token-stdin", false, "read the token from standard input")
-	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		return 2
-	}
-	in := bufio.NewReader(stdin)
-	ask := func(prompt string) string {
-		fmt.Fprint(stdout, prompt)
-		s, _ := in.ReadString('\n')
-		return strings.TrimSpace(s)
-	}
-	if *site == "" {
-		*site = ask("Jira site (such as https://example.atlassian.net): ")
-	}
-	clean, err := checkSite(*site)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	cfg := &siteConfig{Site: clean, Flavor: Cloud}
-	if *dc {
-		cfg.Flavor = DataCenter
-	} else {
-		if *email == "" {
-			*email = ask("Your Atlassian account email: ")
-		}
-		if !strings.Contains(*email, "@") {
-			fmt.Fprintln(stderr, "Jira Cloud needs your account's email address")
-			return 1
-		}
-		cfg.Email = strings.TrimSpace(*email)
-	}
-	var token string
-	f, isFile := stdin.(*os.File)
-	switch {
-	case *tokenStdin || !isFile || !term.IsTerminal(int(f.Fd())):
-		token, _ = in.ReadString('\n')
-	default:
-		fmt.Fprint(stdout, "API token (not shown): ")
-		b, err := term.ReadPassword(int(f.Fd()))
-		fmt.Fprintln(stdout)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		token = string(b)
-	}
-	token = strings.TrimSpace(token)
-	if !tokenRe.MatchString(token) {
-		fmt.Fprintln(stderr, "that does not look like an API token")
-		return 1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if err := newClient(cfg, token).myself(ctx); err != nil {
-		fmt.Fprintf(stderr, "Jira did not accept the credentials: %v\n", err)
-		return 1
-	}
-	where, err := st.login(cfg, token)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "logged in to %s; the token is in %s\n", clean, where)
-	return 0
 }

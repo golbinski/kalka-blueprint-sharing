@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // version is set at release build time with -ldflags "-X main.version=...".
@@ -53,7 +55,8 @@ type request struct {
 	Context  struct {
 		Frontmatter map[string]any `json:"frontmatter"`
 	} `json:"context"`
-	Refs []ref `json:"refs"`
+	Refs  []ref `json:"refs"`
+	Check bool  `json:"check"`
 }
 
 type snippet struct {
@@ -103,7 +106,10 @@ func run(stdin io.Reader, stdout, stderr io.Writer, newAPI func(host string) api
 	case "describe":
 		// References only: gh: is not an issue tracker here (spec 10.3).
 		_ = enc.Encode(map[string]any{"protocol": protocol, "name": "github", "version": version, "schemes": []string{"gh"},
-			"capabilities": map[string]any{"resolve": true}})
+			"capabilities": map[string]any{"resolve": true, "settings": map[string]any{}}})
+		return 0
+	case "settings":
+		_ = enc.Encode(settingsAnswer(req.Check))
 		return 0
 	case "resolve":
 		_ = enc.Encode(map[string]any{"protocol": protocol, "results": resolve(req, newAPI, stderr)})
@@ -556,4 +562,63 @@ func splitResponse(b []byte) (int, []byte, bool) {
 		}
 		rest = r
 	}
+}
+
+// Auth probe results.
+const (
+	ghMissing = iota
+	ghLoggedOut
+	ghLoggedIn
+)
+
+// authProbe asks gh whether it is logged in to github.com: offline with
+// `gh auth token` (the token is discarded), or, with check, against
+// GitHub with `gh auth status`. Tests replace it.
+var authProbe = func(check bool) int {
+	args := []string{"auth", "token", "--hostname", "github.com"}
+	if check {
+		args = []string{"auth", "status", "--hostname", "github.com"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return ghLoggedIn
+	case errors.As(err, &exitErr):
+		return ghLoggedOut
+	default:
+		return ghMissing
+	}
+}
+
+// settingsAnswer is the plugin's state: it has nothing to set, because it
+// uses gh's own login (spec 10.6).
+func settingsAnswer(check bool) map[string]any {
+	type status struct {
+		State   string `json:"state"`
+		Message string `json:"message"`
+		Detail  string `json:"detail,omitempty"`
+		Checked bool   `json:"checked"`
+	}
+	var s status
+	hint := map[string]any{"text": "This plugin uses the GitHub CLI's login; log in with gh.", "command": "gh auth login", "url": "https://cli.github.com"}
+	switch authProbe(check) {
+	case ghLoggedIn:
+		s = status{State: "ready", Message: "Uses the GitHub CLI's login to github.com.", Detail: "Other GitHub hosts use gh's login to them."}
+	case ghLoggedOut:
+		s = status{State: "needs-setup", Message: "The GitHub CLI is not logged in to github.com."}
+		if check {
+			s = status{State: "error", Message: "GitHub did not accept the GitHub CLI's login to github.com."}
+		}
+	default:
+		s = status{State: "needs-setup", Message: "The GitHub CLI (gh) is not installed."}
+		hint = map[string]any{"text": "Install the GitHub CLI, then log in with gh.", "command": "gh auth login", "url": "https://cli.github.com"}
+	}
+	s.Checked = check
+	return map[string]any{"protocol": protocol, "status": s, "fields": []any{}, "hint": hint}
 }

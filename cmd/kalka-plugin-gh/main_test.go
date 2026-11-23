@@ -263,7 +263,7 @@ func TestNamedRepos(t *testing.T) {
 func TestDescribeAndSplit(t *testing.T) {
 	var out bytes.Buffer
 	if run(strings.NewReader(`{"protocol":2,"op":"describe"}`), &out, &bytes.Buffer{}, nil) != 0 || !strings.Contains(out.String(), `"schemes":["gh"]`) ||
-		!strings.Contains(out.String(), `"protocol":2`) || !strings.Contains(out.String(), `"capabilities":{"resolve":true}`) {
+		!strings.Contains(out.String(), `"protocol":2`) || !strings.Contains(out.String(), `"capabilities":{"resolve":true,"settings":{}}`) {
 		t.Fatal(out.String())
 	}
 	st, body, ok := splitResponse([]byte("HTTP/2.0 404 Not Found\nX-A: b\r\n\r\n{\"message\":\"Not Found\"}"))
@@ -292,5 +292,45 @@ func TestLiveGitHub(t *testing.T) {
 	_ = json.Unmarshal(out.Bytes(), &resp)
 	if !resp.Results[0].OK || resp.Results[0].Snippet == nil || resp.Results[2].OK {
 		t.Fatalf("%+v", resp.Results)
+	}
+}
+
+func TestSettings(t *testing.T) {
+	defer func(p func(bool) int) { authProbe = p }(authProbe)
+	for _, c := range []struct {
+		probe int
+		check bool
+		state string
+	}{
+		{ghLoggedIn, false, "ready"}, {ghLoggedIn, true, "ready"},
+		{ghLoggedOut, false, "needs-setup"}, {ghLoggedOut, true, "error"},
+		{ghMissing, false, "needs-setup"},
+	} {
+		var asked *bool
+		authProbe = func(check bool) int { asked = &check; return c.probe }
+		var out bytes.Buffer
+		req := fmt.Sprintf(`{"protocol":2,"op":"settings","check":%v}`, c.check)
+		if run(strings.NewReader(req), &out, &bytes.Buffer{}, nil) != 0 {
+			t.Fatal(out.String())
+		}
+		var m struct {
+			Status struct {
+				State   string
+				Checked bool
+			}
+			Fields []any
+			Hint   struct{ Command string }
+		}
+		if err := json.Unmarshal(out.Bytes(), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Status.State != c.state || m.Status.Checked != c.check || asked == nil || *asked != c.check || len(m.Fields) != 0 || m.Hint.Command != "gh auth login" {
+			t.Errorf("%+v: %s", c, out.String())
+		}
+	}
+	var out bytes.Buffer
+	run(strings.NewReader(`{"protocol":2,"op":"describe"}`), &out, &bytes.Buffer{}, nil)
+	if !strings.Contains(out.String(), `"settings":{}`) {
+		t.Fatal(out.String())
 	}
 }

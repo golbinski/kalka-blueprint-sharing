@@ -114,7 +114,7 @@ func (s *store) save(c *siteConfig) error {
 	return os.Rename(tmp, s.path())
 }
 
-var errNotLoggedIn = errors.New("not logged in to Jira: run `kalka-plugin-jira login`")
+var errNotLoggedIn = errors.New("not connected to Jira: " + setupHint)
 
 // token reads the stored token for the configured site.
 func (s *store) token(c *siteConfig) (string, error) {
@@ -125,11 +125,11 @@ func (s *store) token(c *siteConfig) (string, error) {
 		return c.Token, nil
 	}
 	if s.keyring == nil {
-		return "", errors.New("the token is in the system's credential store, which cannot be reached; run `kalka-plugin-jira login` again")
+		return "", errors.New("the token is in the system's credential store, which cannot be reached; " + setupHint)
 	}
 	t, err := s.keyring.get(c.Site)
 	if err != nil || t == "" {
-		return "", fmt.Errorf("no token for %s in the system's credential store; run `kalka-plugin-jira login`", c.Site)
+		return "", fmt.Errorf("no token for %s in the system's credential store; %s", c.Site, setupHint)
 	}
 	return t, nil
 }

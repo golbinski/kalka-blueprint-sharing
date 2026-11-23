@@ -162,16 +162,16 @@ func b64(s string) string {
 	return b.String()
 }
 
-// setup logs the plugin in to the fake site through its login command,
+// setup sets the plugin up for the fake site through settings_apply,
 // with the token in a file (no credential store in tests).
 func setup(t *testing.T, srv *httptest.Server) {
 	t.Helper()
 	t.Setenv("KALKA_PLUGIN_JIRA_DIR", t.TempDir())
 	t.Setenv("KALKA_PLUGIN_JIRA_NO_KEYRING", "1")
-	var out, errs bytes.Buffer
-	in := strings.NewReader("atl-token-0123456789\n")
-	if code := run([]string{"login", "--site", srv.URL, "--email", "ewa@parcels.example", "--token-stdin"}, in, &out, &errs, nil); code != 0 {
-		t.Fatalf("login: %s %s", out.String(), errs.String())
+	res := call(t, map[string]any{"protocol": 2, "op": "settings_apply",
+		"values": map[string]any{"site": srv.URL, "email": "ewa@parcels.example"}, "secrets": map[string]string{"token": "atl-token-0123456789"}})
+	if res["ok"] != true {
+		t.Fatalf("settings_apply: %v", res)
 	}
 	st, _ := os.Stat(filepath.Join(os.Getenv("KALKA_PLUGIN_JIRA_DIR"), "config.json"))
 	if st == nil || (st.Mode().Perm()&0o077 != 0 && os.PathSeparator == '/') {
@@ -297,7 +297,7 @@ func TestAuthAndRateLimits(t *testing.T) {
 	// The token was revoked: the whole batch fails, with what to do.
 	f.token = "another-token-000"
 	res = call(t, map[string]any{"protocol": 2, "op": "issue_meta", "issues": []string{"DEV-123"}})
-	if e, _ := res["error"].(string); !strings.Contains(e, "rejected the credentials") || !strings.Contains(e, "kalka-plugin-jira login") {
+	if e, _ := res["error"].(string); !strings.Contains(e, "rejected the credentials") || !strings.Contains(e, "kalka plugin set jira") {
 		t.Fatalf("auth: %v", res)
 	}
 	res = call(t, map[string]any{"protocol": 2, "op": "export", "issue": "DEV-123", "document": map[string]any{"markdown": "# x\n", "file_name": "x.md"}})
@@ -307,26 +307,97 @@ func TestAuthAndRateLimits(t *testing.T) {
 	// Not logged in at all.
 	t.Setenv("KALKA_PLUGIN_JIRA_DIR", t.TempDir())
 	res = call(t, map[string]any{"protocol": 2, "op": "issue_meta", "issues": []string{"DEV-123"}})
-	if e, _ := res["error"].(string); !strings.Contains(e, "not logged in") {
+	if e, _ := res["error"].(string); !strings.Contains(e, "not connected") {
 		t.Fatalf("no login: %v", res)
 	}
 }
 
-func TestLoginRefusesBadInput(t *testing.T) {
+func apply(t *testing.T, values map[string]any, secrets map[string]string) map[string]any {
+	t.Helper()
+	return call(t, map[string]any{"protocol": 2, "op": "settings_apply", "values": values, "secrets": secrets})
+}
+
+func TestSettingsRefusesBadInput(t *testing.T) {
 	_, srv := newFakeJira(t)
 	t.Setenv("KALKA_PLUGIN_JIRA_DIR", t.TempDir())
 	t.Setenv("KALKA_PLUGIN_JIRA_NO_KEYRING", "1")
-	for _, args := range [][]string{
-		{"login", "--site", "http://jira.example.org", "--email", "ewa@parcels.example", "--token-stdin"},
-		{"login", "--site", srv.URL, "--email", "ewa@parcels.example", "--token-stdin"}, // wrong token
+	for _, c := range []struct {
+		values map[string]any
+		token  string
+		field  string
+	}{
+		{map[string]any{"site": "http://jira.example.org", "email": "ewa@parcels.example"}, "atl-token-0123456789", "site"},
+		{map[string]any{"site": srv.URL}, "atl-token-0123456789", "email"},
+		{map[string]any{"site": srv.URL, "email": "ewa@parcels.example"}, "", "token"},
+		{map[string]any{"site": srv.URL, "email": "ewa@parcels.example"}, "wrong-token-0000", "token"},
 	} {
-		var out, errs bytes.Buffer
-		if run(args, strings.NewReader("wrong-token-0000\n"), &out, &errs, nil) == 0 {
-			t.Errorf("%v logged in", args)
+		sec := map[string]string{}
+		if c.token != "" {
+			sec["token"] = c.token
+		}
+		res := apply(t, c.values, sec)
+		fe, _ := res["field_errors"].(map[string]any)
+		if res["ok"] != false || fe[c.field] == nil {
+			t.Errorf("%v: %v", c.values, res)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(os.Getenv("KALKA_PLUGIN_JIRA_DIR"), "config.json")); err == nil {
-		t.Fatal("a failed login stored something")
+		t.Fatal("a refused apply stored something")
+	}
+}
+
+func TestSettingsOps(t *testing.T) {
+	_, srv := newFakeJira(t)
+	t.Setenv("KALKA_PLUGIN_JIRA_DIR", t.TempDir())
+	t.Setenv("KALKA_PLUGIN_JIRA_NO_KEYRING", "1")
+	d := call(t, map[string]any{"protocol": 2, "op": "describe"})
+	if caps, _ := json.Marshal(d["capabilities"]); !strings.Contains(string(caps), `"settings":{"apply":true,"clear":true}`) {
+		t.Fatalf("describe: %s", caps)
+	}
+	state := func(m map[string]any) string {
+		s, _ := m["status"].(map[string]any)
+		v, _ := s["state"].(string)
+		return v
+	}
+	v := call(t, map[string]any{"protocol": 2, "op": "settings"})
+	if state(v) != "needs-setup" || len(v["fields"].([]any)) != 4 {
+		t.Fatalf("before: %v", v)
+	}
+	res := apply(t, map[string]any{"site": srv.URL + "/", "email": "ewa@parcels.example"}, map[string]string{"token": "atl-token-0123456789"})
+	if res["ok"] != true || state(res) != "ready" {
+		t.Fatalf("apply: %v", res)
+	}
+	raw, _ := json.Marshal(res)
+	if strings.Contains(string(raw), "atl-token-0123456789") {
+		t.Fatalf("the token in the answer: %s", raw)
+	}
+	// Changing the email keeps the stored token; changing the site does not.
+	if res := apply(t, map[string]any{"email": "ewa@parcels.example"}, nil); res["ok"] != true {
+		t.Fatalf("keep token: %v", res)
+	}
+	res = apply(t, map[string]any{"site": "https://other.example.net"}, nil)
+	if fe, _ := res["field_errors"].(map[string]any); res["ok"] != false || fe["token"] == nil {
+		t.Fatalf("site change without a token: %v", res)
+	}
+	res = apply(t, map[string]any{"flavor": "datacenter"}, nil)
+	if fe, _ := res["field_errors"].(map[string]any); res["ok"] != false || fe["token"] == nil {
+		t.Fatalf("flavor change without a token: %v", res)
+	}
+	v = call(t, map[string]any{"protocol": 2, "op": "settings", "check": true})
+	if s := v["status"].(map[string]any); s["state"] != "ready" || s["checked"] != true {
+		t.Fatalf("check: %v", v)
+	}
+	for i := 0; i < 2; i++ { // idempotent
+		if res := call(t, map[string]any{"protocol": 2, "op": "settings_clear"}); res["ok"] != true || state(res) != "needs-setup" {
+			t.Fatalf("clear %d: %v", i, res)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(os.Getenv("KALKA_PLUGIN_JIRA_DIR"), "config.json")); err == nil {
+		t.Fatal("clear left config.json")
+	}
+	var out, errs bytes.Buffer
+	if run([]string{"login"}, strings.NewReader(""), &out, &errs, nil) != 2 {
+		t.Fatal("the login command still runs")
 	}
 }
 
