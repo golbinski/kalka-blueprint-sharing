@@ -110,6 +110,8 @@ func usage(w io.Writer) {
   %[1]s settings --rendezvous <url|peerjs-cloud> [--force]   switch the server (teammates must switch too)
   %[1]s join <link or token> [--wait 20s]   redeem an invite
   %[1]s join --show <link or token>         what the invite is, without joining
+  %[1]s join --list [--json]                joins in progress or failed, with attempts and reason
+  %[1]s join --forget <id, link or token>   stop a join in progress, or clear a failed one
   %[1]s publish <file> [--team <name>] [-m <note>]   move a Personal document into a team
   %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release the next version
   %[1]s handoff <file> <email> [--json]   make another member the owner
