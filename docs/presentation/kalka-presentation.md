@@ -1,6 +1,6 @@
 # kalka — a pull request for implementation plans
 
-The text and speaker notes of the team presentation about kalka, one section per slide. The rendered slides are in [kalka-presentation.pdf](kalka-presentation.pdf). Rule IDs on slide 13 are real; see [rules.md](../rules.md).
+The text and speaker notes of the team presentation about kalka, one section per slide. The rendered slides are in [kalka-presentation.pdf](kalka-presentation.pdf). The `kalka check` output on slide 17 is real, with one message shortened; see [rules.md](../rules.md).
 
 ---
 
@@ -45,23 +45,23 @@ Once a plan is accepted, it moves on: into the repository, the ticket or the wik
 kalka_id: 5b0e7c1d-…
 kalka_owner: ewa@example.org
 kalka_team: parcel-ops
+kalka_parent: 9e4a07b2-…
 kalka_domain: parcel-ops/delivery@v3
+kalka_issue: jira:PARCEL-412
 ---
 # Redelivery after a failed attempt
-## Context
 ## Plan
-```trace … ```   ```invariants … ```
+```goals v2 …```   ```trace v2 …```
 ## Review log
 ### comment · marek · §plan
-### deviation · marek · §plan
 ### release · ewa · v2 · sig:…
 ~~~
 
-- **Frontmatter:** identity, owner, team, and the domain version the plan was written against.
-- **The plan:** free Markdown by the owner, plus optional typed blocks kalka understands.
+- **Frontmatter:** identity, owner and team; the parent plan, the domain version it rests on, and the issue it addresses.
+- **The plan:** free Markdown by the owner, plus typed blocks kalka understands: goals, trace, invariants, glossary.
 - **Review log:** signed entries that are only ever added: comments, deviations, replies, releases.
 
-**Speaker notes:** It stays an ordinary Markdown file: any editor or agent can write it, and it's readable without kalka. kalka writes only a few frontmatter keys and the review log. The typed blocks (trace, invariants) are where structure helps review; everything else is free text.
+**Speaker notes:** It stays an ordinary Markdown file: any editor or agent can write it, and it's readable without kalka. kalka writes only a few frontmatter keys and the review log. The typed blocks share one small line-oriented language, the kalka language v2; they are where structure helps review, and everything else is free text. `kalka_parent` places the plan in a plan tree, `kalka_issue` links it to a Jira issue.
 
 ## 5. Ownership: only the owner changes the plan
 
@@ -113,16 +113,28 @@ Plans stay small enough to review in one sitting, and good ideas found along the
 
 ## 8. Domains: the team's shared language, versioned
 
-Domain documents hold the ubiquitous language from DDD. Each domain has its own versioned document, and every plan names the version it was written against.
+Each domain is a versioned document holding the ubiquitous language from DDD. Domains form a tree, and every plan pins the versions it rests on.
 
-- **Glossary** (terms, definitions, retired names): terms in a plan show their definition on hover. Using a retired name is flagged: "consignment" is now "parcel".
-- **Invariants** (rules that must always hold): for example, "I1: a parcel is delivered at most once". Flagged: an invariant no plan step guards, or one with no test.
+- **Glossary · Terms:** terms in a plan show their definition on hover. A retired name is flagged: "consignment" is now "parcel".
+- **Invariants · Rules that hold:** for example, "I1: a parcel is delivered at most once". Flagged: one no plan step guards, or one with no test.
+- **Domain tree · Subdomains:** `delivery.redelivery` pins `delivery@v3`: it adds terms and never redefines them. A newer parent version shows as "parent newer".
 
-If the domain moves on to a newer version, plans written against an older one say so.
+**Speaker notes:** The domain owner releases new versions like any plan, and members propose changes as comments. A subdomain extends its parent and may narrow an inherited term with `refines`; a plan is linked against the whole path, at the versions it pins. When a newer version exists, the plans and subdomains pinned to an older one say so. Glossary and invariants are typed blocks, so kalka checks them deterministically.
 
-**Speaker notes:** The domain owner releases new versions like any plan. Members propose changes as comments. When a newer domain version exists, plans written against an older one show it. Glossary and invariants are typed blocks, so kalka can check them deterministically.
+## 9. Plan trees: from an epic's goal down to code, in one chain
 
-## 9. Trace blocks: the same process at two levels, checked
+1. **Epic · Goal G1:** the recipient learns a parcel is waiting.
+2. **Story · Criterion AC1:** realizes `parent#G1`, with given, when and then.
+3. **Trace · Business step:** covers AC1, and is realized by code steps.
+4. **Code · `ref gh:…`:** the lines that do it, shown beside the plan.
+
+- States are computed: unclaimed, claimed, ready, delivered.
+- The owner closes a story as delivered; the epic's goals follow.
+- An epic's invariants hold in every plan below it.
+
+**Speaker notes:** Plans form a tree through one key, `kalka_parent`. There are no level names and any depth works; a single blueprint can hold goals, criteria and a trace together. Nothing about state is written by hand: kalka works out which goals nothing claims yet, and flags them. `kalka_breakdown` says whether the stories were split in kalka or adopted from an existing backlog.
+
+## 10. Trace blocks: the same process at two levels, checked
 
 | Business | Code |
 |---|---|
@@ -137,7 +149,21 @@ kalka computes the mismatches:
 
 **Speaker notes:** Business explanations lose exactly the details that matter for implementation. A trace keeps both views side by side and links them; kalka computes where they diverge instead of trusting the author to say so. Other checks: steps nothing implements, one step split across many, reordering, and code references that don't resolve. Agents write traces; people read them.
 
-## 10. Two layers: meet, then talk directly
+## 11. Graph canvas: one document's whole context, as one graph
+
+| Domain path | Plan path |
+|---|---|
+| library · v2 | Epic · Holds on return |
+| library.reservations · v1 (the story rests on it) | **Story · Return creates a hold** (in focus) |
+| | AC2 · no trace step covers it (flagged) |
+
+- **Zoom by level:** cards open into goals, criteria, invariants and terms, then into trace steps and code.
+- **What needs attention:** unclaimed goals, uncovered criteria, unguarded invariants, divergences, a newer parent domain.
+- **The same every time:** laid out alike for everyone, never saved. `kalka graph` prints it for agents.
+
+**Speaker notes:** The Graph tab sits beside Document and Trace. It draws the document's lens: the plan path above it, the domain path at the versions it pins, and its children, never its siblings. It is read-only: comments and review happen in the document, and every item opens there. `kalka context` gives an agent the same selection as text, and `kalka graph --json` the same graph.
+
+## 12. Two layers: meet, then talk directly
 
 ```
                  ┌────────────────────────────┐
@@ -157,7 +183,7 @@ kalka computes the mismatches:
 
 **Speaker notes:** Layer 1 is a PeerJS-compatible signaling server with a built-in TURN relay for networks that block UDP. It holds state in memory only. Layer 2 is kalka's own protocol over a WebRTC data channel. The rendezvous never sees documents; even when it relays traffic, the channel is end-to-end encrypted and bound to both members' keys.
 
-## 11. Trust: no accounts, no server to trust
+## 13. Trust: no accounts, no server to trust
 
 - **Keys, one per install:** each installation creates an ed25519 key on first run. Nobody ever handles it.
 - **Team log, membership is signed:** members and roles live in a signed log that only grows. Every peer replays it to the same result, with no coordinator.
@@ -167,7 +193,7 @@ Only people who share a team can connect at all. The invite link carries the inv
 
 **Speaker notes:** Email is a name, never an identity: identity is email plus key, bound in the team log. Removing someone is a signed operation too. Limits worth knowing: a removed member keeps what they already synced, and one key means one device for now.
 
-## 12. Replication: whoever is online passes it on
+## 14. Replication: whoever is online passes it on
 
 Every member holds a full copy of the team's plans. The author doesn't need to be online.
 
@@ -181,29 +207,52 @@ Every member holds a full copy of the team's plans. The author doesn't need to b
 
 **Speaker notes:** This is why there is no server: the team itself is the storage. As long as members overlap online now and then, everyone converges. Each document and the team log merge deterministically, so peers end up identical whatever order things arrive in.
 
-## 13. Agents: built for plans that agents write
+## 15. Updates: updates itself, from releases you can check
 
-**`BLUEPRINT-REFERENCE.md`** is shipped with kalka as an agent skill: what a useful plan contains. Domain reference, scope, verification plan, critical sections, operations.
+- **Built by CI · From the tag, after the tests:** every release is built by the project's workflow from its tagged commit, once the tests pass on three systems. Nobody uploads by hand.
+- **Signed checksums · Checked before install:** `SHA256SUMS` is signed with the kalka release key. The updater installs nothing it does not list, for that release.
+- **Provenance · Who built each file:** every file carries a GitHub attestation naming the workflow and the commit: `gh attestation verify`.
+
+Updates download in the background; nothing restarts until you click **Restart to update**.
+
+**Speaker notes:** kalka looks for a release shortly after it starts and every six hours. Before 1.0 it installs updates within the same minor version on its own, and offers the rest. The release key's public half is built into kalka, so a release signed with any other key is refused. SECURITY.md shows how to check a download by hand with minisign. Code signing of the programs themselves (Windows SmartScreen, macOS notarization) is not in place yet.
+
+## 16. Trackers: Jira, linked, read locally, exported when final
+
+1. **Link · Name the issue:** `kalka_issue: jira:DEV-123` in the frontmatter.
+2. **Read · Title, status, parents:** with your own login, cached on your machine.
+3. **Export · The released version:** attached to the issue, with a comment.
+4. **Archive · Out of the lists:** it still replicates and opens from links.
+
+- Nothing from Jira is written into the file or sent to peers.
+- Blueprints group by parent issue or by status.
+- A plugin does the talking; the core never knows it is Jira.
+
+**Speaker notes:** This is how a plan leaves kalka when it is done: the owner exports the released version to its issue, and kalka records that as a signed entry. Each teammate sees the issue as their own Jira account does. kalka-plugin-jira works with Jira Cloud and Data Center, and keeps its token in the system's credential store.
+
+## 17. Agents: built for plans that agents write
+
+**`BLUEPRINT-REFERENCE.md`** is shipped with kalka as an agent skill: what a useful plan contains, and the kalka language. Agents read `kalka context` first and run `kalka check` before handing over.
 
 ```
-$ kalka check plan.md --json
-warning G020  line 42
-“consignment” is a retired name for “parcel”
-warning I030  line 57
-no trace step guards invariant I2
+$ kalka context plan.md
+goals, invariants and terms from above
+$ kalka check plan.md
+plan.md:14:5: warning: "consignment" is an alias in the parcel-ops/delivery@v3 glossary; write "parcel" [G020]
+plan.md:17: warning: invariant I2: no trace step guards it; add guards I2 … [I030]
 exit 2 · same result on every machine
 ```
 
-Agent writes → `kalka check` → agent fixes → publish → people review what's flagged.
+`kalka context` → agent writes → `kalka check` → agent fixes → people review what's flagged.
 
-**Speaker notes:** kalka reads meaning only from frontmatter and typed blocks: trace, glossary, invariants. Never from prose. That keeps the check deterministic: no network, no daemon, same output everywhere. The point: by the time a person opens a plan, the mechanical problems are already fixed.
+**Speaker notes:** kalka reads meaning only from frontmatter and typed blocks: goals, trace, glossary, invariants. Never from prose. That keeps the check deterministic: no network, no daemon, same output everywhere. `kalka context` flattens what an agent needs from the plans and domains above the document. The point: by the time a person opens a plan, the mechanical problems are already fixed.
 
-## 14. In short
+## 18. In short
 
 - A pull request for **plans**, before the code exists.
 - Team-local and serverless: **nothing to host** or maintain.
-- Structure where it helps review: **traces, domains, invariants**.
+- Structure where it helps review: **plan trees, domains, traces**.
 
 Questions?
 
-**Speaker notes:** Leave time for questions. If people ask about rollout: it installs per user without admin rights, and a team can start on the public PeerJS cloud before hosting its own rendezvous.
+**Speaker notes:** Leave time for questions. If people ask about rollout: it installs per user without admin rights and updates itself from signed releases, and a team can start on the public PeerJS cloud before hosting its own rendezvous. With Jira, the final version goes to the issue.

@@ -27,7 +27,7 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 - Every workflow can be done in the app and with the CLI (11, 12).
 - References to code, tickets and docs are resolved by plugins; the core knows nothing about GitHub, Jira or Confluence.
 
-### Non-goals (v1)
+### Non-goals
 
 - Authoring or editing blueprints. Users and agents write them with their own tools. `kalka` writes only the frontmatter keys listed in 6.2 and the entries it records; the one document it assembles is a seed, from text the user typed (6.11).
 - Sharing with someone outside every team you belong to. Create a team, even of two.
@@ -35,7 +35,7 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 - Version history, branching, or any general VCS-like state. Three fixed structures are the exceptions: the team log (19.1), domain snapshots (6.12) and tombstones (20.6).
 - Moving a document from a team back to Personal.
 - More than one device per email address.
-- A Jira or Confluence plugin. Only a GitHub reference plugin ships.
+- A Confluence plugin. kalka ships the GitHub reference plugin (10.4) and a Jira plugin (10.5).
 - Real-time co-editing or live cursors.
 
 ---
@@ -150,7 +150,10 @@ Also stored in the config directory, never in the blueprint folder:
 - `joins.yaml` — pending joins: tokens redeemed with `kalka join` and not yet completed (19.7). Owner-only permissions.
 - `daemon.lock` — the single-daemon lock (4.1).
 - `daemon.json` — the running daemon's PID, local API address and per-start token (13). Owner-only permissions. Removed at exit.
-- `state.yaml` — settings and marks the daemon owns and writes: `paused`, `notifications`, `keep_running_on_close`, `close_notice_shown`, `autostart_initialized` (22), and the `seen` marks of waiting items (11.3). Changed only through the local API.
+- `state.yaml` — settings and marks the daemon owns and writes: `paused`, `notifications`, `keep_running_on_close`, `auto_update`, `close_notice_shown`, `autostart_initialized` (22), `update_noticed`, the version whose update notice was raised (24.2), and the `seen` marks of waiting items (11.3). Changed only through the local API.
+- `read.json` — the entries seen per document, for *New since you last looked* (11.4).
+- `issue-cache.json` — what trackers last said about the issues blueprints name (10.5). Owner-only permissions.
+- `updates/` — downloaded updates, one folder per version, until they are installed (24.2).
 - `kalka.log` — log of a daemon started in the background or by the desktop shell.
 
 None of these files is ever asked for or edited by the user.
@@ -1079,7 +1082,7 @@ A test checks this list against the kinds the code declares, and that each is re
 
 | Option | Meaning |
 |---|---|
-| `--json` | One object: `rules` (the set), `kalka` (the version), `files`, each with `file`, `diagnostics` and `traces` (each block's divergences, 6.10), and `summary` (counts per severity). A diagnostic has `line`, `column`, `end_line`, `end_column` (0 when unknown, then left out), `rule`, `severity`, `message`, and an optional `fix` with `text` and the `line`, `column`, `end_line`, `end_column` it replaces. Diagnostics are ordered by line, column and rule. |
+| `--json` | One object: `kalka` (the version), `files`, each with `file`, `diagnostics` and `traces` (each block's divergences, 6.10), and `summary` (counts per severity). A diagnostic has `line`, `column`, `end_line`, `end_column` (0 when unknown, then left out), `rule`, `severity`, `message`, and an optional `fix` with `text` and the `line`, `column`, `end_line`, `end_column` it replaces. Diagnostics are ordered by line, column and rule. |
 | `--explain <id>` | Print what the rule means, why it exists, and a wrong and a right example. Takes no files. |
 | `--strict` | Warnings fail the check as errors do. |
 | `--with-plugins` | Resolve reference targets (trace `ref`, invariant `verified-by`) with the installed plugins and report those that do not resolve (`R010`) or that warn (`R011`). Off by default, since plugins may use the network. |
@@ -1175,12 +1178,12 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - Desktop shell: Wails v3, pinned to an exact release. It is built only with the `desktop` build tag, so `go build ./...`, `go vet ./...` and `go test ./...` never need it. On Windows it needs no CGO; on macOS and Linux it does (23).
 - `kalka-rendezvous` (`cmd/kalka-rendezvous`) imports only the signaling, peer ID and TURN packages; a test keeps it free of the core, the daemon, the UI and WebRTC.
 - URL scheme registration lives in `internal/urlscheme`, beside `internal/autostart`, with the registry, data directory and command runner as parameters so tests use fakes (23).
-- What the user installs is one product per platform (23.1): on Windows a per-user installer holding `kalka.exe` and `kalka-desktop.exe`; on macOS `Kalka.app` with one executable that is also the CLI; on Linux one archive with `kalka` and `kalka-desktop`.
+- What the user installs is one product per platform (23.1): on Windows a per-user installer holding `kalka.exe` and `kalka-desktop.exe`; on macOS `Kalka.app` with one executable that is also the CLI; on Linux one archive with `kalka` and `kalka-desktop`. Each also holds the plugins `kalka-plugin-gh` and `kalka-plugin-jira`.
 - No bundled Node.js or Chromium: Node is a build-time tool for the web UI only, and the window uses the system webview.
 - WebRTC: `pion/webrtc`; TURN: `pion/turn`.
 - File watching: `fsnotify`.
 - Frontend: TypeScript with a small framework of the implementer's choice, built to static assets and embedded.
-- Releases (`tools/release`): per target a reproducible headless archive (`kalka`, `kalka-plugin-gh`; on Windows also `kalka-desktop.exe`), a `kalka-rendezvous` archive; the Windows installer (when NSIS is installed), `Kalka.app` in a zip (built on a Mac) and a Linux desktop archive (built on Linux with GTK 4 and WebKitGTK 6.0), each skipped with a reason when the host cannot build it; `SHA256SUMS`. In CI the Linux job publishes the release and a macOS job adds the app zips and their `SHA256SUMS` lines (24). See 23.5 for signing.
+- Releases (`tools/release`): per target a reproducible headless archive (`kalka`, `kalka-plugin-gh`, `kalka-plugin-jira`; on Windows also `kalka-desktop.exe`), a `kalka-rendezvous` archive; the Windows installer (when NSIS is installed), `Kalka.app` in a zip (built on a Mac) and a Linux desktop archive (built on Linux with GTK 4 and WebKitGTK 6.0), each skipped with a reason when the host cannot build it; `SHA256SUMS`. In CI the Linux job makes a draft release, a macOS job adds the app zips and their `SHA256SUMS` lines, and a last job signs and attests the release and publishes it (23.5, 24).
 - Pin dependency versions at implementation time; do not assume the versions current when this was written.
 
 ---
@@ -1563,6 +1566,7 @@ What the design protects, and what it does not:
 - **The rendezvous server is not trusted.** It can refuse service, keep a peer offline by occupying its ID (on servers other than `kalka-rendezvous`, 9.2), and see who connects to whom. It cannot read or alter a session (channel binding, 8.3) or impersonate a member (the team log).
 - **Members can comment in their own name only.** Entries are signed (6.5); a forged entry does not enter the replica (20.4). Entries written outside `kalka` stay unsigned and local.
 - **The local API is reachable by local processes and by web pages aimed at `localhost`.** It answers only with the per-start token, checks `Host` against DNS rebinding, and refuses state changes from foreign origins (13). Another local user cannot read the token (owner-only `daemon.json`). Processes of the same user are trusted, as they can read the identity key anyway.
+- **An update is as trustworthy as the release key.** The updater installs only what a `SHA256SUMS` signed with a key built into the running kalka lists, for that release (24.2). Whoever holds the key's secret, or can run the release workflow on a `v*` tag, can ship code to every installation that updates; GitHub can withhold releases but not forge one. The programs themselves are not code-signed yet (23.5).
 - **Out of scope:** a member's machine being compromised; traffic analysis; denial of service by a member flooding operations or transfers, which other members see and can answer by removal.
 
 ---
@@ -1575,7 +1579,7 @@ Team replication works only while members are online at the same time, so kalka 
 
 - The window shows the web UI (11) from the daemon's localhost address. Nothing is bound into the page; it behaves exactly as in a browser tab.
 - **Tray menu:** *Open kalka*; a status line ("Online · 4 of 6 members reachable · last sync 14:02", "Paused", or "Offline: rendezvous not reachable"); "N waiting for you" when any team has waiting items, opening the window on Needs you; *Pause sync* / *Resume sync*; *Start at login* with a check mark; *Quit kalka*.
-- The status comes from `GET /api/summary`: distinct members reached out of all members of all teams; the latest replication round that reached a member; the waiting total and the oldest item's target (13). The tray refreshes on the daemon's events, at most once a second.
+- The status comes from `GET /api/summary`: distinct members reached out of all members of all teams; the latest replication round that reached a member; the waiting total and the oldest item's target (13). The tray refreshes on the daemon's events, at most once a second, and every 30 seconds without one.
 - **Quit** asks first: "kalka will stop syncing with your teams until you start it again." It then stops the daemon after its running rounds finish. When the shell is attached to a headless daemon, quitting stops that daemon too, and the question says so.
 - A `kalka://` link opens the window on the join screen (19.7).
 
@@ -1625,9 +1629,9 @@ On macOS, an unsigned build cannot post to the notification centre; notices show
 
 | Platform | Package | Contents |
 |---|---|---|
-| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme; its last page offers *Start kalka* and *Add sample blueprints to Personal* (`kalka samples`) | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe` |
-| macOS | `Kalka.app` in `~/Applications`, or anywhere | One executable, which is the shell without arguments and the CLI with them; `kalka` on the `PATH` is a symlink to it |
-| Linux | One archive | `kalka` (static), `kalka-desktop`, a `.desktop` file and an icon, and the list of system packages the shell needs |
+| Windows (primary) | Per-user installer, no elevation, into `%LOCALAPPDATA%\Programs\kalka`; adds the folder to the user's `PATH`, a Start-menu shortcut, and the `kalka` URL scheme; its last page offers *Start kalka* and *Add sample blueprints to Personal* (`kalka samples`) | `kalka.exe` (console: CLI and headless daemon), `kalka-desktop.exe` (GUI: the shell; with arguments it runs the CLI without a console window), `kalka-plugin-gh.exe`, `kalka-plugin-jira.exe` |
+| macOS | `Kalka.app` in `~/Applications`, or anywhere | One executable, which is the shell without arguments and the CLI with them, and the plugins beside it; `kalka` on the `PATH` is a symlink to it |
+| Linux | One archive | `kalka` (static), `kalka-desktop`, the plugins, a `.desktop` file and an icon, and the list of system packages the shell needs |
 | Servers | `kalka-rendezvous_<v>_<os>_<arch>` archive | `kalka-rendezvous` (9.6) |
 
 The headless archives of 15 remain for servers, containers and machines without a desktop.
@@ -1702,7 +1706,7 @@ Only the desktop shell installs, and only an installation it recognises; anythin
 |---|---|---|
 | Windows | `kalka-desktop.exe` beside `uninstall.exe` (the installer's folder) | The downloaded setup runs with `/S`. A silent install waits until the running `kalka-desktop.exe` can be replaced, installs, and starts kalka again. |
 | macOS | The program is inside `Kalka.app`, whose folder is writable | The new `Kalka.app` is unpacked beside the old one, the old one renamed aside, the new one renamed in, the old one removed; a failed swap puts the old one back. kalka is opened again once this process has ended. |
-| Linux | `kalka-desktop` with `kalka` and `kalka-plugin-gh` beside it, in a writable folder | The three programs are written beside the old ones and renamed over them, then `kalka-desktop` starts again once this process has ended. |
+| Linux | `kalka-desktop` with `kalka` and `kalka-plugin-gh` beside it, in a writable folder | The three programs, and `kalka-plugin-jira` when the archive holds it, are written beside the old ones and renamed over them, then `kalka-desktop` starts again once this process has ended. |
 
 Installing stops the daemon the usual way: running replication rounds finish first, then the shell ends.
 

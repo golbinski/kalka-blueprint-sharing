@@ -46,8 +46,8 @@ at `base_sha`, and warns when a file has changed on `main` since. Without
 
 ## packaging
 
-A second team, to copy or move documents between teams (*Copy to team…*,
-*Move to team…*).
+A second team, to copy or move documents between teams (*Copy to another
+team…*, *Move to another team…*).
 
 | File | What it exercises |
 |---|---|
@@ -143,7 +143,9 @@ Everything appears in *Blueprints · Personal* within a second. Then:
    (the root first), then `holds-on-return.md` and `return-creates-hold.md`.
    Open the story: the breadcrumb leads to the epic, the goals block
    shows the criteria with their states, and *More*, *Context for an
-   agent* shows what an agent would read. Close the story (*Close as
-   delivered*) and watch the epic's goals become ready.
+   agent* shows what an agent would read. The *Graph* tab draws the epic, the
+   story and the domain tree as one graph, with what needs attention.
+   Close the story (*Close as delivered*) and watch the epic's goals
+   become ready.
 
 To start over, delete what you copied; nothing else holds the samples.

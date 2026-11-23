@@ -135,6 +135,7 @@ kalka waiting
 | [docs/headless.md](docs/headless.md) | Running without the desktop app, for servers and agents |
 | [docs/rendezvous.md](docs/rendezvous.md) | Hosting `kalka-rendezvous`, with TURN and TLS |
 | [docs/language.md](docs/language.md) | The kalka language v2: the syntax of goals, invariants, glossary and trace blocks |
+| [docs/jira.md](docs/jira.md) | Linking blueprints to Jira issues, and exporting released versions |
 | [docs/trace.md](docs/trace.md) | Trace blocks in full: semantics, validation, divergences |
 | [docs/rules.md](docs/rules.md) | Every rule of `kalka check` |
 | [docs/teamlog.md](docs/teamlog.md) | The team log's encoding and replay rules |
@@ -204,8 +205,10 @@ that reach the public PeerJS cloud or GitHub are off unless
 `KALKA_CLOUD_TEST=1` or `KALKA_GH_LIVE=1` is set.
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the web
-checks, `go vet` for every system, and the tests with the race detector on
-Linux, macOS and Windows. A `v*` tag builds the release.
+checks, `go vet` for every system, `govulncheck`, and the tests with the
+race detector on Linux, macOS and Windows. A `v*` tag builds the release
+as a draft, signs its checksums, attests its provenance and publishes it
+([SECURITY.md](SECURITY.md)).
 
 ### Layout
 
@@ -219,10 +222,13 @@ Linux, macOS and Windows. A `v*` tag builds the release.
 | `internal/blueprint`, `internal/merge` | The file format, signed entries, releases and merging |
 | `internal/teamlog` | Team logs: operations, replay, invites |
 | `internal/core` | The node: teams, replication, ownership, transfers, seeds, domains |
+| `internal/check`, `internal/rules` | `kalka check`, `context` and `graph`; the rule registry |
+| `internal/reference` | The blueprint reference for agents |
+| `internal/update` | Updates from GitHub releases, verified against the signed checksums |
 | `internal/daemon`, `internal/cli` | The local HTTP API and the commands |
 | `internal/transport`, `internal/peerjs`, `internal/rendezvous` | WebRTC, signaling and the server side |
 | `web` | The web UI (React, TypeScript), served by the daemon |
-| `tools/release`, `tools/winicon` | The reproducible release build; the Windows icon resources of the desktop app |
+| `tools/release`, `tools/sign`, `tools/winicon` | The reproducible release build; signing `SHA256SUMS` with the release key; the Windows icon resources of the desktop app |
 | `samples`, `testdata` | Sample blueprints, and golden files for the format |
 
 ## License

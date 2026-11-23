@@ -39,14 +39,14 @@ Unsigned builds trigger SmartScreen on first start: *More info*, then *Run anywa
 
 **Uninstall:** *Settings > Apps > kalka*, or `uninstall.exe` in the install folder. It stops kalka and removes the login entry, the files and the `PATH` entry. Your settings, keys and team logs stay in `%APPDATA%\kalka`, your blueprints in their folder.
 
-**By hand, from the zip:** unzip to a folder of your own, add it to `PATH`, and start `kalka-desktop.exe`. Keep `kalka.exe`, `kalka-desktop.exe` and `kalka-plugin-gh.exe` together: `kalka.exe` is the command line, `kalka-desktop.exe` the app (and, with arguments, the command line without a console window).
+**By hand, from the zip:** unzip to a folder of your own, add it to `PATH`, and start `kalka-desktop.exe`. Keep `kalka.exe`, `kalka-desktop.exe`, `kalka-plugin-gh.exe` and `kalka-plugin-jira.exe` together: `kalka.exe` is the command line, `kalka-desktop.exe` the app (and, with arguments, the command line without a console window).
 
 ## macOS
 
 1. Unzip `kalka_<v>_darwin_arm64_app.zip` (Apple Silicon) or `…_amd64_app.zip` (Intel) and move `Kalka.app` to `/Applications` or `~/Applications`.
 2. Open it. An unsigned build is refused the first time: right-click `Kalka.app`, *Open*, then *Open* again (or run `xattr -dr com.apple.quarantine Kalka.app`). The window shows the setup form.
 3. kalka then lives in the menu bar and starts at each login (a LaunchAgent in `~/Library/LaunchAgents`). It has no Dock icon.
-4. For the command line, link the app's program onto your `PATH`; with arguments it is the CLI, and `kalka-plugin-gh` is found beside it:
+4. For the command line, link the app's program onto your `PATH`; with arguments it is the CLI, and the plugins (`kalka-plugin-gh`, `kalka-plugin-jira`) are found beside it:
 
    ```sh
    ln -s /Applications/Kalka.app/Contents/MacOS/kalka ~/bin/kalka
@@ -59,7 +59,7 @@ Unsigned builds cannot post to the notification centre: prompts that need an ans
 ## Linux
 
 1. Install the libraries listed in `PACKAGES.txt` (GTK 4 and WebKitGTK 6.0; Ubuntu 24.04, Debian 13, Fedora 39 or newer).
-2. Copy `kalka`, `kalka-desktop` and `kalka-plugin-gh` to `~/.local/bin`, `kalka.desktop` to `~/.local/share/applications`, and `kalka.png` to `~/.local/share/icons/hicolor/256x256/apps`.
+2. Copy `kalka`, `kalka-desktop`, `kalka-plugin-gh` and `kalka-plugin-jira` to `~/.local/bin`, `kalka.desktop` to `~/.local/share/applications`, and `kalka.png` to `~/.local/share/icons/hicolor/256x256/apps`.
 3. Start *kalka* from the applications menu. The window shows the setup form; kalka then starts at each login (`~/.config/autostart/kalka.desktop`).
 
 The tray icon uses StatusNotifierItem. Stock GNOME shows it only with an extension such as *AppIndicator and KStatusNotifierItem Support*; without one, closing the window minimises it, and starting kalka again shows it.
@@ -70,7 +70,7 @@ The tray icon uses StatusNotifierItem. Stock GNOME shows it only with an extensi
 
 The desktop app looks for a new release on GitHub shortly after it starts and every six hours, and *Settings > Updates* (or `kalka update --check`) looks now. A release is compatible when it has the same major version (before 1.0, the same minor version); with *Install updates automatically* on, a compatible release is downloaded and checked against `SHA256SUMS`, whose signature by the release key is checked first, and the window and the tray offer *Restart to update*. Nothing restarts until you click. With the setting off, or for a new major version, they show that an update is available, with its release notes, and *Download and restart* downloads it then.
 
-kalka replaces itself only where it recognises the install: the Windows installer's folder, `Kalka.app` in a folder you can write to, or the three Linux programs side by side in a writable folder. Elsewhere (a headless install, a package manager) it only tells you about the release. `kalka update` does the same from a terminal. Builds without a release version (`dev`) never check. The Linux arm64 desktop archive is not published yet; there the release is announced only.
+kalka replaces itself only where it recognises the install: the Windows installer's folder, `Kalka.app` in a folder you can write to, or the Linux programs side by side in a writable folder. Elsewhere (a headless install, a package manager) it only tells you about the release. `kalka update` does the same from a terminal. Builds without a release version (`dev`) never check. The Linux arm64 desktop archive is not published yet; there the release is announced only.
 
 ## How notices reach you
 
@@ -81,4 +81,4 @@ While the window is hidden, notices show as notifications: new comments on your 
 - One kalka runs per user. A second start of the app shows the first one's window. `kalka status` in a terminal shows whether it runs and whether the window is attached; `kalka stop` stops it once running rounds finish.
 - `kalka autostart status` shows what runs at login, and warns if that program has been moved. *Settings > Start at login* or `kalka autostart on|off` changes it.
 - kalka writes to `kalka.log` in its config folder (`%APPDATA%\kalka`, `~/.config/kalka`). One older file is kept as `kalka.log.1` once it passes 5 MB.
-- Plugins are found in `<config>/plugins`, then beside kalka, then on `PATH`. `kalka-plugin-gh` needs the GitHub CLI (`gh`), logged in.
+- Plugins are found in `<config>/plugins`, then beside kalka, then on `PATH`. `kalka-plugin-gh` needs the GitHub CLI (`gh`), logged in; `kalka-plugin-jira` needs `kalka-plugin-jira login` ([jira.md](jira.md)).

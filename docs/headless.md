@@ -36,6 +36,7 @@ Without a page open, notices (new comments on your documents, joins, newer domai
 
 - Outgoing WebSocket (`wss://` or `ws://`) to the team's rendezvous server.
 - WebRTC to peers: UDP, or TURN over TCP/TLS on 443 when UDP is blocked (`kalka-rendezvous`, the server a team hosts, hands out short-lived TURN credentials; other rendezvous servers need their own TURN; see [rendezvous.md](rendezvous.md)).
+- Outgoing HTTPS to `api.github.com`, `github.com` and `*.githubusercontent.com`, where kalka looks for and downloads new releases (spec §24); without it kalka only logs that the check failed. With the Jira plugin, HTTPS to your Jira site.
 - A loopback TCP port for the local API and page (default 7717, `ui_port` in `config.yaml`). It listens on 127.0.0.1 only and needs a per-session token.
 - Write access to the config folder (`%APPDATA%\kalka`, `~/.config/kalka`) and the blueprint folder.
 
