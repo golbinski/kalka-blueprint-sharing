@@ -40,6 +40,9 @@ func fake(mode string) {
 		fmt.Println(`{"protocol":2,"results":[]}`) // arguments are never passed
 		return
 	}
+	if settingsFake(mode, req.Op, raw) {
+		return
+	}
 	switch mode {
 	case "crash":
 		fmt.Fprintln(os.Stderr, "boom: segfault in parser")

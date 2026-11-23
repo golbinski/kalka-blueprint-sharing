@@ -20,8 +20,9 @@ import (
 
 // Capabilities is what a plugin declares it can do.
 type Capabilities struct {
-	Resolve bool       `json:"resolve,omitempty"`
-	Issue   *IssueCaps `json:"issue,omitempty"`
+	Resolve  bool          `json:"resolve,omitempty"`
+	Issue    *IssueCaps    `json:"issue,omitempty"`
+	Settings *SettingsCaps `json:"settings,omitempty"`
 }
 
 // IssueCaps are the capabilities of an issue tracker plugin.
@@ -70,6 +71,10 @@ func (c Capabilities) CanExport() bool {
 // clean keeps the known fields only, so the page is never offered a
 // feature on the strength of a field name kalka does not know.
 func (c Capabilities) clean() Capabilities {
+	if c.Settings != nil {
+		s := *c.Settings
+		c.Settings = &s
+	}
 	if c.Issue == nil {
 		return c
 	}

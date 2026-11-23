@@ -100,6 +100,11 @@ type request struct {
 	Issues []string `json:"issues,omitempty"`
 	// export
 	*ExportRequest
+	// settings, settings_apply. Secrets carries the bytes of each Secret;
+	// a request is never logged.
+	Check   bool              `json:"check,omitempty"`
+	Values  map[string]any    `json:"values,omitempty"`
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 type reqContext struct {
@@ -129,33 +134,101 @@ type Host struct {
 // ErrNotFound means no plugin is installed for a scheme.
 var ErrNotFound = errors.New("no plugin installed")
 
+// Where a plugin was found (spec 10.2): <config>/plugins, kalka's own
+// folder, or PATH.
+const (
+	SourceConfig  = "config"
+	SourceBundled = "bundled"
+	SourcePath    = "path"
+)
+
+// Found is the executable that serves a scheme, where it was found, and
+// the others for the same scheme later in the search order, which it is
+// used instead of.
+type Found struct {
+	File     string   `json:"file"`
+	Source   string   `json:"source"`
+	Shadowed []string `json:"shadowed"`
+}
+
 // Find returns the executable for a scheme.
 func (h *Host) Find(scheme string) (string, error) {
+	f, err := h.Locate(scheme)
+	if err != nil {
+		return "", err
+	}
+	return f.File, nil
+}
+
+func pluginExts() []string {
+	if runtime.GOOS == "windows" {
+		return []string{".exe", ".cmd"}
+	}
+	return []string{""}
+}
+
+func isExecutable(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir() && (runtime.GOOS == "windows" || st.Mode()&0o111 != 0)
+}
+
+// Locate finds the executable for a scheme: the first in <config>/plugins,
+// kalka's own folder, then PATH; the later ones are listed as shadowed.
+func (h *Host) Locate(scheme string) (Found, error) {
 	if !schemeRe.MatchString(scheme) {
-		return "", ErrNotFound
+		return Found{}, ErrNotFound
 	}
 	base := Prefix + scheme
-	exts := []string{""}
-	if runtime.GOOS == "windows" {
-		exts = []string{".exe", ".cmd"}
+	var all []Found
+	seen := map[string]bool{}
+	add := func(p, source string) {
+		key := p
+		if a, err := filepath.Abs(p); err == nil {
+			key = filepath.Clean(a)
+		}
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		all = append(all, Found{File: p, Source: source})
 	}
-	for _, dir := range []string{h.Dir, h.ExeDir} {
-		if dir == "" {
+	for _, d := range []struct{ dir, source string }{{h.Dir, SourceConfig}, {h.ExeDir, SourceBundled}} {
+		if d.dir == "" {
 			continue
 		}
-		for _, ext := range exts {
-			p := filepath.Join(dir, base+ext)
-			if st, err := os.Stat(p); err == nil && !st.IsDir() && (runtime.GOOS == "windows" || st.Mode()&0o111 != 0) {
-				return p, nil
+		for _, ext := range pluginExts() {
+			if p := filepath.Join(d.dir, base+ext); isExecutable(p) {
+				add(p, d.source)
 			}
 		}
 	}
-	// LookPath tries PATHEXT on Windows (.exe, .cmd, ...).
-	p, err := exec.LookPath(base)
-	if err != nil {
-		return "", ErrNotFound
+	// LookPath tries PATHEXT on Windows (.exe, .cmd, ...): it decides
+	// which PATH entry runs; the rest of PATH is only listed.
+	if p, err := exec.LookPath(base); err == nil {
+		add(p, SourcePath)
 	}
-	return p, nil
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		for _, ext := range pluginExts() {
+			if p := filepath.Join(dir, base+ext); isExecutable(p) {
+				add(p, SourcePath)
+			}
+		}
+	}
+	if len(all) == 0 {
+		return Found{}, ErrNotFound
+	}
+	f := all[0]
+	f.Shadowed = []string{}
+	for _, o := range all[1:] {
+		f.Shadowed = append(f.Shadowed, o.File)
+	}
+	return f, nil
 }
 
 // Describe asks a plugin what it is.
@@ -226,6 +299,13 @@ func (h *Host) logf(format string, a ...any) {
 // call runs the plugin once: no arguments, the request on stdin, a hard
 // timeout, and output read with limits.
 func (h *Host) call(ctx context.Context, path string, timeout time.Duration, req request, out any) error {
+	return h.callOpts(ctx, path, timeout, req, out, false)
+}
+
+// callOpts is call; withhold keeps the plugin's stderr out of the log, for
+// a request that carries a secret the plugin might echo, transformed or
+// not (spec 10.6).
+func (h *Host) callOpts(ctx context.Context, path string, timeout time.Duration, req request, out any, withhold bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	in, err := json.Marshal(req)
@@ -244,7 +324,11 @@ func (h *Host) call(ctx context.Context, path string, timeout time.Duration, req
 	cmd.WaitDelay = time.Second
 	err = cmd.Run()
 	if s := strings.TrimSpace(stderr.String()); s != "" {
-		h.logf("%s: %s", filepath.Base(path), s)
+		if withhold {
+			h.logf("%s: wrote %d bytes to stderr during %s (withheld)", filepath.Base(path), len(s), req.Op)
+		} else {
+			h.logf("%s: %s", filepath.Base(path), s)
+		}
 	}
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:
