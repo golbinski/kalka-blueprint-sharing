@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,11 +98,15 @@ type issueCache struct {
 	all      *IssueCapsSummary
 	allUntil time.Time
 	allBusy  bool
+	// gen counts the changes of each scheme's plugin settings, allGen of
+	// any: what was asked before a change is not stored (spec 10.6).
+	gen    map[string]uint64
+	allGen uint64
 }
 
 func newIssueCache(p Plugins, now func() time.Time, configDir string, logf func(string, ...any)) *issueCache {
 	c := &issueCache{plugins: p, now: now, ctx: context.Background(), logf: logf,
-		entries: map[string]*issueEntry{}, inflight: map[string]bool{}, caps: map[string]capsEntry{}, capsBusy: map[string]bool{}}
+		entries: map[string]*issueEntry{}, inflight: map[string]bool{}, caps: map[string]capsEntry{}, capsBusy: map[string]bool{}, gen: map[string]uint64{}}
 	if configDir != "" {
 		c.file = filepath.Join(configDir, issueCacheFile)
 		if raw, err := os.ReadFile(c.file); err == nil {
@@ -133,6 +138,7 @@ func (c *issueCache) capsOf(scheme string, done func()) (caps *plugin.Capabiliti
 	if !fresh && !busy {
 		c.capsBusy[scheme] = true
 	}
+	gen := c.gen[scheme]
 	c.mu.Unlock()
 	if !fresh && !busy {
 		go func() {
@@ -146,7 +152,9 @@ func (c *issueCache) capsOf(scheme string, done func()) (caps *plugin.Capabiliti
 				ce.caps = &caps
 			}
 			c.mu.Lock()
-			c.caps[scheme] = ce
+			if c.gen[scheme] == gen {
+				c.caps[scheme] = ce
+			}
 			delete(c.capsBusy, scheme)
 			c.mu.Unlock()
 			if done != nil {
@@ -216,15 +224,30 @@ func (c *issueCache) lookup(refs []bp.IssueRef, done func()) map[string]IssueVie
 		out[k] = v
 	}
 	for scheme, batch := range missing {
-		go c.fetch(scheme, batch, done)
+		c.mu.Lock()
+		gen := c.gen[scheme]
+		c.mu.Unlock()
+		go c.fetch(scheme, batch, gen, done)
 	}
 	return out
 }
 
-func (c *issueCache) fetch(scheme string, batch []string, done func()) {
+func (c *issueCache) fetch(scheme string, batch []string, gen uint64, done func()) {
 	res, err := c.plugins.IssueMeta(c.ctx, scheme, batch)
 	at := c.now()
 	c.mu.Lock()
+	if c.gen[scheme] != gen {
+		// The plugin's settings changed meanwhile: this answer was given
+		// for the old ones.
+		for _, payload := range batch {
+			delete(c.inflight, scheme+"\x00"+payload)
+		}
+		c.mu.Unlock()
+		if done != nil {
+			done()
+		}
+		return
+	}
 	for i, payload := range batch {
 		k := scheme + "\x00" + payload
 		delete(c.inflight, k)
@@ -256,6 +279,24 @@ func (c *issueCache) fetch(scheme string, batch []string, done func()) {
 	}
 }
 
+// forgetScheme drops everything known about the scheme's issues and its
+// plugin's capabilities, on disk too, and what is being asked for it.
+func (c *issueCache) forgetScheme(scheme string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen[scheme]++
+	c.allGen++
+	delete(c.caps, scheme)
+	c.all, c.allUntil = nil, time.Time{}
+	prefix := scheme + "\x00"
+	for k := range c.entries {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.entries, k)
+		}
+	}
+	c.saveLocked()
+}
+
 // saveLocked writes the cache to the configuration folder. A failure
 // only costs the offline fallback after a restart.
 func (c *issueCache) saveLocked() {
@@ -285,6 +326,7 @@ func (c *issueCache) summary(done func()) IssueCapsSummary {
 	if start {
 		c.allBusy = true
 	}
+	allGen := c.allGen
 	c.mu.Unlock()
 	if start {
 		go func() {
@@ -299,6 +341,14 @@ func (c *issueCache) summary(done func()) IssueCapsSummary {
 				s.Export = s.Export || d.Capabilities.CanExport()
 			}
 			c.mu.Lock()
+			if c.allGen != allGen {
+				c.allBusy = false
+				c.mu.Unlock()
+				if done != nil {
+					done()
+				}
+				return
+			}
 			changed := c.all == nil || *c.all != s
 			c.all, c.allUntil, c.allBusy = &s, c.now().Add(capsTTL), false
 			c.mu.Unlock()
@@ -349,4 +399,18 @@ func (d *Node) issueView(doc *bp.Document, rel string) *IssueView {
 		d.bus.Publish(BusEvent{Type: "issues", Data: map[string]string{"path": rel}})
 	})[r.String()]
 	return &v
+}
+
+// PluginChanged is called after the scheme's plugin settings changed (or
+// may have): what was fetched with the old ones is dropped, not marked
+// stale, and the page is told once each to ask again (spec 10.6).
+func (d *Node) PluginChanged(scheme string) {
+	if d.opts.Plugins != nil {
+		d.opts.Plugins.Forget(scheme)
+	}
+	d.refs.forgetScheme(scheme)
+	d.issues.forgetScheme(scheme)
+	for _, t := range []string{"issues", "refs", "plugins"} {
+		d.bus.Publish(BusEvent{Type: t, Data: map[string]string{"scheme": scheme}})
+	}
 }

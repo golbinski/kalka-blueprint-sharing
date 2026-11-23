@@ -48,6 +48,7 @@ func (f *fakeTracker) Find(scheme string) (string, error) {
 	return "/x/kalka-plugin-jira", nil
 }
 func (f *fakeTracker) Installed() []string { return []string{"jira"} }
+func (f *fakeTracker) Forget(string)       {}
 func (f *fakeTracker) Capabilities(context.Context, string) (*plugin.Description, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

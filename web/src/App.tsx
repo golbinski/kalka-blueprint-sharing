@@ -223,9 +223,10 @@ export function App() {
             break
           }
           case 'refs': {
-            // Background resolution finished for a blueprint.
+            // Background resolution finished for a blueprint, or (no path)
+            // a plugin's settings changed and every reference is asked again.
             const p = (data as { path?: string } | undefined)?.path
-            if (p && p === docPathRef.current) loadDoc()
+            if (!p || p === docPathRef.current) loadDoc()
             break
           }
         }

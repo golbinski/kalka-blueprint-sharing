@@ -23,6 +23,8 @@ type Plugins interface {
 	Resolve(ctx context.Context, scheme string, frontmatter map[string]any, refs []plugin.Ref) []plugin.Result
 	IssueMeta(ctx context.Context, scheme string, issues []string) ([]plugin.IssueMeta, error)
 	Export(ctx context.Context, scheme string, req plugin.ExportRequest) (*plugin.ExportResult, error)
+	// Forget drops what is cached about the scheme's plugin.
+	Forget(scheme string)
 }
 
 // Cache lifetimes: spec 10.3 for results; failures are retried sooner.
@@ -56,6 +58,9 @@ type refCache struct {
 	mu       sync.Mutex
 	entries  map[string]refEntry
 	inflight map[string]bool
+	// gen counts the changes of each scheme's plugin settings: a batch
+	// started before a change stores nothing (spec 10.6).
+	gen map[string]uint64
 }
 
 type refEntry struct {
@@ -64,7 +69,20 @@ type refEntry struct {
 }
 
 func newRefCache(p Plugins, now func() time.Time) *refCache {
-	return &refCache{plugins: p, now: now, ctx: context.Background(), entries: map[string]refEntry{}, inflight: map[string]bool{}}
+	return &refCache{plugins: p, now: now, ctx: context.Background(), entries: map[string]refEntry{}, inflight: map[string]bool{}, gen: map[string]uint64{}}
+}
+
+// forgetScheme drops every result of the scheme, and the results of the
+// batches still running for it.
+func (c *refCache) forgetScheme(scheme string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen[scheme]++
+	for k, e := range c.entries {
+		if e.view.Scheme == scheme {
+			delete(c.entries, k)
+		}
+	}
 }
 
 func fmHash(doc *bp.Document) string {
@@ -129,14 +147,24 @@ func (c *refCache) lookup(doc *bp.Document, refs []string, done func()) map[stri
 		return out
 	}
 	fm := doc.Frontmatter().Map()
+	c.mu.Lock()
+	gens := map[string]uint64{}
+	for scheme := range missing {
+		gens[scheme] = c.gen[scheme]
+	}
+	c.mu.Unlock()
 	for scheme, batch := range missing {
 		go func() {
 			res := c.plugins.Resolve(c.ctx, scheme, fm, batch)
 			at := c.now()
 			c.mu.Lock()
+			stale := c.gen[scheme] != gens[scheme]
 			for i, r := range res {
 				k := h + "\x00" + batch[i].Ref
 				delete(c.inflight, k)
+				if stale {
+					continue
+				}
 				ttl := RefTTL
 				if !r.OK {
 					ttl = RefFailTTL

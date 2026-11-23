@@ -15,7 +15,7 @@ type Bus struct {
 
 // BusEvent is one server-sent event.
 type BusEvent struct {
-	Type string `json:"type"` // folder | prompt | prompt-closed | sync | status | peers | teams | refs | notice | settings | ui-show
+	Type string `json:"type"` // folder | prompt | prompt-closed | sync | status | peers | teams | refs | issues | plugins | notice | settings | ui-show
 	Data any    `json:"data,omitempty"`
 }
 

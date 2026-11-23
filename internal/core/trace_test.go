@@ -228,6 +228,7 @@ func (f *fakePlugins) Resolve(_ context.Context, scheme string, fm map[string]an
 }
 
 func (f *fakePlugins) Installed() []string { return []string{"gh"} }
+func (f *fakePlugins) Forget(string)       {}
 
 func (f *fakePlugins) Capabilities(context.Context, string) (*plugin.Description, error) {
 	return &plugin.Description{Protocol: plugin.Protocol, Name: "github", Capabilities: plugin.Capabilities{Resolve: true}}, nil
