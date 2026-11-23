@@ -17,6 +17,7 @@ import (
 	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/identity"
 	"github.com/golbinski/kalka/internal/name"
+	"github.com/golbinski/kalka/internal/plugin"
 	"github.com/golbinski/kalka/internal/reference"
 )
 
@@ -26,8 +27,8 @@ var version = "dev"
 
 // Protocol numbers reported by `kalka version`.
 const (
-	wireProtocol   = 1 // data channel, spec 9.5
-	pluginProtocol = 1 // plugin JSON, spec 10.3
+	wireProtocol   = 1               // data channel, spec 9.5
+	pluginProtocol = plugin.Protocol // plugin JSON, spec 10.3
 )
 
 // Exit codes.
