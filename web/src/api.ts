@@ -752,10 +752,13 @@ export interface BudResult {
 export class ApiError extends Error {
   status: number
   kind?: string
-  constructor(message: string, status: number, kind?: string) {
+  /** Messages per field of a plugin's settings (plugin-value, plugin-rejected). */
+  fields?: Record<string, string>
+  constructor(message: string, status: number, kind?: string, fields?: Record<string, string>) {
     super(message)
     this.status = status
     this.kind = kind
+    this.fields = fields
   }
 }
 
@@ -779,8 +782,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     data = undefined
   }
   if (!r.ok) {
-    const e = data as { error?: string; kind?: string } | undefined
-    throw new ApiError(e?.error ?? (text || r.statusText), r.status, e?.kind)
+    const e = data as { error?: string; kind?: string; fields?: Record<string, string> } | undefined
+    throw new ApiError(e?.error ?? (text || r.statusText), r.status, e?.kind, e?.fields)
   }
   return data as T
 }
@@ -958,6 +961,13 @@ export const api = {
   about: () => call<About>('GET', '/api/about'),
   rules: () => call<Rule[]>('GET', '/api/rules'),
   doctor: () => call<DoctorReport>('GET', '/api/doctor'),
+  plugins: () => call<PluginList>('GET', '/api/plugins'),
+  pluginSettings: (scheme: string, check = false) =>
+    call<PluginSettings>('GET', `/api/plugins/${enc(scheme)}/settings${check ? '?check=1' : ''}`),
+  // A secret goes only here, once, under secrets; it never comes back.
+  applyPluginSettings: (scheme: string, values: Record<string, string | boolean>, secrets: Record<string, string>) =>
+    call<PluginSettings>('PUT', `/api/plugins/${enc(scheme)}/settings`, { values, secrets }),
+  clearPluginSettings: (scheme: string) => call<PluginSettings>('DELETE', `/api/plugins/${enc(scheme)}/settings`),
   samples: () => call<{ written: string[] }>('POST', '/api/samples'),
   domainImpact: (path: string) => call<Affected[]>('GET', '/api/domain-impact?path=' + enc(path)),
   /** The blueprint reference as text (spec 6.13). */
@@ -982,13 +992,13 @@ export const api = {
     call<{ id: string }>('POST', '/api/entries', e),
 }
 
-export type BusType = 'folder' | 'status' | 'refs' | 'issues' | 'teams' | 'waiting' | 'notice' | 'settings'
+export type BusType = 'folder' | 'status' | 'refs' | 'issues' | 'plugins' | 'teams' | 'waiting' | 'notice' | 'settings'
 
 // events subscribes to the daemon's live updates. EventSource reconnects
 // by itself after a restart of the daemon.
 export function events(on: (type: BusType, data: unknown) => void, onState?: (open: boolean) => void): () => void {
   const es = new EventSource('/api/events')
-  const types: BusType[] = ['folder', 'status', 'refs', 'issues', 'teams', 'waiting', 'notice', 'settings']
+  const types: BusType[] = ['folder', 'status', 'refs', 'issues', 'plugins', 'teams', 'waiting', 'notice', 'settings']
   for (const t of types) {
     es.addEventListener(t, (ev) => {
       let data: unknown
@@ -1003,4 +1013,58 @@ export function events(on: (type: BusType, data: unknown) => void, onState?: (op
   es.onopen = () => onState?.(true)
   es.onerror = () => onState?.(false)
   return () => es.close()
+}
+
+// Plugins (spec 10.2, 10.6): what is installed, and each plugin's state
+// and form. kalka keeps none of the values; the plugin stores them.
+export interface PluginCaps {
+  resolve?: boolean
+  issue?: { meta?: boolean; hierarchy?: boolean; fields?: string[]; export?: { attachment?: boolean; comment?: boolean } }
+  settings?: { apply?: boolean; clear?: boolean }
+}
+
+export interface PluginListed {
+  scheme: string
+  name?: string
+  version?: string
+  file: string
+  source: 'config' | 'bundled' | 'path'
+  shadowed: string[]
+  capabilities?: PluginCaps
+  problem?: string
+}
+
+export interface PluginList {
+  dirs: { config: string; bundled: string }
+  plugins: PluginListed[]
+}
+
+export interface PluginStatus {
+  state: 'ready' | 'needs-setup' | 'error'
+  message: string
+  detail?: string
+  checked: boolean
+}
+
+export interface PluginField {
+  id: string
+  kind: 'text' | 'url' | 'email' | 'secret' | 'choice' | 'bool'
+  label: string
+  help?: string
+  placeholder?: string
+  required?: boolean
+  /** Never present on a secret: only set says whether one is stored. */
+  value?: string | boolean
+  set?: boolean
+  choices?: { value: string; label: string }[]
+  when?: { field: string; is: (string | boolean)[] }
+}
+
+export interface PluginSettings {
+  scheme: string
+  status: PluginStatus
+  fields: PluginField[]
+  hint: { text: string; command?: string; url?: string } | null
+  incomplete: boolean
+  can: { apply: boolean; clear: boolean }
 }

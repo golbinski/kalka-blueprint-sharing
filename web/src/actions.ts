@@ -36,6 +36,8 @@ export const ACTIONS = {
   'update.install': 'Restart to update, Download and restart (kalka update)',
   'settings.autostart': 'Start at login (kalka autostart)',
   'samples.add': 'Add sample blueprints (kalka samples)',
+  'plugin.save': "Set up…, Change…, Save a plugin's settings (kalka plugin set)",
+  'plugin.clear': 'Log out of a plugin (kalka plugin clear)',
   'reference.export': 'Blueprint writing guide for agents: save a copy (kalka reference export)',
 } as const
 

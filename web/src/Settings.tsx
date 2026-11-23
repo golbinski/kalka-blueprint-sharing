@@ -4,6 +4,7 @@ import { ApiError, api, referenceURL, type About, type DoctorReport, type Settin
 import { localTime } from "./util";
 import { AddSamples, OpenFolder } from "./Views";
 import { inDesktopWindow } from "./shell";
+import { PluginsSection } from "./Plugins";
 
 // SettingsPage is the Settings view (spec 11, 22.2): the daemon keeps the
 // values in state.yaml; start at login is the system's own entry.
@@ -165,6 +166,8 @@ export function SettingsPage({ tick, status }: { tick: number; status: Status })
       </div>
       <h2>Updates</h2>
       <UpdatesSection s={s} busy={busy} change={change} tick={tick} />
+      <h2>Plugins</h2>
+      <PluginsSection tick={tick} />
       <h2>Blueprint writing guide for agents</h2>
       <p className="small">
         How a blueprint is written, for agents: drop it in as a skill or an

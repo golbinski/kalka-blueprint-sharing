@@ -203,6 +203,10 @@ export function App() {
             loadStatus()
             setTeamTick((n) => n + 1)
             break
+          case 'plugins':
+            // A plugin's settings changed: Settings reloads its list.
+            setTeamTick((n) => n + 1)
+            break
           case 'notice': {
             const n = data as Notice
             if (!n) break
