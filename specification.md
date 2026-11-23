@@ -2,7 +2,7 @@
 
 *Kalka* (Polish: tracing paper, carbon copy). The name appears in the binaries, the plugin prefix (`kalka-plugin-<scheme>`), the frontmatter key (`kalka_id`), the URL scheme (`kalka://`) and protocol strings; each component keeps it in one constant.
 
-Specification v0.7 · 2026-11-22
+Specification v0.8 · 2026-11-23
 
 This document describes kalka as built. Sections 1–15 and 19–23 are normative. Section 16 gives the end-to-end scenarios the test suite runs, 17 the reasoning behind choices that are not obvious and the risks that remain, 18 open questions. Before version 1, the wire protocol and the file formats may change between releases without a migration.
 
@@ -48,9 +48,9 @@ A *blueprint* is a single Markdown file describing an implementation plan. `kalk
 4. **Core is concept-free.** The core handles files, teams and entries. Anything domain-specific lives in a plugin. The core knows nothing about the workflow that produced a blueprint: no assumed sections, no pipeline steps, no meaning attached to frontmatter beyond the keys listed in 6.2. The blueprint reference (6.13) is guidance a document opts into, never a requirement.
 5. **Windows is a first-class platform.** Primary users work on Windows with PowerShell. Paths, line endings, file locking and `.exe` lookup must work there first.
 6. **Content never blocks.** No user action is refused because of what a document says. Content problems are shown as warnings or hints. Checks of signatures and roles are not content validation: an operation, release or entry that fails them is not applied, and the UI says why.
-7. **Brainless.** The user configures email, rendezvous and folder. Keys, peer IDs, team state and caches are created and managed by `kalka`.
+7. **Brainless.** The user configures email, rendezvous and folder. Keys, peer IDs, team state and caches are created and managed by `kalka`. A plugin that needs credentials is not one of the three settings: it is set up in Settings, *Plugins*, or with `kalka plugin set`, and kalka only passes on what the person enters (10.6).
 8. **The app and the CLI are equal.** Every workflow has a control in the app and a command with `--json` and stable error kinds (12). Agents and scripts drive kalka through the CLI.
-9. **What a plugin knows stays with the reader.** Whatever a plugin tells (a resolved reference, an issue's title, status or parents) is fetched and cached on the reader's own machine, with their own credentials. It is never written into a blueprint and never sent to a peer. The core enables a feature only for the capabilities a plugin declares and never branches on a plugin's name or scheme. Trackers are one-way: kalka reads their metadata and exports final versions to them, and nothing from a tracker comes back into a file. Only an explicit user action puts tracker information into the shared file: the `kalka_issue` key the author writes, and the `exported` entry an export appends (10.5).
+9. **What a plugin knows stays with the reader.** Whatever a plugin tells (a resolved reference, an issue's title, status or parents) is fetched and cached on the reader's own machine, with their own credentials. It is never written into a blueprint and never sent to a peer. The core enables a feature only for the capabilities a plugin declares and never branches on a plugin's name or scheme. Trackers are one-way: kalka reads their metadata and exports final versions to them, and nothing from a tracker comes back into a file. Only an explicit user action puts tracker information into the shared file: the `kalka_issue` key the author writes, and the `exported` entry an export appends (10.5). A plugin's settings and credentials are the plugin's: kalka shows the form a plugin describes and hands over what the person enters, and stores none of it (10.6).
 
 ---
 
@@ -152,7 +152,9 @@ Also stored in the config directory, never in the blueprint folder:
 - `daemon.json` — the running daemon's PID, local API address and per-start token (13). Owner-only permissions. Removed at exit.
 - `state.yaml` — settings and marks the daemon owns and writes: `paused`, `notifications`, `keep_running_on_close`, `auto_update`, `close_notice_shown`, `autostart_initialized` (22), `update_noticed`, the version whose update notice was raised (24.2), and the `seen` marks of waiting items (11.3). Changed only through the local API.
 - `read.json` — the entries seen per document, for *New since you last looked* (11.4).
-- `issue-cache.json` — what trackers last said about the issues blueprints name (10.5). Owner-only permissions.
+- `issue-cache.json` — what trackers last said about the issues blueprints name (10.5). Owner-only permissions. A scheme's entries are removed when its plugin's settings change (10.6).
+
+No file in the config directory holds a plugin's settings or credentials: each plugin keeps its own (10.6).
 - `updates/` — downloaded updates, one folder per version, until they are installed (24.2).
 - `kalka.log` — log of a daemon started in the background or by the desktop shell.
 
@@ -767,7 +769,7 @@ Blueprints carry references only. Resolved content is never written into the fil
 
 ### 10.2 Discovery
 
-Executable named `kalka-plugin-<scheme>` (plus `.exe`, `.cmd` on Windows), searched in `<config>/plugins`, then the folder of the running executable, then `PATH`.
+Executable named `kalka-plugin-<scheme>` (plus `.exe`, `.cmd` on Windows), searched in `<config>/plugins`, then the folder of the running executable, then `PATH`. A plugin is addressed by the scheme of its file name. The first match wins; later ones for the same scheme are listed as *shadowed* (`kalka plugins`, Settings), so a person sees which program answers and which it is used instead of.
 
 ### 10.3 Protocol
 
@@ -803,10 +805,11 @@ The core renders `title`, `url` (http/https only), `status`, `snippet` and `warn
     "meta": true,
     "hierarchy": true,
     "fields": ["title", "type", "status", "assignee", "labels", "sprint", "parents", "updated"],
-    "export": { "attachment": true, "comment": true } } }
+    "export": { "attachment": true, "comment": true } },
+  "settings": { "apply": true, "clear": true } }
 ```
 
-`resolve` enables references (10.1); `issue.meta` the issue's metadata (`issue_meta`); `issue.hierarchy` its parents and grouping by them; `issue.fields` the fields the core keeps from a result (others are dropped); `issue.export` the export (`export`), with what it writes. A plugin's description is cached until its executable changes, and re-read at most once a minute after a failure.
+`resolve` enables references (10.1); `issue.meta` the issue's metadata (`issue_meta`); `issue.hierarchy` its parents and grouping by them; `issue.fields` the fields the core keeps from a result (others are dropped); `issue.export` the export (`export`), with what it writes; `settings` the settings ops of 10.6, with `apply` and `clear` when the plugin can change and remove what it stores. A plugin's description is cached until its executable changes, and re-read at most once a minute after a failure.
 
 **`issue_meta`** takes the payloads of one scheme in one batch and returns one result per issue, in order:
 
@@ -837,11 +840,11 @@ The core renders `title`, `url` (http/https only), `status`, `snippet` and `warn
 
 It is idempotent per issue: with `previous`, the plugin replaces that attachment and edits that comment, and writes new ones where they are gone. Ids are at most 64 characters of `[A-Za-z0-9._:-]`. A failure is `ok: false` with `error`, and must leave the issue as it was where the tracker allows.
 
-**Timeouts:** 10 s for `describe`, `resolve` and `issue_meta`; 60 s for `export`.
+**Timeouts:** 10 s for `describe`, `resolve`, `issue_meta`, `settings` and `settings_clear`; 30 s for `settings_apply`, which checks against the service; 60 s for `export`.
 
 ### 10.4 Reference plugin: `kalka-plugin-gh`
 
-Separate binary in the same repository, shipped alongside `kalka`. Uses the user's `gh` CLI authentication (`gh api`); no token handling of its own.
+Separate binary in the same repository, shipped alongside `kalka`. Uses the user's `gh` CLI authentication (`gh api`); no token handling of its own. It declares `settings` with no fields: its state is whether `gh` is logged in to github.com (`gh auth token` offline, `gh auth status` when checked, their output discarded), with a hint to run `gh auth login`.
 
 - Frontmatter keys it reads: `repo`, `base_sha`, optional `host` (GitHub Enterprise), the default repository; and `repos`, a map from names to entries with the same three keys, for further repositories. A name is `[a-z][a-z0-9_-]{0,31}`.
 - `gh:[<name>:]<path>[#L<a>[-L<b>]]` → permalink at that repository's `base_sha` and snippet via the contents API. Without a name, the default repository; with one, the entry of `repos`, and the result's title starts with the name. A path segment cannot contain `:`, so a prefix is never mistaken for a path.
@@ -859,13 +862,13 @@ repos:
 
 `[parser](gh:src/import/parse.py#L120-L180)` reads `org/doc-service`; `[form](gh:web:src/upload/Form.tsx#L10-L60)` reads `org/web-app` at `8d0e5b2`.
 - Paths and line numbers from the payload are validated and passed as API parameters, never through a shell.
-- It declares `resolve` only.
+- It declares `resolve` and `settings` (with nothing to set).
 
 ### 10.5 Issue trackers
 
 A blueprint names the one issue it addresses in its frontmatter: `kalka_issue: jira:DEV-123`. The key is the author's, written by hand or by an agent; kalka never writes it. References to issues in the body (`[the story](jira:DEV-123)`) keep working through `resolve`, independent of the key.
 
-**Metadata is local.** What the tracker says about the issue (title, status, parents and the declared fields) is fetched by the reader's own plugin, with the reader's own credentials, and kept in a cache per installation: `issue-cache.json` in the config directory, keyed by scheme and issue, owner-only. An entry is fresh for 15 minutes; a failed fetch is retried after a minute. The page never waits for a plugin: it gets what is cached at once, fetches in the background, one batch per scheme, and is told on the event stream (`issues`) when the answer arrives. When the plugin fails or the machine is offline, the cached metadata is shown with "as of <time>". The cache is never written into a blueprint, into the shared configuration, or replicated. Without a plugin for the scheme, or without `meta`, only the raw key is shown.
+**Metadata is local.** What the tracker says about the issue (title, status, parents and the declared fields) is fetched by the reader's own plugin, with the reader's own credentials, and kept in a cache per installation: `issue-cache.json` in the config directory, keyed by scheme and issue, owner-only. An entry is fresh for 15 minutes; a failed fetch is retried after a minute. The page never waits for a plugin: it gets what is cached at once, fetches in the background, one batch per scheme, and is told on the event stream (`issues`) when the answer arrives. When the plugin fails or the machine is offline, the cached metadata is shown with "as of <time>". The cache is never written into a blueprint, into the shared configuration, or replicated. Without a plugin for the scheme, without `meta`, or with a plugin not set up, only the raw key is shown; Settings, *Plugins*, says why.
 
 **Export.** The owner of a team document, or a team owner, exports the released version to its issue, when the plan on disk is the latest release (no unreleased edits) and the scheme's plugin declares `export`. It sends the whole file as the attachment, `<file name>-v<N>.md`, and as the summary the released plan with its accepted deviations (the deviation entries a valid release took up) and a line "Exported from kalka: <title>, version N, on <date> by <email>". After the plugin succeeds, kalka appends an `exported` entry, signed by the exporter, which replicates like any entry:
 
@@ -881,7 +884,43 @@ The newest `exported` entry for the issue gives the next export's `previous`, so
 
 **Archive.** After an export the page offers *Archive*. Archiving writes `kalka_archived: <time>` into the frontmatter, a plan edit, so only the owner archives, and for a team document it is released at once as the next version; a team owner takes the document over first (7.4). It is refused while the plan has unreleased edits, which would otherwise ride along. *Unarchive* removes the key the same way. `kalka_status` is left alone, so an archived seed is still a seed. An archived document keeps replicating and can be opened, commented and exported; the lists and the rail hide it unless *Show archived* is on.
 
-**`kalka-plugin-jira`.** A separate binary shipped beside `kalka` and `kalka-plugin-gh`, for Jira Cloud (REST API v3, an email and an API token) and Jira Data Center (REST API v2, a personal access token). `kalka-plugin-jira login` asks for the site and the token, checks them against the site, and stores the token in the system's credential store (macOS Keychain, Windows Credential Manager, the Secret Service through `secret-tool`), or, where there is none, in the plugin's own `config.json`, readable by the user only. Credentials are never in a blueprint and never in kalka's configuration. One site per user. Keys are validated as `[A-Z][A-Z0-9_]+-<number>` and sent as API parameters, never through a shell. Metadata is read in batches (one JQL search per 100 keys); parents follow the `parent` field up to 5 levels, so levels above Epic come from the site's hierarchy (Jira Cloud plans or premium hierarchy levels); on Data Center only sub-tasks have a parent. Rate limits (429, 503 with `Retry-After`) are waited out within the request's time, then reported. The comment is written in Atlassian Document Format on Cloud and as Markdown text on Data Center. [`docs/jira.md`](docs/jira.md) has the setup.
+**`kalka-plugin-jira`.** A separate binary shipped beside `kalka` and `kalka-plugin-gh`, for Jira Cloud (REST API v3, an email and an API token) and Jira Data Center (REST API v2, a personal access token). It is set up in Settings, *Plugins*, or with `kalka plugin set jira` (10.6): a form of the flavor, the site, the email (Cloud) and the token, checked against the site before anything is stored. It keeps the site and email in its own `config.json` and stores the token in the system's credential store (macOS Keychain, Windows Credential Manager, the Secret Service through `secret-tool`), or, where there is none, in the plugin's own `config.json`, readable by the user only; Settings says which. Credentials are never in a blueprint and never in kalka's configuration. A stored token is sent only to the site and flavor it was stored for: changing either needs the token again. One site per user. Keys are validated as `[A-Z][A-Z0-9_]+-<number>` and sent as API parameters, never through a shell. Metadata is read in batches (one JQL search per 100 keys); parents follow the `parent` field up to 5 levels, so levels above Epic come from the site's hierarchy (Jira Cloud plans or premium hierarchy levels); on Data Center only sub-tasks have a parent. Rate limits (429, 503 with `Retry-After`) are waited out within the request's time, then reported. The comment is written in Atlassian Document Format on Cloud and as Markdown text on Data Center. [`docs/jira.md`](docs/jira.md) has the setup.
+
+### 10.6 Settings
+
+A plugin that needs configuration describes it; kalka shows it and passes on what the person enters. The plugin validates it and stores it where it always has (the system's credential store, its own file, another tool's login). kalka persists no value and no secret, and no op returns a stored secret.
+
+```json
+{ "protocol": 2, "op": "settings", "check": false }
+→ { "protocol": 2,
+    "status": { "state": "needs-setup", "message": "Not connected to Jira.", "detail": "", "checked": false },
+    "fields": [
+      { "id": "flavor", "kind": "choice", "label": "Jira", "required": true, "value": "cloud",
+        "choices": [ { "value": "cloud", "label": "Jira Cloud" }, { "value": "datacenter", "label": "Jira Data Center or Server" } ] },
+      { "id": "site", "kind": "url", "label": "Site", "required": true, "placeholder": "https://example.atlassian.net" },
+      { "id": "email", "kind": "email", "label": "Account email", "required": true, "when": { "field": "flavor", "is": ["cloud"] } },
+      { "id": "token", "kind": "secret", "label": "API token", "required": true, "set": false } ],
+    "hint": null }
+
+{ "protocol": 2, "op": "settings_apply", "values": { "site": "https://parcels.example.net", "email": "ewa@parcels.example" },
+  "secrets": { "token": "…" } }
+→ { "protocol": 2, "ok": true, "status": { "state": "ready", … }, "fields": [ … ] }
+→ { "protocol": 2, "ok": false, "error": "Jira did not accept the credentials.", "field_errors": { "token": "…" } }
+
+{ "protocol": 2, "op": "settings_clear" }
+→ { "protocol": 2, "ok": true, "status": { "state": "needs-setup", … }, "fields": [ … ] }
+```
+
+- **`settings`** answers the state and the form. `state` is `ready`, `needs-setup` or `error` (anything else reads as `error`); `message` and `detail` are one line each (200 and 300 bytes). With `check`, the plugin tries its credentials against the service and says so with `checked`.
+- **`settings_apply`** merges `values` (plain fields) and `secrets` (secret fields) over what is stored, checks the result against the service, and stores it only then; `ok: false` stores nothing. A field not sent keeps its stored value; a secret not sent keeps the stored one, except that a plugin never sends a stored secret to another site or account than it was stored for. `field_errors` names fields of the form.
+- **`settings_clear`** removes what the plugin stored; with nothing stored it succeeds.
+- **Fields.** At most 16; `id` matches `[a-z][a-z0-9_]{0,31}`; `kind` is `text`, `url` (http or https, no user info), `email`, `secret`, `choice` (at most 20 choices, values `[A-Za-z0-9._-]{1,64}`) or `bool`. Labels 80 bytes, help 300, placeholders 100, values 2048, secrets 4096; text is one line and plain. A secret field carries `set`, never `value`: the core drops a value the plugin sends for it.
+- **`when`** shows a field only while an earlier `choice` or `bool` field holds one of `is`; one level, no chains. A hidden field is not sent.
+- **`hint`** points at a step kalka does not take (`gh auth login`): `text`, a `command` that is shown with *Copy* and never run, and an http(s) `url`.
+- **Unknown kinds and broken fields.** The core drops a field of an unknown kind, and a field that breaks these rules (a bad id, a duplicate, no label, no choices, a `when` to a field that is not an earlier choice or bool). When a dropped field is required, or broken, the form is *incomplete*: it is shown read-only and cannot be applied, so a newer plugin degrades instead of failing.
+- **The core checks before the plugin sees it.** Values for a field the form does not have, a secret given as a value or a plain field as a secret, a hidden field, a wrong type or a value over its limit are refused (`plugin-value`, 12.3) and the plugin is not run. Secrets are trimmed of white space at both ends.
+- **Secrets.** A secret travels from the page (the body of one `PUT`, 13) or the terminal (`--secret-stdin`, a no-echo prompt) to the plugin's stdin, and nowhere else: never a command line, an environment variable, a log, a response, an event or a kalka file. The plugin's stderr during `settings_apply` is not logged (only its length), and every secret sent is replaced by `[secret]` in what the plugin answers.
+- **After a change** (an apply, a clear, or `POST …/refresh` after the CLI made one), the daemon forgets the plugin's description and deletes, not marks stale, the scheme's resolved references and issue metadata, in memory and in `issue-cache.json`; a fetch that started before the change stores nothing. The page is told with the `issues`, `refs` and `plugins` events.
 
 ---
 
@@ -919,7 +958,7 @@ Left of the document, the **document rail** (`<nav>` "<section> in <scope>") lis
 - **Seeds** — seeds held in the scope (6.11), the pre-backlog: title, owner, where it was split off from, last activity; *Turn into a blueprint* (promote), and in Personal *Publish to team…*, since seeds are listed here only. Archived seeds are hidden as in Blueprints, with *Show archived*.
 - **Team** — in this order: the sync in words ("Last sync 11:02 with marek, ola · piotr offline") with *Sync now*; one sentence per blueprint the last sync refused, and why; **Invite a teammate** (email, validity, *Create invite*) with *Copy invite message* (how to install kalka, the link, and the code for when the link is not clickable), *Copy link*, *Copy code*, and the open invites with *Show* and *Cancel*; the members with role, last seen (online, or when this kalka last found them online, 9.3) and how many blueprints they own, each with a ⋯ menu: *Make team owner…*, *Remove as team owner…* (each confirmed, saying what it allows), *Give their blueprints to someone…*, *Remove from team…* (with a preview of the blueprints that become yours); transfers in and out (20.7), open while one waits; then folded the team history (the log as a readable history, with discarded operations and their reasons) and the technical details (team id, folder, key fingerprints, files not shared, deleted blueprints). Wherever a member is named (hand-off, reassignment, the owner of an accepted transfer) it is picked from the team's members, not typed. *Decline* of a transfer asks once.
 - **Domains** — "your team's shared vocabulary": the team's domain documents with version and owner; *Release* for the owner, with a checklist of open comments to mark as taken up (incorporated); a version switcher over local snapshots in the document header. With none yet, the start of a domain document to copy and *Open Personal folder*.
-- **Settings** — who you are: your email, your folder with *Open folder* (`POST /api/open-folder`), and your server with *Change…* (an inline form: the public demo server or a kalka server address, with what the change means for the team above the button that applies it, and *Switch anyway* when the new server did not answer; 9.1); *Check setup*, the results of `kalka doctor` (12.5); start at login, keep running when the window is closed, notifications, pause (22); *Updates*: install updates automatically, *Check for updates*, and *Restart to update* or *Download and restart* (24); *Blueprint writing guide for agents: save a copy* (6.13); the version, with the protocol versions and your key under its details. The two window settings are hidden in a browser tab.
+- **Settings** — who you are: your email, your folder with *Open folder* (`POST /api/open-folder`), and your server with *Change…* (an inline form: the public demo server or a kalka server address, with what the change means for the team above the button that applies it, and *Switch anyway* when the new server did not answer; 9.1); *Check setup*, the results of `kalka doctor` (12.5); start at login, keep running when the window is closed, notifications, pause (22); *Updates*: install updates automatically, *Check for updates*, and *Restart to update* or *Download and restart* (24); *Plugins*: one block per installed plugin, with where it was found (the full path unless it is shipped with kalka, and what it is used instead of), what it does, its state in words, its hint, and *Set up…* or *Change…* (the plugin's form, inline: a control per kind, fields shown by their `when`, a secret input that is always empty and says when one is stored, *Save* reading "Checking…" while the plugin validates), *Check* and *Log out…* (confirmed first) (10.6); *Blueprint writing guide for agents: save a copy* (6.13); the version, with the protocol versions and your key under its details. The two window settings are hidden in a browser tab.
 
 The UI updates live from the daemon's event stream when files change or replication delivers. A notice shown in the window (22.4) is a link to its subject. Dialogs are modal for the keyboard: focus moves in and stays in, Escape closes them, focus returns to what opened them.
 
@@ -929,7 +968,7 @@ Blueprints from peers are untrusted input rendered in a page that can trigger fi
 
 - Raw HTML in Markdown must be disabled or sanitized.
 - Link targets limited to http, https and plugin schemes.
-- Plugin output is treated as text; `snippet.text` is never interpreted as HTML.
+- Plugin output is treated as text; `snippet.text` is never interpreted as HTML. A plugin's form (labels, help, messages, hint) is plain text; a hint's command is shown, never run.
 - Strict Content-Security-Policy: no inline script, no remote origins.
 
 ### 11.3 Waiting items
@@ -1014,6 +1053,10 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka check <files or folders…> [--json] [--explain <id>] [--strict] [--with-plugins] [--domain <path>]` | file | Run the rules of 6.17 (12.4). | Diagnostics in Blueprints and Review; the confirmation before Publish and Release |
 | `kalka invariants <file> [--json] [--domain <path>]` | file | The invariants matrix (12.4). | Review *Invariants* |
 | `kalka doctor [--json]` | view | Check this installation (12.5). | Settings *Check setup* |
+| `kalka plugins [--check] [--json]` | view | The installed plugins: where each was found, what it declares, its state (10.2, 10.6). | Settings, *Plugins* |
+| `kalka plugin settings <scheme> [--check] [--json]` | view | A plugin's state, form (a secret as "stored" or "not stored") and hint. | Settings, *Plugins*, a plugin's block; *Check* |
+| `kalka plugin set <scheme> [<field>=<value>…] [--secret-stdin <field>] [--json]` | file | Change a plugin's settings; a secret only from stdin, never as an argument; with nothing given, on a terminal, it asks for each field. Then tells a running daemon. | Settings, *Plugins*, *Set up…*, *Change…*, *Save* |
+| `kalka plugin clear <scheme> [--json]` | file | Remove a plugin's stored settings. Then tells a running daemon. | Settings, *Plugins*, *Log out…* |
 | `kalka samples` | file | Copy the sample blueprints, built into kalka, into `personal/samples/`, keeping files already there. Before setup it asks for them to be added once kalka is set up: the daemon adds them when it first starts. | Blueprints in Personal when empty, and Settings, *Add sample blueprints* |
 | `kalka waiting [--team <t>] [--seen <file>]` | view (daemon with `--seen`) | Waiting items (11.3); `--seen` clears a handed-to-you item. | Switcher badges, Needs you, tray |
 | `kalka pause` / `kalka resume` | daemon | Go offline and back (22.3). | Settings, tray |
@@ -1119,6 +1162,7 @@ A domain version is found as its snapshot `*@v<N>.md` first, then as a domain do
 | `webview2` | Windows only: the WebView2 runtime is missing (fail: the window cannot open). |
 | `autostart` | The start-at-login entry cannot be read, or runs a program that no longer exists (warn: turn it off and on in Settings). The system's entry is the setting (22.2), so an entry that is off is `ok`. |
 | `url-scheme` | `kalka://` links do not open this installation (warn: open Kalka once to register it). |
+| `plugin:<scheme>` | One row per installed plugin, checked against its service: the plugin cannot be described, its settings op failed, or its state is `error` (warn: open Settings, Plugins, or run `kalka plugin settings <scheme> --check`). A plugin with nothing to set, `ready` or `needs-setup` is `ok`: plugins are optional, and someone who does not use one must not get a warning for ever. Never `fail`. The CLI asks the running daemon, whose plugins resolve references, and runs them itself when none answers. |
 
 Exit code 0 when all are `ok` (or `skip`), 2 when some only warn, 1 when one fails. The app shows the same results in Settings under *Check setup* (`GET /api/doctor`), run by the daemon: there `daemon` and `local-api` are `ok`, since it answers.
 
@@ -1137,6 +1181,7 @@ One local API, used by the web UI (in the desktop window or a browser tab), the 
 - **Scope.** Lists take `?team=<name or hash>` or `?team=personal`: `GET /api/blueprints`, `/api/seeds`, `/api/domains`, `/api/waiting`, `/api/transfers`. `GET /api/teams` lists the teams with their waiting counts, and each member's `presence` as this daemon last saw it (`online`, `offline`, `unknown`; none for the local user, 9.3) with `last_seen`, when it last found them online since it started. `GET /api/blueprints` gives each blueprint's `activity` (its newest entry's time, else the file's), `new` (11.4), and for a published one the team's `version` and `unreleased` when this copy's plan differs from it. `GET /api/waiting` lists the items oldest first; `POST /api/waiting/seen {path}` clears a handed-to-you item, as opening the document with `GET /api/doc` does. `GET /api/summary` carries `waiting: {total, oldest: {team, at, target}, teams: [{team, name, count}]}`; `target` is `#/needs` for a transfer. `GET /api/unread` lists what is new (11.4); `POST /api/read {path}` marks a document seen.
 - **Issues** (10.5). `GET /api/blueprints` carries `issue` (the `kalka_issue` value) and `archived`; `/api/seeds` carries `archived`. `GET /api/issues?team=` returns `caps` (`meta`, `hierarchy`, `export`: whether any installed plugin declares them) and `issues`, keyed by `kalka_issue`, each with `scheme`, `payload`, `caps`, the cached `meta`, `as_of`, `stale`, `pending` and `error`; it starts a background fetch for what is stale and never waits for it, and the event stream says `issues` when one finishes. A document's view carries `issue` likewise, `export` (`can`, `why`, `version`, the `last` export with `last_at` and `last_by`) and `archived`; an `exported` entry carries `exported`, parsed. `POST /api/export {path}` exports and returns `{path, issue, version, url, updated}`; `POST /api/archive {path, archived, take_over}` archives or unarchives.
 - `GET /api/graph?path=<file>` or `?team=<name or hash>&id=<kalka_id>` returns `{graph, rel}`: what `kalka graph --json` prints for the document, with where each card is held (`rel`, `kept`, `scope`), the reader's own reference divergences and what is new since they last looked; `rel` is the document's.
+- **Plugins** (10.6). `GET /api/plugins` lists the installed plugins (`dirs`, and per plugin `scheme`, `name`, `version`, `file`, `source` — `config`, `bundled` or `path` —, `shadowed`, `capabilities`, or `problem` when it cannot be described); it runs no settings op. `GET /api/plugins/<scheme>/settings[?check=1]` runs `settings` and returns `{scheme, status, fields, hint, incomplete, can: {apply, clear}}`. `PUT` there with `{values, secrets}` checks and applies; `DELETE` clears; `POST /api/plugins/<scheme>/refresh` drops the caches after the CLI changed them. Each answers with the shape of the `GET`. Changes are serialised per scheme. Failures: 404 `no-plugin`, 409 `no-plugin-settings`, 400 `plugin-value` and 422 `plugin-rejected` (both with `fields`), 502 `plugin-failed`. No answer carries a secret or repeats a submitted value, and no request body is logged; the event stream says `plugins` after a change.
 - `GET /api/about` returns what `kalka version` prints (`version`, `wire_protocol`, `plugin_protocol`, `reference`); `GET /api/reference` returns `BLUEPRINT-REFERENCE.md` as a download, for Settings *save a copy* (6.13). The page never writes the reference into the folder.
 - `POST /api/joins/preview {token}` returns what the join screen shows (11.1) and never joins: the token as normalized, the team name and hash, the inviter, the invited email, the expiry and the rendezvous; `problem` with `message` when the join cannot go ahead here (`invite-email`, `invite-expired`, `rendezvous-mismatch`, `already-member`, or `own-invite` when the owner opens their own link); and `joining` when this installation is already redeeming it. Before setup it answers from the token alone, so the setup form can fill itself in. `POST /api/joins` refuses with the same kinds. `DELETE /api/joins/<id or token>` stops a pending join or clears a failed one.
 - **Diagnostics and review aids.** A document's view carries `problems`: its diagnostics (6.17) from the same checker as `kalka check`, without plugins, reading domain versions from the folder; `invariants`, the matrix of 12.4 with, for a domain document, the held blueprints referencing each invariant; and `glossary`: the referenced version (`ref`), its state (`held`, `not-kept`, `none`) and its entries. A release entry carries `release`, its first line as the core reads it (version, plan, owner, deleted, how many comments it takes up, note), so the page never parses it. `GET /api/rules` returns the registry; `GET /api/domain-impact?path=<domain document>` the held blueprints a release of its current text would affect (`I040`, `G030`); `GET /api/doctor` the results of `kalka doctor`.
@@ -1307,6 +1352,14 @@ Decisions taken where the design left a choice, with the reason.
 29. **A whole-batch failure keeps what was cached;** an item the tracker answered `ok: false` (deleted, no access) replaces it, so a lost permission is shown, not hidden behind old data.
 30. **The export entry follows the tracker.** It is appended only after the plugin succeeded; if writing it fails, the error says that the issue was updated, so the next export (with no `previous`) writes a new attachment and comment rather than losing track silently.
 31. **Jira: new attachment first.** The plugin uploads the new attachment, writes or edits the comment, and only then deletes the previous attachment; a failure on the way removes what it added. One site per user; Data Center gets a plain Markdown comment and its hierarchy is sub-tasks only.
+32. **Plugin settings are a capability within protocol 2.** A plugin declares `settings`; one that does not is used as before. No protocol bump: an older kalka ignores the capability, and a newer plugin's unknown field kinds make the form read-only, not broken (10.6).
+33. **kalka stores no plugin setting.** The plugin keeps its values where it did (the credential store, its own file, another tool's login); kalka is the interface, not the storage. A token may be entered in the app: it goes once in a `PUT` body on loopback to the plugin's stdin, and never comes back.
+34. **No interactive logins in the protocol.** A plugin that relies on another tool's login (gh) gives a hint with a command, which kalka shows and never runs.
+35. **Plugins are keyed by scheme.** The first executable found for a scheme serves it; the others are listed as shadowed, so the person sees which program asks for a token.
+36. **`set` and `clear` run the plugin, then tell the daemon.** The secret then crosses no socket from the CLI; the daemon is told with `refresh` and the CLI warns when the daemon sees the plugin otherwise (another `PATH`, no credential store in its session).
+37. **A login change drops what it fetched.** Issue metadata and references of the scheme are deleted, not marked stale, when its settings change or are cleared, and a fetch in flight across the change stores nothing: a cached title must not outlive the login that fetched it.
+38. **Not set up is fine for doctor.** Both shipped plugins are installed everywhere; a person who does not use Jira gets `ok`, not a warning.
+39. **The Jira terminal commands are gone.** `kalka-plugin-jira login`, `logout` and `status` are replaced by Settings and `kalka plugin set|settings|clear jira`; the plugin's own command line only prints how to set it up.
 
 Future work:
 
@@ -1571,6 +1624,8 @@ What the design protects, and what it does not:
 - **The rendezvous server is not trusted.** It can refuse service, keep a peer offline by occupying its ID (on servers other than `kalka-rendezvous`, 9.2), and see who connects to whom. It cannot read or alter a session (channel binding, 8.3) or impersonate a member (the team log).
 - **Members can comment in their own name only.** Entries are signed (6.5); a forged entry does not enter the replica (20.4). Entries written outside `kalka` stay unsigned and local.
 - **The local API is reachable by local processes and by web pages aimed at `localhost`.** It answers only with the per-start token, checks `Host` against DNS rebinding, and refuses state changes from foreign origins (13). Another local user cannot read the token (owner-only `daemon.json`). Processes of the same user are trusted, as they can read the identity key anyway.
+- **A plugin's credentials are the plugin's.** kalka never stores them and cannot read a stored secret back: no op returns one. Through the local API a process with the token can change a plugin's settings, not read its secrets; repointing a plugin at another site does not send it the stored token (10.6).
+- **A plugin is a program the user installed.** A `kalka-plugin-<x>` on `PATH` already runs as the user; settings give it a form to ask with. Settings and `kalka plugins` show where every plugin was found, with the full path unless it is shipped with kalka, and which one it is used instead of; the form's text is plain, a hint's command is never run, and nothing is sent to a plugin until the person saves.
 - **An update is as trustworthy as the release key.** The updater installs only what a `SHA256SUMS` signed with a key built into the running kalka lists, for that release (24.2). Whoever holds the key's secret, or can run the release workflow on a `v*` tag, can ship code to every installation that updates; GitHub can withhold releases but not forge one. The programs themselves are not code-signed yet (23.5).
 - **Out of scope:** a member's machine being compromised; traffic analysis; denial of service by a member flooding operations or transfers, which other members see and can answer by removal.
 
@@ -1602,6 +1657,7 @@ Team replication works only while members are online at the same time, so kalka 
 - On Linux without a tray host (stock GNOME without an extension), closing minimizes instead of hiding, so the window stays reachable.
 - `kalka settings` changes the same settings from the CLI (12.1).
 - The rendezvous server is not in `state.yaml`: it is `config.yaml`'s, and Settings changes it live (9.1); the email and the folder change only with `kalka setup`.
+- Plugin settings are not in `state.yaml` either: each plugin keeps its own, reached through Settings, *Plugins*, or `kalka plugin set` (10.6).
 
 ### 22.3 Pause
 

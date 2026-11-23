@@ -81,4 +81,4 @@ While the window is hidden, notices show as notifications: new comments on your 
 - One kalka runs per user. A second start of the app shows the first one's window. `kalka status` in a terminal shows whether it runs and whether the window is attached; `kalka stop` stops it once running rounds finish.
 - `kalka autostart status` shows what runs at login, and warns if that program has been moved. *Settings > Start at login* or `kalka autostart on|off` changes it.
 - kalka writes to `kalka.log` in its config folder (`%APPDATA%\kalka`, `~/.config/kalka`). One older file is kept as `kalka.log.1` once it passes 5 MB.
-- Plugins are found in `<config>/plugins`, then beside kalka, then on `PATH`. `kalka-plugin-gh` needs the GitHub CLI (`gh`), logged in; `kalka-plugin-jira` needs `kalka-plugin-jira login` ([jira.md](jira.md)).
+- Plugins are found in `<config>/plugins`, then beside kalka, then on `PATH`. `kalka-plugin-gh` needs the GitHub CLI (`gh`), logged in; `kalka-plugin-jira` is set up in *Settings → Plugins* or with `kalka plugin set jira` ([jira.md](jira.md)). `kalka plugins` lists what is installed, where each was found, and its state.

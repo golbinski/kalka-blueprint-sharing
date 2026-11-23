@@ -27,29 +27,38 @@ One issue per blueprint. `kalka check` warns about a value that is not
 `<scheme>:<key>` (`F020`); it needs no plugin and no network for that.
 Links in the text, such as `[the story](jira:DEV-140)`, resolve too.
 
-## Log in
+## Set it up
 
-```
-kalka-plugin-jira login
-```
-
-It asks for:
+In kalka: **Settings → Plugins → jira → Set up…**. The form asks for:
 
 | | Jira Cloud | Jira Data Center or Server |
 |---|---|---|
 | Site | `https://example.atlassian.net` | your server's address, `https` |
-| Account | your Atlassian email | — (use `--datacenter`) |
+| Account email | your Atlassian email | — |
 | Token | an API token: id.atlassian.com → Security → API tokens | a personal access token: your profile → Personal Access Tokens |
 
-The token is checked against the site before anything is stored. For
-scripts, pass the options and the token on standard input:
+*Save* checks the token against the site before anything is stored; if Jira
+refuses it, the form stays open with what you typed and says which field to
+fix. The token field is always empty when the form opens: a stored token is
+never shown again, only that one is stored. Leave it empty to keep it, unless
+you change the site or switch between Cloud and Data Center, which needs the
+token again. *Check* asks Jira whether the stored credentials still work;
+*Log out…* removes them.
+
+The same from the command line, without kalka running:
 
 ```
-printf '%s\n' "$TOKEN" | kalka-plugin-jira login --site https://example.atlassian.net --email ewa@example.org --token-stdin
+kalka plugin set jira site=https://example.atlassian.net email=ewa@example.org --secret-stdin token
 ```
 
-`kalka-plugin-jira status` shows the site and where the token is;
-`kalka-plugin-jira logout` removes both.
+On a terminal it asks for the token without showing it; in a script, pass it
+on standard input (`printf '%s\n' "$TOKEN" | kalka plugin set jira … --secret-stdin token`).
+A token is never taken as an argument. For Data Center add `flavor=datacenter`
+and leave out the email. `kalka plugin set jira` with nothing else, on a
+terminal, asks for every field. `kalka plugin settings jira --check` shows the
+site and whether Jira accepts the credentials; `kalka plugin clear jira`
+removes them. If kalka is running, it is told and drops what it fetched with
+the old credentials.
 
 ### Where the credentials are
 
@@ -62,8 +71,13 @@ printf '%s\n' "$TOKEN" | kalka-plugin-jira login --site https://example.atlassia
   `kalka-plugin-jira` in your configuration folder (`~/Library/Application
   Support` on macOS, `%AppData%` on Windows, `~/.config` on Linux), or in
   `$KALKA_PLUGIN_JIRA_DIR`.
+- Settings, and `kalka plugin settings jira`, say which of the two holds
+  your token.
 - Credentials are never in a blueprint and never in kalka's own
-  configuration. One site per user.
+  configuration: kalka only passes what you enter to the plugin. One site per
+  user.
+- When you log out or change the site, what kalka fetched from Jira with the
+  old credentials is deleted, on disk too.
 
 ## What you see
 
@@ -113,7 +127,10 @@ change to the plan, so its owner makes it, released as the next version.
   API parameters only.
 - Jira's rate limits are waited out (it says how long) for up to a few
   seconds, then reported; the cached answer stays on screen.
-- "Jira rejected the credentials": the token expired or was revoked; run
-  `kalka-plugin-jira login` again.
+- "Jira rejected the credentials": the token expired or was revoked; set a
+  new one in Settings → Plugins, or with `kalka plugin set jira --secret-stdin token`.
+- "not connected to Jira": the plugin is not set up yet; Settings → Plugins
+  says so too, and `kalka doctor` lists it as not set up, which is fine if you
+  do not use Jira.
 - "not found or no permission": the issue does not exist, or your account
   cannot see it.

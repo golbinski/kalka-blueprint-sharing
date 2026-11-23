@@ -169,6 +169,12 @@ reader's own credentials, into a snippet shown beside the text. Resolved
 content is never written into the file or sent to anyone. kalka ships
 `kalka-plugin-gh` for GitHub; the protocol is in the specification (§10).
 
+*Settings → Plugins* lists the installed plugins, where each was found, and
+whether it is set up; a plugin that needs credentials is set up there, or
+with `kalka plugins` and `kalka plugin set`. kalka only passes what you enter
+to the plugin, which stores it where it always has (the system's credential
+store, for Jira); kalka itself keeps none of it.
+
 The repository and commit come from the blueprint's frontmatter (`repo`,
 `base_sha`). A plan that spans several repositories names the others under
 `repos:` and picks one per link: `[form](gh:web:src/upload/Form.tsx#L10-L60)`.
@@ -176,7 +182,8 @@ The repository and commit come from the blueprint's frontmatter (`repo`,
 ### Jira
 
 `kalka_issue: jira:DEV-123` in the frontmatter names the issue a blueprint
-addresses. With `kalka-plugin-jira login` done, the document shows the
+addresses. With Jira set up (*Settings → Plugins*, or `kalka plugin set
+jira`), the document shows the
 issue's title, status and parents, the Blueprints list groups by parent or
 status, and the released version can be exported to the issue (attachment
 and comment), after which the blueprint can be archived. Setup and limits:

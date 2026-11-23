@@ -32,6 +32,25 @@ Options for the daemon:
 
 Without a page open, notices (new comments on your documents, joins, newer domain versions) reach you as notification-centre toasts where the system has them for kalka (Windows, after `kalka autostart on`). Nothing waits for an answer: kalka never asks a question during replication.
 
+## Plugins without a window
+
+`kalka plugins` lists the installed plugins and their state; with kalka
+running it reports what the running kalka sees, which is what resolves
+references (its `PATH`, its access to the credential store). Set a plugin up
+with `kalka plugin set`, the secret on standard input:
+
+```
+printf '%s\n' "$TOKEN" | kalka plugin set jira site=https://example.atlassian.net email=ewa@example.org --secret-stdin token
+```
+
+A secret is never taken as an argument, so it stays out of the shell history
+and the process list. On a machine with no credential store (a server without
+a Secret Service), the Jira plugin keeps the token in its own `config.json`,
+readable by you only; `kalka plugin settings jira` says which. When kalka runs
+in a session without the credential store your shell has, `kalka plugin set`
+warns that the running kalka sees the plugin otherwise. `kalka doctor` has a
+`plugin:<scheme>` row for each plugin; one that is not set up is fine.
+
 ## What IT needs to allow
 
 - Outgoing WebSocket (`wss://` or `ws://`) to the team's rendezvous server.
