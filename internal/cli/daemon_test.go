@@ -18,6 +18,7 @@ import (
 
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/daemon"
+	"github.com/golbinski/kalka/internal/plugin"
 	"github.com/golbinski/kalka/internal/rendezvous"
 )
 
@@ -25,6 +26,10 @@ import (
 // KALKA_CLI_MAIN=1 it is `kalka <args>`. A daemon the CLI spawns in the
 // background inherits the variable, so it works for those too.
 func TestMain(m *testing.M) {
+	if strings.HasPrefix(filepath.Base(os.Args[0]), plugin.Prefix) {
+		fakePluginMain()
+		os.Exit(0)
+	}
 	if os.Getenv("KALKA_CLI_MAIN") == "1" {
 		os.Exit(Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}

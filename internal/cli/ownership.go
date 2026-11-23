@@ -32,7 +32,7 @@ func kindOf(err error) string {
 // failWith reports err with its kind: text on stderr, or {"error",
 // "kind"} on stdout with --json.
 func failWith(asJSON bool, stdout, stderr io.Writer, err error) int {
-	return report(asJSON, stdout, stderr, kindOf(err), err.Error())
+	return reportFields(asJSON, stdout, stderr, kindOf(err), err.Error(), pluginFields(err))
 }
 
 // fileAndEmail parses `<file> <email>` with --json.

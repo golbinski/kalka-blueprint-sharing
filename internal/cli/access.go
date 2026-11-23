@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -32,13 +33,27 @@ var noStart bool
 type cliError struct {
 	Error string `json:"error"`
 	Kind  string `json:"kind"`
+	// Fields: messages per field of a plugin's settings.
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 func report(asJSON bool, stdout, stderr io.Writer, kind, msg string) int {
+	return reportFields(asJSON, stdout, stderr, kind, msg, nil)
+}
+
+func reportFields(asJSON bool, stdout, stderr io.Writer, kind, msg string, fields map[string]string) int {
 	if asJSON {
-		writeJSON(stdout, cliError{Error: msg, Kind: kind})
-	} else {
-		fmt.Fprintln(stderr, msg)
+		writeJSON(stdout, cliError{Error: msg, Kind: kind, Fields: fields})
+		return exitProblems
+	}
+	fmt.Fprintln(stderr, msg)
+	ids := make([]string, 0, len(fields))
+	for id := range fields {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		fmt.Fprintf(stderr, "  %s: %s\n", id, fields[id])
 	}
 	return exitProblems
 }

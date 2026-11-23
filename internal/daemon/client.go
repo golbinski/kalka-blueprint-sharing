@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/golbinski/kalka/internal/core"
 	"github.com/golbinski/kalka/internal/name"
@@ -278,4 +279,34 @@ func (c *Client) PluginRefresh(ctx context.Context, scheme string) (*plugin.Answ
 		return nil, err
 	}
 	return &a, nil
+}
+
+// PluginSurvey is each installed plugin's checked state as the daemon
+// sees it, for doctor.
+func (c *Client) PluginSurvey(ctx context.Context) ([]plugin.Survey, error) {
+	l, err := c.Plugins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]plugin.Survey, len(l.Plugins))
+	var wg sync.WaitGroup
+	for i, p := range l.Plugins {
+		out[i] = plugin.Survey{Scheme: p.Scheme, Problem: p.Problem}
+		if p.Problem != "" || !p.Capabilities.CanSettings() {
+			continue
+		}
+		out[i].Settings = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a, err := c.PluginSettings(ctx, p.Scheme, true)
+			if err != nil {
+				out[i].Problem = err.Error()
+				return
+			}
+			out[i].Status, out[i].Hint = &a.Status, a.Hint
+		}()
+	}
+	wg.Wait()
+	return out, nil
 }

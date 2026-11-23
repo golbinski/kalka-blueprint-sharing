@@ -10,6 +10,7 @@ import (
 	"github.com/golbinski/kalka/internal/config"
 	"github.com/golbinski/kalka/internal/daemon"
 	"github.com/golbinski/kalka/internal/doctor"
+	"github.com/golbinski/kalka/internal/plugin"
 )
 
 // doctorProbes are the probes `kalka doctor` runs; tests replace them.
@@ -27,6 +28,16 @@ var doctorProbes = func(dir string) doctor.Probes {
 		defer cancel()
 		_, err = c.Status(sctx)
 		return doctor.DaemonState{Running: true, API: err}
+	}
+	// The running daemon's plugins resolve references: ask it, and run
+	// them here when none answers.
+	p.Plugins = func(ctx context.Context) []plugin.Survey {
+		if c := pluginDaemon(dir); c != nil {
+			if s, err := c.PluginSurvey(ctx); err == nil {
+				return s
+			}
+		}
+		return pluginHost(dir).SurveyAll(ctx)
 	}
 	return p
 }

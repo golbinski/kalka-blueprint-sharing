@@ -92,7 +92,12 @@ func usage(w io.Writer) {
           [--with-plugins] [--domain <path>] | check --explain <rule>
   %[1]s invariants <file> [--json] [--domain <path>]   the invariants matrix
   %[1]s samples               copy the sample blueprints into Personal, to try kalka with
-  %[1]s doctor [--json]       check this installation: config, key, daemon, network, clock, folder
+  %[1]s doctor [--json]       check this installation: config, key, daemon, network, clock, folder, plugins
+  %[1]s plugins [--check] [--json]   the installed plugins, where each was found, and their state
+  %[1]s plugin settings <scheme> [--check] [--json]   a plugin's state and settings
+  %[1]s plugin set <scheme> [<field>=<value>...] [--secret-stdin <field>] [--json]
+                                   change a plugin's settings (a secret only from stdin)
+  %[1]s plugin clear <scheme> [--json]   remove a plugin's stored settings (log out)
   %[1]s comment <file> [--anchor <slug>] [--kind deviation] [--re <id>] [-m <text>] [--json]
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
   %[1]s seed backlink <seed> [--json]   add a missing backlink to the seed's parent
@@ -130,9 +135,10 @@ Commands that act through kalka (team changes, join, publish, release, handoff,
 reassign, delete, copy, move, transfer, promote, export, archive, waiting --seen, settings with an
 option (--rendezvous alone writes config.yaml when kalka is not running), pause, resume) start it in the background when it is not running;
 --no-start or %[2]s=1 makes them fail with kind "not-running" instead. Views (status,
-teams, team members|log|invites, waiting, seeds, transfers, domains, settings) never
-start it: with none running they read the local files and their JSON says
-"daemon": false. check, context, invariants, comment, seed, seed backlink and reference never need it.
+teams, team members|log|invites, waiting, seeds, transfers, domains, settings, plugins,
+plugin settings) never start it: with none running they read the local files (or run
+the plugins) and their JSON says "daemon": false. check, context, invariants, comment,
+seed, seed backlink, reference, plugin set and plugin clear never need it.
 `, name.Binary, NoStartEnv)
 }
 
