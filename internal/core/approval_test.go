@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,7 +102,11 @@ func TestApprove(t *testing.T) {
 	}
 	// Local unreleased edits do not change the state.
 	dp := must(depot.teamFile(id))
-	depot.write(strings.TrimPrefix(dp, depot.d.Store.Dir()+"/"), strings.Replace(depot.read(strings.TrimPrefix(dp, depot.d.Store.Dir()+"/")), "same evening", "same afternoon", 1))
+	rel, err := filepath.Rel(depot.d.Store.Dir(), dp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	depot.write(rel, strings.Replace(depot.read(rel), "same evening", "same afternoon", 1))
 	waitStored(t, depot, dp, "same afternoon")
 	if got := approvalText(t, depot, id); got != "approved v2" {
 		t.Fatalf("with unreleased edits: %q", got)
