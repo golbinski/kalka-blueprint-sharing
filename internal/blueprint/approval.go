@@ -207,8 +207,28 @@ func (d *Document) FileApproval() Approval {
 	if !d.HasApproval() {
 		return Approval{}
 	}
+	releases, others := d.fileEntries()
+	return ApprovalOf(releases, others)
+}
+
+// FileRelease is the latest release that counts as the file says (the
+// rules of FileApproval) and its entry's time; ok is false when there is
+// none, so the document is unreleased.
+func (d *Document) FileRelease() (r Release, at string, ok bool) {
+	releases, _ := d.fileEntries()
+	for _, e := range releases {
+		if x, _ := e.Release(); !ok || x.Version > r.Version {
+			r, at, ok = x, e.Timestamp, true
+		}
+	}
+	return r, at, ok
+}
+
+// fileEntries are the release entries that count as the file says, by
+// version, and the document's other entries, both without the history a
+// transfer brought.
+func (d *Document) fileEntries() (releases, others []*Entry) {
 	history := TransferHistory(d)
-	var mine []*Entry
 	byVersion := map[int64][]*Entry{}
 	for _, it := range d.Items() {
 		e := it.Entry
@@ -216,7 +236,7 @@ func (d *Document) FileApproval() Approval {
 			continue
 		}
 		if e.Kind != KindRelease {
-			mine = append(mine, e)
+			others = append(others, e)
 			continue
 		}
 		if r, ok := e.Release(); ok && e.Valid() {
@@ -228,7 +248,6 @@ func (d *Document) FileApproval() Approval {
 		versions = append(versions, v)
 	}
 	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
-	var releases []*Entry
 	for _, v := range versions {
 		es := byVersion[v]
 		first, _ := es[0].Release()
@@ -245,7 +264,7 @@ func (d *Document) FileApproval() Approval {
 			break
 		}
 	}
-	return ApprovalOf(releases, mine)
+	return releases, others
 }
 
 // TransferHistory is the set of entry ids a transfer into this document

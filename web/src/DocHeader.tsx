@@ -60,7 +60,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const more: MenuItem[] = []
   // Approve vN: the owner's release of the approved version (spec 6.18).
   const approver = approveRole(doc)
-  if (!dm?.viewing) more.push({ label: 'Context for an agent', sub: 'the goals, invariants and terms above this document', onSelect: () => setAgent(true) })
+  if (!dm?.viewing) more.push({ label: 'Context for an agent', sub: 'what its work needs from the plan and domain above it', onSelect: () => setAgent(true) })
   if (live && (t!.can_act || t!.team_owner) && st.primary !== 'choose') {
     more.push({
       label: 'Change owner…',
@@ -326,22 +326,31 @@ function ParentLine({ dm }: { dm: DomainInfo }) {
 
 // AgentContextDialog shows what kalka context prints for the document: the
 // plan path and the domain path, ready to copy for an agent (spec 6.18).
-function AgentContextDialog({ doc, onClose }: { doc: Doc; onClose: () => void }) {
+export function AgentContextDialog({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const [text, setText] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
+  const [full, setFull] = useState(false)
   useEffect(() => {
+    setText(null)
+    setErr('')
+    setCopied(false)
     api
-      .agentContext(doc.rel)
+      .agentContext(doc.rel, full)
       .then((r) => setText(r.markdown))
       .catch((e) => setErr((e as Error).message))
-  }, [doc.rel])
+  }, [doc.rel, full])
   return (
     <Modal title="Context for an agent" wide onClose={onClose}>
       <p className="muted small">
-        The goals and invariants of every plan node above this document and the terms of every domain node it rests on, at the pinned versions.
-        The same as <code>kalka context {doc.rel}</code>.
+        {full
+          ? 'Every goal, invariant and term on the plan path and the domain path, at the pinned versions.'
+          : 'Only what this document’s work needs: the goals it realizes, the invariants that bind it, the terms it uses, and what is missing.'}{' '}
+        The same as <code>kalka context {doc.rel}{full ? ' --full' : ''}</code>.
       </p>
+      <label className="check">
+        <input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} /> Full
+      </label>
       {err && <p className="error-text">{err}</p>}
       {text === null && !err && <p className="muted">Loading…</p>}
       {text !== null && (

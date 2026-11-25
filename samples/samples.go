@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 
+	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/store"
 )
 
@@ -26,7 +27,9 @@ const PendingFile = "add-samples"
 
 // Seed copies the samples into <folder>/personal/samples, keeping their
 // folders. A file that exists is left as it is, so seeding twice changes
-// nothing. It returns the paths written, relative to the folder.
+// nothing. It returns the paths written, relative to the folder. A copy
+// in Personal is a draft: a sample's kalka_team and review log, there to
+// show a team's documents with `kalka context --domain`, are left out.
 func Seed(folder string) ([]string, error) {
 	if folder == "" {
 		return nil, errors.New("no folder is set")
@@ -45,6 +48,7 @@ func Seed(folder string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		b = personalCopy(b)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
@@ -101,4 +105,15 @@ func SeedIfAsked(configDir, folder string) ([]string, error) {
 		return written, err
 	}
 	return written, os.Remove(p)
+}
+
+// personalCopy is a sample as a Personal draft: without kalka_team and
+// without its review log.
+func personalCopy(b []byte) []byte {
+	d, err := bp.Parse(b)
+	if err != nil || d.Team() == "" && len(d.Items()) == 0 {
+		return b
+	}
+	d.DeleteFrontmatter(bp.KeyTeam)
+	return []byte("---\n" + bp.Normalize(d.Frontmatter().Inner()) + "\n---\n\n" + d.Body() + "\n")
 }

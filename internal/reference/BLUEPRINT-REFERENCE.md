@@ -28,7 +28,9 @@ kalka then shows soft hints, such as "no verification plan" (rules `H001` to `H0
 - **Stay inside the scope.** Work that does not fit becomes a seed, not a larger change (see "When to split off a seed").
 - **Do not "clean up" critical sections.** They look wrong on purpose. Read their reasoning first and ask a human.
 - **Ids are permanent.** Comments attach to the ids of steps, invariants, goals and criteria; keep them when you change a block.
-- **Read the context first.** `kalka context <file>` prints the goals and invariants of every plan node above the document and the terms of every domain node it rests on, at the pinned versions. They all hold for the document.
+- **Start from the context.** `kalka context <file>` prints what the document's work needs: the parent goals it realizes and the goals above them, every invariant that binds it, the domain terms it uses, how current each document is, and what is missing ("not here", who else claims a goal, which goals nothing claims). It leaves out the document's own text: read the document itself. Terms and other goals it left out are named on one line.
+- **Ask, do not guess.** For a term the context names but does not define, run `kalka context <file> --term <name>`; `--full` prints everything on the paths. A gap the context names ("not here", "not looked for") is a gap: do not fill it with an assumption.
+- **When the code and the context disagree,** do not quietly follow either. Domain terms and invariants are binding at the pinned versions; an approved blueprint describes the intended change as of its approval, and the code may have moved since. Record a deviation (`kalka comment <file> --kind deviation --anchor <slug> -m "<what differs>"`) or ask a human.
 
 ## The sections
 
@@ -152,7 +154,7 @@ criterion AC1: The queue head is notified exactly once
 - An unclaimed goal is a warning (`P030`), on a draft or an approved document alike. With `kalka_breakdown: adopted` (the stories came from outside kalka), coverage is a finding to decide on (`P032`); `decomposed` says kalka was used to make the split.
 - In a trace, a business step names the criterion it demonstrates with `covers AC1`. One chain then runs from the epic's goal through the criterion and the business steps to code with a `ref`.
 
-*Why agents benefit:* the goals above a blueprint say why it exists and what it must not break, and the criteria say when it is done. An agent that reads `kalka context` before starting works toward the epic's goals instead of only the words of one story, and a reviewer sees at once which goal nothing serves yet.
+*Why agents benefit:* the goals above a blueprint say why it exists and what it must not break, and the criteria say when it is done. An agent that reads `kalka context` before starting works toward the epic's goals instead of only the words of one story, sees which sibling story already claims a goal, and a reviewer sees at once which goal nothing serves yet.
 
 ## The kalka language v2
 

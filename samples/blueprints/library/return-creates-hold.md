@@ -1,6 +1,7 @@
 ---
 kalka_id: 3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803
 kalka_owner: marek@example.org
+kalka_team: team-lending
 kalka_issue: jira:DEV-123
 kalka_domain: team-lending/library.reservations@v1
 kalka_parent: 8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11
@@ -82,3 +83,12 @@ step C5: Put the copy back on the shelf
 ```
 
 One chain runs from the epic to the code: `parent#G1` ← `AC1` ← `B3` ← `C4`.
+
+## Review log
+
+### release · marek@example.org · 2026-11-20T09:30:00Z · § · rev:89598eac · id:6d90b9e8fb58e81ba3217d7f2bc35604 · sig:oIWI3fw7QgNgqP7AXfwsq81LBc4nqx4Com4APD0xziE-mY9hpY6SVv6wKkTPTmxd0bZQhO-SWHfvnYe7G9MgDg
+v1 · plan:a69bd0a54bb2aa4096e8d77dacca5da724f17cb34f556520a3cae3f2aded98a3 · owner:marek@example.org
+
+### approved · marek@example.org · 2026-11-20T11:30:00Z · § · rev:89598eac · id:70026de122237a30bd2411d6c854a95a · sig:vG5fbGgTUp-w06eSTAXEQKJQiJFuoS-Fh9_rr1yVBSqRWCp_b_lBhpcNTVd8CY12fElX5A7snByntH4tYy9HDQ
+approved: v1 · plan:a69bd0a54bb2aa4096e8d77dacca5da724f17cb34f556520a3cae3f2aded98a3
+Reviewed with the desk staff.

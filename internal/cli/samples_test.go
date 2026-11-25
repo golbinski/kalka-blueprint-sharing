@@ -38,6 +38,7 @@ func TestSamples(t *testing.T) {
 		"library/team-lending-library.reservations-domain.md": nil,
 		"library/holds-on-return.md":                          {"P030"},
 		"library/return-creates-hold.md":                      nil,
+		"library/hold-blocks-lending.md":                      nil,
 	}
 	// The domain document each folder's plans are checked against.
 	domains := map[string]string{
@@ -107,8 +108,9 @@ func TestSamples(t *testing.T) {
 }
 
 // The story of the library samples in kalka graph and kalka context: its
-// goal states are unclaimed or claimed, and a sample in Personal has no
-// approval state, since approval exists for team documents only.
+// goal states are unclaimed or claimed, and its documents are team
+// documents with an approval state as their files say: DEV-100 a draft,
+// DEV-123 and DEV-124 approved.
 func TestSampleStoryStates(t *testing.T) {
 	root := filepath.Join("..", "..", "samples", "blueprints")
 	story := filepath.Join(root, "library", "holds-on-return.md")
@@ -118,13 +120,16 @@ func TestSampleStoryStates(t *testing.T) {
 			t.Fatalf("%s: exit %d: %s", cmd, code, errb.String())
 		}
 		s := out.String()
-		for _, gone := range []string{`"state": "delivered"`, `"state": "ready"`, `"state": "open"`, `"closed"`, `"approval"`} {
+		for _, gone := range []string{`"state": "delivered"`, `"state": "ready"`, `"state": "open"`, `"closed"`} {
 			if strings.Contains(s, gone) {
 				t.Errorf("kalka %s prints %s:\n%s", cmd, gone, s)
 			}
 		}
-		if cmd == "graph" && (!strings.Contains(s, `"state": "unclaimed"`) || !strings.Contains(s, `"state": "claimed"`)) {
-			t.Errorf("kalka graph has no goal states:\n%s", s)
+		if cmd == "graph" && (!strings.Contains(s, `"state": "unclaimed"`) || !strings.Contains(s, `"state": "claimed"`) || !strings.Contains(s, `"approval": {`)) {
+			t.Errorf("kalka graph has no goal or approval states:\n%s", s)
+		}
+		if cmd == "context" && (!strings.Contains(s, `"state": "draft"`) || !strings.Contains(s, `"approved v1"`)) {
+			t.Errorf("kalka context names no approval states:\n%s", s)
 		}
 	}
 }

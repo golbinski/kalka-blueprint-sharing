@@ -68,11 +68,11 @@ func TestApprovalInGraphAndContext(t *testing.T) {
 	if string(first) != string(again) {
 		t.Fatal("kalka graph is not deterministic")
 	}
-	c := Context("leaf.md", leaf, o)
-	if c.Plan[0].Approval == nil || c.Plan[0].Approval.Text() != "approved v1" || c.Plan[1].Approval.Text() != "draft" {
-		t.Fatalf("context %+v %+v", c.Plan[0].Approval, c.Plan[1].Approval)
+	c := Context("leaf.md", leaf, o, false)
+	if c.Goals[0].Doc.State != "approved v1" || c.Goals[0].Doc.Released != 1 || c.Focus.State != "draft" || c.Focus.Released != 0 {
+		t.Fatalf("context %+v %+v", c.Goals[0].Doc, c.Focus)
 	}
-	if md := c.Markdown(); !strings.Contains(md, "State: approved v1.") || !strings.Contains(md, "State: draft.") {
+	if md := c.Markdown(); !strings.Contains(md, "### Holds (parent)\n\nApproved v1, released v1 at 2026-11-25T09:00:00Z.") || !strings.Contains(md, "## Focus: Hold record\n\nDraft, unreleased.") {
 		t.Fatalf("context markdown:\n%s", md)
 	}
 	// Approval changes no diagnostic: the unclaimed G2 is P030 still.

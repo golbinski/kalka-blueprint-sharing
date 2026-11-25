@@ -628,7 +628,8 @@ export interface Graph {
   alone?: boolean
 }
 
-/** The flattened context of a document for an agent (kalka context). */
+/** The context of a document for an agent (kalka context): focused, or
+ * with full every goal, invariant and term on the paths (--full). */
 export interface AgentContextResult {
   context: unknown
   markdown: string
@@ -986,7 +987,8 @@ export const api = {
       'GET',
       '/api/graph?' + ('path' in where ? 'path=' + encodeURIComponent(where.path) : 'team=' + encodeURIComponent(where.team) + '&id=' + encodeURIComponent(where.id)),
     ),
-  agentContext: (path: string) => call<AgentContextResult>('GET', '/api/context?path=' + encodeURIComponent(path)),
+  agentContext: (path: string, full = false) =>
+    call<AgentContextResult>('GET', '/api/context?path=' + encodeURIComponent(path) + (full ? '&full=1' : '')),
   issues: (team = '') => call<IssuesView>('GET', '/api/issues' + scope(team)).then((v) => ({ caps: v.caps, issues: v.issues ?? {} })),
   exportDoc: (path: string) => call<ExportResult>('POST', '/api/export', { path }),
   archive: (path: string, archived: boolean, takeOver = false) => call<{ archived: boolean }>('POST', '/api/archive', { path, archived, take_over: takeOver }),

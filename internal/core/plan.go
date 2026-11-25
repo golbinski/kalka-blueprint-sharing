@@ -130,11 +130,12 @@ func (d *Node) planView(at string, doc *bp.Document) *PlanView {
 	return v
 }
 
-// AgentContext is the agent context of the document at path (spec 6.18).
-func (d *Node) AgentContext(path string) (check.AgentContext, error) {
+// AgentContext is the agent context of the document at path (spec 6.18),
+// focused or full.
+func (d *Node) AgentContext(path string, full bool) (check.AgentContext, error) {
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return check.AgentContext{}, err
 	}
-	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path), Approval: d.approvalOf}), nil
+	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path), Approval: d.approvalOf}, full), nil
 }

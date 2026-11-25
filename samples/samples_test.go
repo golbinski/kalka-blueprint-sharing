@@ -21,6 +21,11 @@ func TestSeed(t *testing.T) {
 	if err != nil || !strings.Contains(string(b), "kalka_kind: domain") {
 		t.Fatalf("%v %.40q", err, b)
 	}
+	// A team sample is a draft in Personal: no team, no review log.
+	b, err = os.ReadFile(filepath.Join(folder, "personal", "samples", "library", "return-creates-hold.md"))
+	if err != nil || strings.Contains(string(b), "kalka_team") || strings.Contains(string(b), "## Review log") || !strings.Contains(string(b), "kalka_issue: jira:DEV-123\n") || !strings.HasSuffix(string(b), "`C4`.\n") {
+		t.Fatalf("team sample in Personal: %v\n%s", err, b)
+	}
 	// A sample the user changed stays as they left it.
 	mine := filepath.Join(folder, "personal", "samples", "relay-indicator.md")
 	os.WriteFile(mine, []byte("# mine\n"), 0o644)

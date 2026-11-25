@@ -1,6 +1,7 @@
 ---
 kalka_id: 8d1c0f2a-4b7e-4c39-9a51-2e6f0b3d7c11
 kalka_owner: ewa@example.org
+kalka_team: team-lending
 kalka_issue: jira:DEV-100
 kalka_domain: team-lending/library.reservations@v1
 kalka_breakdown: decomposed

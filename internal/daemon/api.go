@@ -329,9 +329,9 @@ func (d *Daemon) apiBacklink(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiContext is the agent context of a document (spec 6.18), the same as
-// kalka context prints.
+// kalka context prints; ?full=1 as kalka context --full.
 func (d *Daemon) apiContext(w http.ResponseWriter, r *http.Request) {
-	c, err := d.AgentContext(r.URL.Query().Get("path"))
+	c, err := d.AgentContext(r.URL.Query().Get("path"), r.URL.Query().Get("full") == "1")
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return

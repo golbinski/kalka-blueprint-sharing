@@ -3,6 +3,7 @@ package check
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -198,8 +199,9 @@ func TestGoalsBlock(t *testing.T) {
 	}
 }
 
-// kalka context: the plan path with each level's goals and invariants,
-// and the domain path with its terms (spec 6.18).
+// kalka context: the parent's goals the document realizes, the
+// invariants above it, and the domain terms it uses (spec 6.18); a
+// sibling is named where it claims a goal, never quoted.
 func TestAgentContext(t *testing.T) {
 	c := plans(t, func(d string) {
 		planDoc(t, d, "epic.md", epicID, "", "kalka_issue: jira:DEV-100\n", "Holds", goals(epicGoals)+invs("invariant E1: A hold is never lent\n"))
@@ -209,15 +211,15 @@ func TestAgentContext(t *testing.T) {
 	f := library(t, nil)
 	raw, _ := os.ReadFile(filepath.Join(c.dir, "leaf.md"))
 	d, _ := bp.Parse(raw)
-	ctx := Context("leaf.md", d, Options{Docs: c.f, Domains: f.Tree()})
-	if len(ctx.Plan) != 2 || ctx.Plan[0].Issue != "jira:DEV-100" || !ctx.Plan[1].Self || len(ctx.Plan[0].Invariants) != 1 {
-		t.Fatalf("plan %+v", ctx.Plan)
+	ctx := Context("leaf.md", d, Options{Docs: c.f, Domains: f.Tree()}, false)
+	if len(ctx.Goals) != 1 || ctx.Goals[0].Doc.Issue != "jira:DEV-100" || len(ctx.Invariants.Plan) != 1 {
+		t.Fatalf("plan %+v %+v", ctx.Goals, ctx.Invariants.Plan)
 	}
-	if len(ctx.Domains) != 2 || ctx.Domains[0].Domain != "library" || ctx.Domains[1].Domain != "library.reservations" || len(ctx.Domains[0].Terms) != 3 {
-		t.Fatalf("domains %+v", ctx.Domains)
+	if len(ctx.Invariants.Domains) != 1 || !slices.Equal(ctx.Invariants.Domains[0].Nodes, []string{"library@v2", "library.reservations@v1"}) {
+		t.Fatalf("domains %+v", ctx.Invariants.Domains)
 	}
 	md := ctx.Markdown()
-	for _, want := range []string{"### 1. jira:DEV-100 Holds", "- goal G1: The queue head learns", "- invariant E1: A hold is never lent", "(this document)", "  - given a copy with two reservations", "### library.reservations@v1", "narrowed by library.reservations#R2"} {
+	for _, want := range []string{"### DEV-100 Holds (parent)", "- goal G1: The queue head learns", "- parent#E1: A hold is never lent", "## Focus: Hold record", "### Domain path lending/library.reservations@v1", "library.reservations#R2 refines loan"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown lacks %q:\n%s", want, md)
 		}

@@ -35,6 +35,9 @@ term reservation: A member's request to borrow a title as soon as a copy is free
 term return: A member bringing a lent copy back
   form returns
   form returned
+
+term branch: One location of the library, with its own shelves and desk
+  form branches
 ```
 
 ## Invariants

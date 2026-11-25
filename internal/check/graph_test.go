@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -105,7 +106,9 @@ func TestGraphLibrary(t *testing.T) {
 }
 
 // kalka context and kalka graph select the same documents for every
-// sample: the graph adds only the focus's children.
+// sample: the graph adds the focus's children, and the context only names
+// the siblings that claim the parent's goals, in its claimed-by lines,
+// which are an addition to the lens and not a change of it.
 func TestGraphAndContextSelectTheSame(t *testing.T) {
 	n := 0
 	err := filepath.WalkDir(samplesDir, func(path string, e fs.DirEntry, err error) error {
@@ -122,14 +125,19 @@ func TestGraphAndContextSelectTheSame(t *testing.T) {
 		}
 		f := NewFolder(filepath.Dir(path))
 		o := Options{Domains: f.Tree(), Docs: f}
-		c := Context(path, d, o)
-		var fromContext []string
-		for _, l := range c.Plan {
-			fromContext = append(fromContext, "plan:"+l.KalkaID)
+		c := Context(path, d, o, false)
+		fromContext := []string{"plan:" + c.Focus.KalkaID}
+		for _, l := range c.Goals {
+			fromContext = append(fromContext, "plan:"+l.Doc.KalkaID)
 		}
-		for _, l := range c.Domains {
-			fromContext = append(fromContext, domainKey(l.Domain, l.Version))
+		for _, p := range c.Invariants.Domains {
+			for _, n := range p.Nodes {
+				name, v, _ := strings.Cut(n, "@v")
+				ver, _ := strconv.ParseInt(v, 10, 64)
+				fromContext = append(fromContext, domainKey(name, ver))
+			}
 		}
+		fromContext = slices.Compact(slices.Sorted(slices.Values(fromContext)))
 		g := BuildGraph(path, d, GraphOptions{Options: o})
 		var fromGraph []string
 		for _, x := range g.Nodes {

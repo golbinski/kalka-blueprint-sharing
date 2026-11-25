@@ -14,18 +14,21 @@ import (
 	"github.com/golbinski/kalka/internal/name"
 )
 
-// cmdContext is `kalka context <file>`: the flattened context of a
-// document for an agent (spec 6.18): the plan path with goals and
-// invariants, the domain path with terms, at the pinned versions. Like
-// check, it reads files only.
+// cmdContext is `kalka context <file>`: the context of a document for an
+// agent (spec 6.18): only what its work needs from the plan path and the
+// domain path, how current each part is, and what is missing. --full
+// prints every goal, invariant and term on the paths; --term one term.
+// Like check, it reads files only, and writes nothing.
 func cmdContext(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("context", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	domain := fs.String("domain", "", "a document or a folder to read domain versions and plan nodes from (default the local folder)")
+	full := fs.Bool("full", false, "every goal, invariant and term on the paths")
+	term := fs.String("term", "", "print one term of the domain path, with its narrowings")
 	pos, err := parseInterspersed(fs, args)
-	if err != nil || len(pos) != 1 {
-		fmt.Fprintf(stderr, "usage: %s context <file> [--domain <file or folder>] [--json]\n", name.Binary)
+	if err != nil || len(pos) != 1 || *full && *term != "" {
+		fmt.Fprintf(stderr, "usage: %s context <file> [--full | --term <name>] [--domain <file or folder>] [--json]\n", name.Binary)
 		return exitUsage
 	}
 	raw, err := os.ReadFile(pos[0])
@@ -40,7 +43,20 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		return failWith(*asJSON, stdout, stderr, err)
 	}
 	folder := checkFolder(*domain, pos)
-	c := check.Context(pos[0], doc, check.Options{Domains: folder.Tree(), Docs: folder})
+	o := check.Options{Domains: folder.Tree(), Docs: folder}
+	if *term != "" {
+		t, err := check.TermContext(doc, o, *term)
+		if err != nil {
+			return failWith(*asJSON, stdout, stderr, err)
+		}
+		if *asJSON {
+			writeJSON(stdout, t)
+		} else {
+			fmt.Fprint(stdout, check.TermMarkdown(t))
+		}
+		return exitOK
+	}
+	c := check.Context(pos[0], doc, o, *full)
 	if *asJSON {
 		writeJSON(stdout, c)
 		return exitOK

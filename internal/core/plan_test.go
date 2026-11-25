@@ -37,8 +37,8 @@ func TestPlanView(t *testing.T) {
 	}
 
 	// The agent context names the epic's goal.
-	c, err := alice.d.AgentContext("leaf.md")
-	if err != nil || len(c.Plan) != 2 || !strings.Contains(c.Markdown(), "goal G1: The queue head learns") {
+	c, err := alice.d.AgentContext("leaf.md", false)
+	if err != nil || len(c.Goals) != 1 || !strings.Contains(c.Markdown(), "goal G1: The queue head learns") {
 		t.Fatalf("context %v %+v", err, c)
 	}
 	// A document outside the plan graph has no plan view.

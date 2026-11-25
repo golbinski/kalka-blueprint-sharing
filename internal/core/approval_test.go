@@ -218,7 +218,7 @@ func TestApproveScope(t *testing.T) {
 			t.Fatalf("graph card %+v", n.Approval)
 		}
 	}
-	if c, err := courier.d.AgentContext(path); err != nil || !strings.Contains(c.Markdown(), "State: approved v1.") {
+	if c, err := courier.d.AgentContext(path, false); err != nil || !strings.Contains(c.Markdown(), "\n\nApproved v1, released v1 at ") {
 		t.Fatalf("context %v %s", err, c.Markdown())
 	}
 

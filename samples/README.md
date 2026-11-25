@@ -5,7 +5,10 @@ test of the app. Most describe kalka itself, as the plans a team working on
 it would review; the `lending` and `library` sets describe a lending library. Except in
 `library`, where the plan tree needs them, none holds a `kalka_id`, owner
 or review log: kalka adds those as you publish them and comment on them,
-under your own identity. Every typed block is in the kalka language v2
+under your own identity. The `library` stories also carry `kalka_team` and
+a release and an approval in their review log, so that `kalka context
+--domain` shows team documents with their approval states; `kalka samples`
+leaves both out of the copies it puts in Personal. Every typed block is in the kalka language v2
 (`docs/language.md`).
 
 `TestSamples` (`internal/cli/samples_test.go`) keeps each one passing
@@ -17,7 +20,7 @@ Four folders:
 - the top folder, for the team `kalka-core`: plans about kalka itself, on the domain `sync`;
 - `packaging/`, for the team `packaging`: plans about building and publishing kalka, on the domain `release`;
 - `lending/`, for the team `lending`: a lending library, on the domain `loans`, with no code to link;
-- `library/`, for the team `team-lending`: a plan tree (an epic and a story) on a domain tree (`library` and its subdomain `library.reservations`).
+- `library/`, for the team `team-lending`: a plan tree (an epic and two stories) on a domain tree (`library` and its subdomain `library.reservations`).
 
 Every domain document says `kalka_version: 1`, as a released copy kept in
 a repository does, so `kalka check --domain` can read it from the folder.
@@ -74,23 +77,27 @@ kalka invariants --domain samples/blueprints/lending/loans-domain.md samples/blu
 
 ## library
 
-A plan tree on a domain tree: an epic with goals and invariants, a story
-that realizes them with acceptance criteria and a trace, and a root domain
-with a subdomain that narrows one of its terms. The files carry their
-`kalka_id`s, since `kalka_parent` names one. Check, read the context, and see the graph:
+A plan tree on a domain tree: an epic with goals and invariants, two
+stories that realize them with acceptance criteria and traces, and a root
+domain with a subdomain that narrows one of its terms. The files carry
+their `kalka_id`s, since `kalka_parent` names one. Check, read the context
+(the focused one, one term, everything), and see the graph:
 
 ```sh
 kalka check --domain samples/blueprints/library samples/blueprints/library
 kalka context --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md
+kalka context --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md --term hold
+kalka context --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md --full
 kalka graph --domain samples/blueprints/library samples/blueprints/library/return-creates-hold.md
 ```
 
 | File | What it exercises |
 |---|---|
-| `library/team-lending-library-domain.md` | The root domain node `library` (version 2): terms with aliases, and invariants every subdomain inherits. |
+| `library/team-lending-library-domain.md` | The root domain node `library` (version 2): terms with aliases, and invariants every subdomain inherits. `branch` is used by no plan: the context names it as left out. |
 | `library/team-lending-library.reservations-domain.md` | A subdomain, `library.reservations`, pinning `kalka_parent: team-lending/library@v2`: terms of its own with `see` to inherited ones, and an invariant that narrows the inherited `loan` with `refines`. |
 | `library/holds-on-return.md` | An epic (`kalka_issue: jira:DEV-100`, `kalka_breakdown: decomposed`): a goals block with three goals, and an invariants block whose invariants hold in every child. G3 is claimed by nothing on purpose: a `P030` warning. |
-| `library/return-creates-hold.md` | A leaf (`jira:DEV-123`) whose `kalka_parent` names the epic: acceptance criteria that realize the epic's goals with given, when and then; `affects parent#E1`; a trace whose business steps `covers` the criteria and whose code steps `guards` inherited and domain invariants. |
+| `library/return-creates-hold.md` | A leaf (`jira:DEV-123`) whose `kalka_parent` names the epic: acceptance criteria that realize the epic's goals with given, when and then; `affects parent#E1`; a trace whose business steps `covers` the criteria and whose code steps `guards` inherited and domain invariants. Released and approved as v1. Its context selects G1 and G2 of the epic, not G3, eight of the nine domain terms, and names DEV-124 as also claiming G2. |
+| `library/hold-blocks-lending.md` | A sibling story (`jira:DEV-124`) under the same epic, claiming `parent#G2` too; released and approved as v1. |
 
 The warnings the samples show on purpose are exactly these: `I030` and
 `I031` in `online-renewals.md`, two `G020` in `hold-notices.md`, and
@@ -140,11 +147,12 @@ Everything appears in *Blueprints · Personal* within a second. Then:
    open `online-renewals.md` and `hold-notices.md` to see the warnings and
    the invariants panel.
 7. Create `team-lending`, publish the two domain documents of `library/`
-   (the root first), then `holds-on-return.md` and `return-creates-hold.md`.
+   (the root first), then `holds-on-return.md`, `return-creates-hold.md`
+   and `hold-blocks-lending.md`.
    Open the story: the breadcrumb leads to the epic, the goals block
    shows the goals as claimed or unclaimed and the criteria that claim
    them, and *More*, *Context for an agent* shows what an agent would
-   read. The *Graph* tab draws the epic, the story and the domain tree as
+   read (with *Full*, everything on the paths). The *Graph* tab draws the epic, the story and the domain tree as
    one graph, with what needs attention. Approve the story (*Approve v1*
    in its header, or `kalka approve <file>`): the header, the Blueprints
    list and its card in the graph say "approved v1", and the epic's
