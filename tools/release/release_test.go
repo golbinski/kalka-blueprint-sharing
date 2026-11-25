@@ -139,9 +139,10 @@ func TestNSISScript(t *testing.T) {
 		`WriteRegStr HKCU "Software\Classes\kalka" "URL Protocol" ""`,
 		`WriteRegStr HKCU "Software\Classes\kalka\shell\open\command" "" '"$INSTDIR\kalka-desktop.exe" "%1"'`,
 		`DeleteRegKey HKCU "Software\Classes\kalka"`,
-		// A PATH that cannot be read whole is never written back.
-		"ClearErrors\n  ReadRegStr $0 HKCU \"Environment\" \"Path\"\n  ${If} ${Errors}",
-		"${If} $3 >= ${NSIS_MAX_STRLEN}",
+		// PATH is changed by kalka, never in an NSIS string (spec 23.1);
+		// the uninstaller runs it before kalka.exe is removed.
+		`nsExec::ExecToLog '"$INSTDIR\kalka.exe" path add'`,
+		"nsExec::ExecToLog '\"$INSTDIR\\kalka.exe\" path remove'\n  Pop $0\n  ${If} $0 != 0\n    DetailPrint",
 		// A silent install is an update (spec 24.3): it waits for the old
 		// program to end and starts kalka again; no message box blocks it.
 		"${If} ${Silent}\n    Exec '\"$INSTDIR\\kalka-desktop.exe\"'", `/SD IDNO IDNO +2`,
@@ -157,6 +158,14 @@ func TestNSISScript(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+	for _, never := range []string{`"Environment" "Path"`, "NSIS_MAX_STRLEN"} {
+		if strings.Contains(s, never) {
+			t.Errorf("the script touches PATH itself: %q", never)
+		}
+	}
+	if i, j := strings.Index(s, "path remove"), strings.Index(s, `Delete "$INSTDIR\kalka.exe"`); i < 0 || j < i {
+		t.Error("kalka.exe is removed before it takes the folder out of PATH")
 	}
 	if strings.Contains(s, "[[") {
 		t.Error("unexpanded template field")

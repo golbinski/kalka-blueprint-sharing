@@ -1110,6 +1110,7 @@ Team commands take `--team <name or hash>`; with exactly one team it may be omit
 | `kalka update [--check] [--json]` | daemon | Look for a new release and, unless `--check`, install it when this kalka can (24), which restarts it. | Settings, *Updates* |
 | `kalka settings --rendezvous <url\|peerjs-cloud> [--force]` | daemon, or `config.yaml` when none runs | Switch the rendezvous server (9.1). Unless `--force`, the server must answer; an invalid value exits 2, a server that does not answer exits 1 with kind `rendezvous-silent`. | Settings, *Change…* |
 | `kalka autostart on [--headless]\|off\|status` | file | Start kalka at login (22.2). | Settings *Start at login* |
+| `kalka path add\|remove [<folder>]` | control | Add kalka's folder, or `<folder>`, to the user's `PATH`, or take it out (23.1). Windows only. | The Windows installer and uninstaller |
 | `kalka reference export [-o <file>] [--force]` / `reference version` | file | Write or name `BLUEPRINT-REFERENCE.md` (6.13). Never overwrites without `--force`. | Settings *Blueprint writing guide for agents* |
 | `kalka version` | file | Version and protocol numbers. | Settings, version details |
 
@@ -1125,7 +1126,7 @@ Every workflow has both a command and a control in the app. The CLI's command ta
 
 - **workflow**: must have an action id that a control in the web UI carries;
 - **view**: must have a place in the UI;
-- **process**: exempt, with the reason (`kalka`, `open`, `daemon`, `stop`: they start, show or stop the app itself).
+- **process**: exempt, with the reason (`kalka`, `open`, `daemon`, `stop`: they start, show or stop the app itself; `path`: the installer runs it).
 
 A Go test checks that every command has a row, every workflow row has an action id, and every workflow command accepts `--json`. A control carries its action id as `data-action` (`web/src/actions.ts` declares the ids). A web test checks that every action id in the table is declared and used by a control, and that every declared action appears in the table, so a UI workflow without a command fails too. One question in a workflow is the app's alone: after *Approve*, whether to attach the approved version to the issue, because export has its own command (`kalka export`).
 
@@ -1758,7 +1759,7 @@ The headless archives of 15 remain for servers, containers and machines without 
 
 The installer keeps the plugin choice in its uninstall key (`Plugin.<scheme>`, 1 or 0). The next install, a silent update (24.3) included, starts from it: a plugin left out stays out and its file is removed, one chosen or not yet decided (a plugin new in that release) is installed. A plugin left out shows nowhere: kalka lists only installed plugins (10.6), and a blueprint naming its scheme shows the bare key, as for a teammate without it.
 
-The Windows installer changes the user's `PATH` only when it can read the whole value and the result fits in an installer string (1024 characters): otherwise it leaves `PATH` as it is and says to add the folder by hand. A `PATH` it could not read is never written back. The uninstaller removes its folder under the same rule.
+The Windows installer adds its folder to the user's `PATH` by running its `kalka path add`, which adds the folder `kalka.exe` is in, and the uninstaller takes it out with `kalka path remove` before removing the files: the installer's own strings hold 1024 characters, so it never reads or writes `PATH` itself. `kalka path` reads the whole `Path` value of `HKCU\Environment`, of any length, and writes it back with the type it had; a value it cannot read is never written. An entry names the folder when it does after expanding variables and ignoring case, quotes, surrounding spaces, the kind of slash, `.` and `..` segments and a trailing separator, so `add` adds nothing when the folder is there in any spelling, which a silent update relies on, and `remove` takes out every spelling of it and keeps every other entry as written. A `PATH` left empty is deleted. Running programs are told with `WM_SETTINGCHANGE`. If it fails, the installer says to add the folder by hand.
 
 ### 23.1a The `kalka` URL scheme
 

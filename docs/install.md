@@ -39,7 +39,7 @@ Unsigned builds trigger SmartScreen on first start: *More info*, then *Run anywa
 
 **Uninstall:** *Settings > Apps > kalka*, or `uninstall.exe` in the install folder. It stops kalka and removes the login entry, the files and the `PATH` entry. Your settings, keys and team logs stay in `%APPDATA%\kalka`, your blueprints in their folder.
 
-**By hand, from the zip:** unzip to a folder of your own, add it to `PATH`, and start `kalka-desktop.exe`. Keep `kalka.exe`, `kalka-desktop.exe`, `kalka-plugin-gh.exe` and `kalka-plugin-jira.exe` together: `kalka.exe` is the command line, `kalka-desktop.exe` the app (and, with arguments, the command line without a console window).
+**By hand, from the zip:** unzip to a folder of your own, add it to `PATH` (`kalka.exe path add` in that folder does it; `path remove` takes it out), and start `kalka-desktop.exe`. Keep `kalka.exe`, `kalka-desktop.exe`, `kalka-plugin-gh.exe` and `kalka-plugin-jira.exe` together: `kalka.exe` is the command line, `kalka-desktop.exe` the app (and, with arguments, the command line without a console window).
 
 ## macOS
 

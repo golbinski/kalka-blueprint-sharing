@@ -55,6 +55,7 @@ var commands = []command{
 	{"settings", ClassWorkflow, plain(cmdSettings)},
 	{"update", ClassWorkflow, plain(cmdUpdate)},
 	{"autostart", ClassWorkflow, plain(cmdAutostart)},
+	{"path", ClassProcess, plain(cmdPath)},
 	{"setup", ClassWorkflow, plain(cmdSetup)},
 	{"check", ClassView, plain(cmdCheck)},
 	{"invariants", ClassView, plain(cmdInvariants)},

@@ -87,6 +87,8 @@ func usage(w io.Writer) {
   %[1]s autostart on [--headless]|off|status [--json]
                                    start kalka at logon (the desktop app
                                    if installed; --headless: no window)
+  %[1]s path add|remove [<folder>] [--json]   add kalka's folder (or <folder>) to your PATH, or
+                                   take it out (Windows; the installer runs it)
   %[1]s open [--print] [<link>]  open the running daemon's UI; with a kalka:// link, its join screen
   %[1]s setup --email <e> --rendezvous <url|peerjs-cloud> --folder <dir>
   %[1]s check <files or folders>... [--json] [--verbose] [--strict]

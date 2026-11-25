@@ -58,6 +58,7 @@
     { "command": "version", "class": "view", "place": "Settings, version details" },
     { "command": "daemon", "class": "process", "exempt": "runs kalka itself; the app is its UI" },
     { "command": "open", "class": "process", "exempt": "shows the app itself" },
+    { "command": "path", "class": "process", "exempt": "installs kalka itself; the installer and uninstaller run it" },
     { "command": "stop", "class": "process", "exempt": "stops the app itself; Quit in the tray is its UI" }
   ]
 }
