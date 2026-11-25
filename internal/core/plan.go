@@ -1,18 +1,14 @@
 package core
 
 // The plan graph in the document view (spec 6.18): breadcrumbs from the
-// root plan node, the goal tree with computed states, and the owner's
-// confirmation that a document is delivered.
+// root plan node, the goal tree with computed states, and the children.
 
 import (
-	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
 	"github.com/golbinski/kalka/internal/check"
-	"github.com/golbinski/kalka/internal/fsutil"
 	"github.com/golbinski/kalka/internal/store"
 )
 
@@ -22,7 +18,6 @@ type Crumb struct {
 	Rel     string `json:"rel,omitempty"`
 	Title   string `json:"title"`
 	Issue   string `json:"issue,omitempty"`
-	Closed  bool   `json:"closed,omitempty"`
 }
 
 // PlanView is the document's place in the plan graph.
@@ -37,7 +32,6 @@ type PlanView struct {
 	Goals     []check.GoalNode `json:"goals"`
 	Children  []Crumb          `json:"children"`
 	Breakdown string           `json:"breakdown,omitempty"`
-	Closed    bool             `json:"closed,omitempty"`
 }
 
 // storeDocs serves the plan graph to the checker from the documents held
@@ -99,7 +93,7 @@ func (s storeDocs) Children(id string) []*bp.Document {
 }
 
 func (d *Node) crumb(doc *bp.Document) Crumb {
-	c := Crumb{KalkaID: doc.KalkaID(), Title: doc.Title(), Closed: doc.IsClosed()}
+	c := Crumb{KalkaID: doc.KalkaID(), Title: doc.Title()}
 	if r, ok := doc.Issue(); ok {
 		c.Issue = r.String()
 	}
@@ -123,7 +117,7 @@ func (d *Node) planView(at string, doc *bp.Document) *PlanView {
 	if doc.PlanParent() == "" && len(doc.Goals()) == 0 && len(kids) == 0 {
 		return nil
 	}
-	v := &PlanView{Path: []Crumb{}, Children: []Crumb{}, Breakdown: doc.Breakdown(), Closed: doc.IsClosed()}
+	v := &PlanView{Path: []Crumb{}, Children: []Crumb{}, Breakdown: doc.Breakdown()}
 	path, missing, cycle := check.PlanPath(doc, docs)
 	for _, p := range path {
 		v.Path = append(v.Path, d.crumb(p))
@@ -136,61 +130,11 @@ func (d *Node) planView(at string, doc *bp.Document) *PlanView {
 	return v
 }
 
-// Close records that the owner confirms the document delivered
-// (kalka_status: closed), or reopens it; a team document is released at
-// once, as an archive is (spec 6.18, 10.5).
-func (d *Node) Close(path string, reopen bool) error {
-	for attempt := 0; ; attempt++ {
-		f, err := d.Store.Load(d.resolve(path))
-		if err != nil {
-			return err
-		}
-		doc, err := bp.Parse(f.Raw)
-		if err != nil {
-			return err
-		}
-		if doc.IsDomain() {
-			return errors.New("a domain document is not closed: it is a version of the domain, not a piece of the plan")
-		}
-		if !d.ownsAt(f.Path, doc) {
-			return &Error{Kind: KindNotOwner, Msg: fmt.Sprintf("only the owner (%s) can close this document", doc.Owner())}
-		}
-		// Closing releases the file: other edits must not ride along.
-		team := false
-		if doc.KalkaID() != "" {
-			if _, ok := d.teamDirAt(f.Path); ok {
-				team = true
-				if ts := d.teamDocState(f.Path, doc); ts != nil && ts.Held && ts.Unrel {
-					return errors.New("the plan has edits that are not released: release them first, then close")
-				}
-			}
-		}
-		if err := bp.Close(doc, reopen); err != nil {
-			return err
-		}
-		err = d.Store.Update(f, doc)
-		if errors.Is(err, fsutil.ErrChanged) && attempt < 3 {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		what := map[bool]string{false: "closed", true: "reopened"}[reopen]
-		d.logf("%s %s", what, f.Path)
-		if team {
-			if _, err := d.Release(f.Path, what, nil); err != nil {
-				return fmt.Errorf("%s, but the release failed: %v", what, err)
-			}
-		}
-		return nil
-	}
-}
-
 // AgentContext is the agent context of the document at path (spec 6.18).
 func (d *Node) AgentContext(path string) (check.AgentContext, error) {
 	f, err := d.Store.Load(d.resolve(path))
 	if err != nil {
 		return check.AgentContext{}, err
 	}
-	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path)}), nil
+	return check.Context(d.rel(f.Path), f.Doc, check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path), Approval: d.approvalOf}), nil
 }

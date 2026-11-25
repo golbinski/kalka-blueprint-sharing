@@ -27,8 +27,10 @@ type ExportState struct {
 	Can bool `json:"can"`
 	// Why is the reason when Can is false, for the disabled control.
 	Why string `json:"why,omitempty"`
-	// Version is the released version an export would send.
-	Version int64 `json:"version,omitempty"`
+	// Version is the released version an export would send, and
+	// Approval its approval state in words (approved v3, draft…).
+	Version  int64  `json:"version,omitempty"`
+	Approval string `json:"approval,omitempty"`
 	// Last is the newest exported entry for the issue, with its time and
 	// author.
 	Last   *bp.Exported `json:"last,omitempty"`
@@ -44,6 +46,10 @@ type ExportResult struct {
 	URL     string `json:"url,omitempty"`
 	// Updated: the export replaced what an earlier one wrote.
 	Updated bool `json:"updated,omitempty"`
+	// Approved: the version exported is the approved one (spec 6.18);
+	// Approval says the state in words.
+	Approved bool   `json:"approved"`
+	Approval string `json:"approval,omitempty"`
 }
 
 // exportCheck is what an export of doc at path would send, or why it
@@ -109,6 +115,7 @@ func (d *Node) exportState(path string, doc *bp.Document, iv *IssueView) *Export
 	}
 	p, err := d.exportPlan(path, doc, caps)
 	st.Version = p.version
+	st.Approval = d.approvalAt(path, doc).Text()
 	if err != nil {
 		st.Why = err.Error()
 		if iv.Pending && caps == nil {
@@ -169,7 +176,9 @@ func (d *Node) Export(ctx context.Context, path string) (ExportResult, error) {
 		return res, fmt.Errorf("%s was exported to %s, but the exported entry could not be written (%v); export again to record it", d.rel(f.Path), issue, err)
 	}
 	d.logf("exported %s v%d to %s", f.Path, p.version, issue)
-	return ExportResult{Path: f.Path, Issue: issue, Version: p.version, URL: out.URL, Updated: req.Previous != nil}, nil
+	ap := d.approvalAt(f.Path, doc)
+	return ExportResult{Path: f.Path, Issue: issue, Version: p.version, URL: out.URL, Updated: req.Previous != nil,
+		Approved: ap.State == bp.ApprovalApproved, Approval: ap.Text()}, nil
 }
 
 // exportFileName is the attachment's name: the file's name with the
@@ -213,9 +222,10 @@ func exportSummary(doc *bp.Document, p exportPlan, by string, at time.Time) stri
 	return b.String()
 }
 
-// Archive archives or unarchives a blueprint or seed (spec 10.5): the
-// owner writes or removes kalka_archived and, for a team document,
-// releases the change, as for any plan edit. A team owner acting on
+// Archive archives or unarchives a blueprint or seed (spec 10.5), for
+// plans abandoned or superseded: the owner writes or removes
+// kalka_archived and, for a team document, releases the change, as for
+// any plan edit. It changes only frontmatter, so it keeps an approval. A team owner acting on
 // someone else's document takes it over first (7.4).
 func (d *Node) Archive(path string, archived bool) error {
 	for attempt := 0; ; attempt++ {

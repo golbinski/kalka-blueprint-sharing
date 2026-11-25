@@ -20,8 +20,7 @@ const (
 	KeyCreated   = name.Product + "_created"
 	KeyBreakdown = name.Product + "_breakdown"
 
-	StatusSeed   = "seed"
-	StatusClosed = "closed"
+	StatusSeed = "seed"
 
 	BreakdownDecomposed = "decomposed"
 	BreakdownAdopted    = "adopted"
@@ -37,10 +36,6 @@ func (d *Document) Status() string { return d.get(KeyStatus) }
 
 // IsSeed reports `kalka_status: seed`.
 func (d *Document) IsSeed() bool { return d.Status() == StatusSeed }
-
-// IsClosed reports `kalka_status: closed`: the owner confirmed the
-// document delivered (spec 6.18).
-func (d *Document) IsClosed() bool { return d.Status() == StatusClosed }
 
 var (
 	uuidRe       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -267,23 +262,4 @@ func (d *Document) graphProblems() []Problem {
 		out = append(out, NewProblem("F016", d.fm.KeyLine(KeyBreakdown), fmt.Sprintf("kalka_breakdown is decomposed or adopted (have %q); it is ignored", raw)))
 	}
 	return out
-}
-
-// Close sets kalka_status: closed, the owner's confirmation that the
-// document is delivered (spec 6.18); reopen takes it back to open. Only
-// the owner may; the caller checks.
-func Close(d *Document, reopen bool) error {
-	switch {
-	case d.IsSeed():
-		return errors.New("a seed is promoted first, then closed")
-	case reopen && !d.IsClosed():
-		return errors.New("the document is not closed")
-	case !reopen && d.IsClosed():
-		return errors.New("the document is already closed")
-	case reopen:
-		d.SetFrontmatter(KeyStatus, "open")
-	default:
-		d.SetFrontmatter(KeyStatus, StatusClosed)
-	}
-	return nil
 }

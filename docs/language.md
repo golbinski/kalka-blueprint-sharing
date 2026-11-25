@@ -118,7 +118,7 @@ criterion AC1: The queue head is notified exactly once
   then the second member gets nothing
 ```
 
-A goal realizes only goals of the parent (P004); a criterion realizes a goal of the parent or of its own document. A criterion without `then` is P003. States are computed, never written: unclaimed, claimed, ready, delivered.
+A goal realizes only goals of the parent (P004); a criterion realizes a goal of the parent or of its own document. A criterion without `then` is P003. States are computed, never written: a goal is unclaimed or claimed; a criterion has no state. A team document's approval state (draft, approved vN, changed since approved vN) comes from its review log.
 
 ### 7.2 invariants
 

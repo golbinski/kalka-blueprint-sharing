@@ -135,9 +135,8 @@ Every diagnostic of `kalka check` and of the app has one of these ids (specifica
 | `P021` | error | **parent# with no parent.** The document writes `parent#<id>` and has no `kalka_parent:`. |
 | `P022` | error | **covers names no such criterion.** A trace step's `covers` names an id that is not a criterion of the document. |
 | `P023` | error | **Inherited invariant redefined.** The document defines an invariant with the id of one it inherits from a plan node above it. |
-| `P030` | warning | **Goal unclaimed.** In an open plan node, no child goal and no criterion names the goal with `realizes`. |
-| `P031` | error | **Closed with an undelivered goal.** The document is closed (`kalka_status: closed`) and a goal is unclaimed, or a claimant (a child goal or a criterion) is not delivered. |
-| `P032` | info | **Goal coverage to decide.** With `kalka_breakdown: adopted`, a goal that is unclaimed or not delivered: a finding for a person to decide on, not a planning error. |
+| `P030` | warning | **Goal unclaimed.** No child goal and no criterion names the goal with `realizes`. It is reported the same whether the document is a draft or approved. |
+| `P032` | info | **Goal coverage to decide.** With `kalka_breakdown: adopted`, a goal that no child goal or criterion claims: a finding for a person to decide on, not a planning error. |
 
 ## Domain tree (D)
 

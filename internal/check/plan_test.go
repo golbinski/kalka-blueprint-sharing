@@ -63,7 +63,10 @@ func plans(t *testing.T, write func(dir string)) planCase {
 func states(ns []GoalNode) string {
 	var out []string
 	for _, n := range ns {
-		s := n.Kind + " " + n.ID + "=" + n.State
+		s := n.Kind + " " + n.ID
+		if n.State != "" {
+			s += "=" + n.State
+		}
 		if len(n.Claimants) > 0 {
 			s += "[" + states(n.Claimants) + "]"
 		}
@@ -72,28 +75,24 @@ func states(ns []GoalNode) string {
 	return strings.Join(out, " ")
 }
 
-// Goal states are computed: unclaimed, claimed, ready, delivered (spec
-// 6.18), through any depth.
+// Goal states are computed: unclaimed or claimed, through any depth
+// (spec 6.18). Criteria carry no state, and kalka_status: closed is an
+// ordinary label that changes nothing.
 func TestGoalStates(t *testing.T) {
-	tree := func(storyStatus, leafStatus, epicStatus string) string {
+	tree := func(status string) string {
 		c := plans(t, func(dir string) {
-			planDoc(t, dir, "epic.md", epicID, "", epicStatus, "Holds", goals(epicGoals))
-			planDoc(t, dir, "story.md", storyID, epicID, storyStatus, "Return creates a hold", goals("goal S1: A return creates a hold\n  realizes parent#G1\n"))
-			planDoc(t, dir, "leaf.md", leafID, storyID, leafStatus, "Hold record", goals(strings.Replace(criterion, "parent#G1", "parent#S1", 1)))
+			planDoc(t, dir, "epic.md", epicID, "", status, "Holds", goals(epicGoals))
+			planDoc(t, dir, "story.md", storyID, epicID, status, "Return creates a hold", goals("goal S1: A return creates a hold\n  realizes parent#G1\n"))
+			planDoc(t, dir, "leaf.md", leafID, storyID, status, "Hold record", goals(strings.Replace(criterion, "parent#G1", "parent#S1", 1)))
 		})
 		raw, _ := os.ReadFile(filepath.Join(c.dir, "epic.md"))
 		d, _ := bp.Parse(raw)
 		return states(GoalTree(d, c.f))
 	}
-	closed := "kalka_status: closed\n"
-	for _, x := range []struct{ story, leaf, epic, want string }{
-		{"", "", "", "goal G1=claimed[goal S1=claimed[criterion AC1=open]] goal G2=unclaimed"},
-		{"", closed, "", "goal G1=ready[goal S1=ready[criterion AC1=delivered]] goal G2=unclaimed"},
-		{closed, closed, "", "goal G1=ready[goal S1=delivered[criterion AC1=delivered]] goal G2=unclaimed"},
-		{closed, closed, closed, "goal G1=delivered[goal S1=delivered[criterion AC1=delivered]] goal G2=unclaimed"},
-	} {
-		if got := tree(x.story, x.leaf, x.epic); got != x.want {
-			t.Errorf("story %q leaf %q epic %q:\n got %s\nwant %s", x.story, x.leaf, x.epic, got, x.want)
+	want := "goal G1=claimed[goal S1=claimed[criterion AC1]] goal G2=unclaimed"
+	for _, status := range []string{"", "kalka_status: closed\n"} {
+		if got := tree(status); got != want {
+			t.Errorf("status %q:\n got %s\nwant %s", status, got, want)
 		}
 	}
 }
@@ -109,14 +108,14 @@ func TestPlanRules(t *testing.T) {
 		want       string
 	}{
 		{"open epic, unclaimed goal", "epic.md", func(d string) { epic(d, "", goals(epicGoals)); leaf(d, epicID, "", goals(criterion)) }, "P030"},
-		{"closed epic, unclaimed goal", "epic.md", func(d string) {
+		{"closed is a label, unclaimed goal", "epic.md", func(d string) {
 			epic(d, "kalka_status: closed\n", goals(epicGoals))
 			leaf(d, epicID, "kalka_status: closed\n", goals(criterion))
-		}, "P031"},
-		{"closed epic, claimed not delivered", "epic.md", func(d string) {
+		}, "P030"},
+		{"closed is a label, claimed goal", "epic.md", func(d string) {
 			epic(d, "kalka_status: closed\n", goals("goal G1: x\n"))
 			leaf(d, epicID, "", goals(criterion))
-		}, "P031"},
+		}, ""},
 		{"adopted breakdown", "epic.md", func(d string) {
 			epic(d, "kalka_breakdown: adopted\n", goals(epicGoals))
 			leaf(d, epicID, "", goals(criterion))
@@ -259,7 +258,7 @@ func TestPlanNotHere(t *testing.T) {
 	}{
 		{"epic.md", []string{"epic.md"}, "P011"},
 		{"leaf.md", []string{"leaf.md"}, "P011"},
-		{"epic.md", []string{"epic.md", "leaf.md"}, "P031 P031"},
+		{"epic.md", []string{"epic.md", "leaf.md"}, "P030"},
 		{"leaf.md", []string{"leaf.md", "epic.md"}, ""},
 	} {
 		raw, _ := os.ReadFile(filepath.Join(dir, x.file))
@@ -274,7 +273,7 @@ func TestPlanNotHere(t *testing.T) {
 // that does not exist is still in the tree, on its own (P020).
 func TestOwnCriteria(t *testing.T) {
 	d, _ := bp.Parse([]byte("# Plan\n\n" + goals("goal G1: x\ngoal G2: y\ncriterion AC1: z\n  realizes G1\n  realizes G2\n  then w\ncriterion AC2: v\n  realizes G9\n  then u\n")))
-	if got := states(GoalTree(d, nil)); got != "goal G1=claimed[criterion AC1=open] goal G2=claimed[criterion AC1=open] criterion AC2=open" {
+	if got := states(GoalTree(d, nil)); got != "goal G1=claimed[criterion AC1] goal G2=claimed[criterion AC1] criterion AC2" {
 		t.Errorf("tree %s", got)
 	}
 	for _, p := range d.Problems() {

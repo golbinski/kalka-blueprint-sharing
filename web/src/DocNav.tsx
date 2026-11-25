@@ -7,6 +7,7 @@ import { groupRows, levels, loadGroupBy, loadShowArchived, usable, type Group } 
 import { ExportButton, IssueChip, IssueParents } from './Issue'
 import { loadCollapsed, NARROW, railHref, saveCollapsed, type DocView } from './rail'
 import { blueprintRows, SECTION_LABEL, sectionOf, type Section } from './section'
+import { PERSONAL } from './scope'
 import { docHref, graphHref, scopeHref, traceHref, type ScopedView } from './util'
 
 /** SectionsNav is the top bar's sections; active is activeSection's answer. */
@@ -100,6 +101,8 @@ export interface RailRow {
   needs: boolean
   issue?: string
   archived?: boolean
+  approval?: BlueprintInfo['approval']
+  approved_version?: number
 }
 
 // railRows are a section's documents in the order of its list page, with
@@ -123,6 +126,8 @@ export function railRows(
       needs: (b?.new ?? 0) > 0 || (!!b && waits.has(b.path)),
       issue: b?.issue,
       archived: b?.archived,
+      approval: b?.approval,
+      approved_version: b?.approved_version,
     }
   }
   if (section === 'seeds') return (seeds ?? []).map((s) => row(s.rel, s.title))
@@ -204,7 +209,7 @@ export function DocRail({
   // is always listed.
   const showArchived = loadShowArchived(scope)
   const rows = railRows(section, scope, list, waiting, seeds, domains).filter((r) => showArchived || !r.archived || r.rel === doc.rel)
-  const choice = section === 'list' ? usable(loadGroupBy(scope), issues?.caps) : { by: 'none' as const, level: 1 }
+  const choice = section === 'list' ? usable(loadGroupBy(scope), issues?.caps, scope === PERSONAL) : { by: 'none' as const, level: 1 }
   const lv = levels(issues?.issues ?? {})
   const groups: Group<RailRow>[] = groupRows(rows, choice, issues?.issues ?? {}, lv[choice.level - 1]?.label)
   const current = useRef<HTMLAnchorElement>(null)

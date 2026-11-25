@@ -42,11 +42,11 @@ const issues: IssuesView = {
 }
 // Most recent activity first, as the list sorts.
 const list = [
-  row('redelivery.md', { issue: 'jira:DEV-123', activity: '2026-11-09T10:00:00Z' }),
-  row('notes.md', { activity: '2026-11-08T10:00:00Z' }),
-  row('lockers.md', { issue: 'jira:DEV-140', activity: '2026-11-07T10:00:00Z' }),
-  row('gone.md', { issue: 'jira:DEV-999', activity: '2026-11-06T10:00:00Z' }),
-  row('address.md', { issue: 'jira:DEV-150', activity: '2026-11-05T10:00:00Z' }),
+  row('redelivery.md', { issue: 'jira:DEV-123', activity: '2026-11-09T10:00:00Z', approval: 'approved', approved_version: 2 }),
+  row('notes.md', { activity: '2026-11-08T10:00:00Z', approval: 'draft' }),
+  row('lockers.md', { issue: 'jira:DEV-140', activity: '2026-11-07T10:00:00Z', approval: 'changed', approved_version: 1 }),
+  row('gone.md', { issue: 'jira:DEV-999', activity: '2026-11-06T10:00:00Z', approval: 'draft' }),
+  row('address.md', { issue: 'jira:DEV-150', activity: '2026-11-05T10:00:00Z', approval: 'approved', approved_version: 1 }),
   row('old-plan.md', { issue: 'jira:DEV-123', archived: true, activity: '2026-11-04T10:00:00Z' }),
 ]
 
@@ -131,11 +131,14 @@ describe('groupRows', () => {
 
 describe('capabilities', () => {
   it('offers only what an installed plugin declares', () => {
-    expect(groupOptions(undefined)).toEqual(['none'])
-    expect(groupOptions({ meta: true, hierarchy: false, export: false })).toEqual(['none', 'status'])
-    expect(groupOptions(issues.caps)).toEqual(['none', 'parent', 'status'])
-    // A remembered choice the plugins no longer allow falls back to none.
-    expect(usable({ by: 'parent', level: 2 }, { meta: true, hierarchy: false, export: false }).by).toBe('none')
+    expect(groupOptions(undefined)).toEqual(['none', 'approval'])
+    expect(groupOptions(undefined, true)).toEqual(['none'])
+    expect(groupOptions({ meta: true, hierarchy: false, export: false })).toEqual(['none', 'approval', 'status'])
+    expect(groupOptions(issues.caps)).toEqual(['none', 'approval', 'parent', 'status'])
+    // A remembered choice the plugins no longer allow falls back to the
+    // default, approval state; in Personal, which has none, to nothing.
+    expect(usable({ by: 'parent', level: 2 }, { meta: true, hierarchy: false, export: false }).by).toBe('approval')
+    expect(usable({ by: 'approval', level: 1 }, undefined, true).by).toBe('none')
   })
 })
 
@@ -144,16 +147,18 @@ describe('the remembered choices', () => {
     saveGroupBy(TEAM, { by: 'parent', level: 2 })
     saveShowArchived(TEAM, true)
     expect(loadGroupBy(TEAM)).toEqual({ by: 'parent', level: 2 })
-    expect(loadGroupBy('personal').by).toBe('none')
+    expect(loadGroupBy('personal').by).toBe('approval')
     expect(loadShowArchived(TEAM)).toBe(true)
     expect(loadShowArchived('personal')).toBe(false)
     localStorage.setItem('kalka.group-by.' + TEAM, '{"by":"rm -rf","level":-1}')
+    expect(loadGroupBy(TEAM).by).toBe('approval')
+    saveGroupBy(TEAM, { by: 'none', level: 1 })
     expect(loadGroupBy(TEAM).by).toBe('none')
   })
   it('fall back to defaults when storage throws', () => {
     expect(() => saveGroupBy(TEAM, { by: 'status', level: 1 }, throwing)).not.toThrow()
     expect(() => saveShowArchived(TEAM, true, throwing)).not.toThrow()
-    expect(loadGroupBy(TEAM, throwing).by).toBe('none')
+    expect(loadGroupBy(TEAM, throwing).by).toBe('approval')
     expect(loadShowArchived(TEAM, throwing)).toBe(false)
   })
 })
@@ -164,16 +169,33 @@ describe('the Blueprints list', () => {
   const titles = () => [...host.querySelectorAll('tbody tr:not(.group-row) td:first-child > a')].map((a) => a.textContent)
   const headers = () => [...host.querySelectorAll('tr.group-row th')].map((th) => th.textContent)
 
-  it('has no Group by without a plugin that declares it', async () => {
+  it('groups by approval state by default, with the state on every row', async () => {
     await render(<Blueprints list={list.slice(0, 5)} status={status} scope={TEAM} reload={() => {}} />)
-    expect(host.querySelector('select[aria-label="Group by"]')).toBeNull()
+    const sel = host.querySelector<HTMLSelectElement>('select[aria-label="Group by"]')!
+    expect([...sel.options].map((o) => o.value)).toEqual(['none', 'approval'])
+    expect(sel.value).toBe('approval')
+    expect(headers()).toEqual(['Changed since approved · 1', 'Draft · 2', 'Approved · 2'])
+    expect(titles()).toEqual(['lockers', 'notes', 'gone', 'redelivery', 'address'])
+    expect([...host.querySelectorAll('.badge.approval')].map((b) => b.textContent)).toEqual([
+      'changed since approved v1',
+      'draft',
+      'draft',
+      'approved v2',
+      'approved v1',
+    ])
     // The raw key is still shown.
-    expect(host.querySelector('.badge.issue')!.textContent).toBe('jira:DEV-123')
+    expect(host.querySelector('.badge.issue')!.textContent).toBe('jira:DEV-140')
+  })
+  it('has no Group by in Personal without a plugin that declares it', async () => {
+    const mine = list.slice(0, 5).map((r) => ({ ...r, approval: undefined }))
+    await render(<Blueprints list={mine} status={status} scope="personal" reload={() => {}} />)
+    expect(host.querySelector('select[aria-label="Group by"]')).toBeNull()
+    expect(host.querySelector('.badge.approval')).toBeNull()
   })
   it('groups by parent and status, with headers, and remembers the choice', async () => {
     await render(<Blueprints list={list} status={status} scope={TEAM} reload={() => {}} issues={issues} />)
     const sel = host.querySelector<HTMLSelectElement>('select[aria-label="Group by"]')!
-    expect([...sel.options].map((o) => o.value)).toEqual(['none', 'parent', 'status'])
+    expect([...sel.options].map((o) => o.value)).toEqual(['none', 'approval', 'parent', 'status'])
     await act(async () => {
       sel.value = 'parent'
       sel.dispatchEvent(new Event('change', { bubbles: true }))

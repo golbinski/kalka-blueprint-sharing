@@ -25,10 +25,13 @@ type AgentContext struct {
 // PlanLevel is one plan node on the path, root first; the last is the
 // document itself.
 type PlanLevel struct {
-	KalkaID    string         `json:"kalka_id,omitempty"`
-	Title      string         `json:"title"`
-	Issue      string         `json:"issue,omitempty"`
-	Self       bool           `json:"self,omitempty"`
+	KalkaID string `json:"kalka_id,omitempty"`
+	Title   string `json:"title"`
+	Issue   string `json:"issue,omitempty"`
+	Self    bool   `json:"self,omitempty"`
+	// Approval is the document's approval state (spec 6.18), so an agent
+	// tells an approved plan from a draft; absent where there is none.
+	Approval   *bp.Approval   `json:"approval,omitempty"`
 	Goals      []bp.Goal      `json:"goals"`
 	Invariants []bp.Invariant `json:"invariants"`
 }
@@ -53,7 +56,7 @@ func Context(file string, doc *bp.Document, o Options) AgentContext {
 		c.Problems = append(c.Problems, "kalka_parent leads back to the document; the plan path stops there")
 	}
 	level := func(d *bp.Document, self bool) PlanLevel {
-		l := PlanLevel{KalkaID: d.KalkaID(), Title: d.Title(), Self: self, Goals: d.Goals(), Invariants: d.Invariants()}
+		l := PlanLevel{KalkaID: d.KalkaID(), Title: d.Title(), Self: self, Approval: o.approval(d), Goals: d.Goals(), Invariants: d.Invariants()}
 		if r, ok := d.Issue(); ok {
 			l.Issue = r.String()
 		}
@@ -124,7 +127,7 @@ func mergeRefined(terms []bp.Term, more []bp.Term) {
 func (c AgentContext) Markdown() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Context for %s\n\n", c.Title)
-	b.WriteString("Read with the document. The plan path runs from the root plan node to the document; the domain path from the root domain to the pinned node, at the pinned versions. Goals and invariants are inherited downwards: a document may add, never loosen or remove. References: `parent#<id>` is the parent plan node, `<domain>#<id>` a domain node.\n\n")
+	b.WriteString("Read with the document. The plan path runs from the root plan node to the document; the domain path from the root domain to the pinned node, at the pinned versions. Goals and invariants are inherited downwards: a document may add, never loosen or remove. References: `parent#<id>` is the parent plan node, `<domain>#<id>` a domain node. A level's state is where its review stands (draft, approved vN, or changed since approved vN), not whether the work is done.\n\n")
 	if len(c.Missing) > 0 {
 		fmt.Fprintf(&b, "Not available here: %s.\n\n", strings.Join(c.Missing, ", "))
 	}
@@ -141,6 +144,9 @@ func (c AgentContext) Markdown() string {
 			title += " (this document)"
 		}
 		fmt.Fprintf(&b, "### %d. %s\n\n", i+1, title)
+		if l.Approval != nil {
+			fmt.Fprintf(&b, "State: %s.\n\n", l.Approval.Text())
+		}
 		if len(l.Goals) == 0 && len(l.Invariants) == 0 {
 			b.WriteString("No goals or invariants.\n\n")
 			continue

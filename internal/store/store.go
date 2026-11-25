@@ -108,6 +108,11 @@ type Info struct {
 	// are filled by the node, not by the index.
 	Version    int64 `json:"version,omitempty"`
 	Unreleased bool  `json:"unreleased,omitempty"`
+	// Approval is the approval state of a team document (spec 6.18), in
+	// words for the lists: draft, approved, changed; ApprovedVersion the
+	// version approved. Filled by the node.
+	Approval        string `json:"approval,omitempty"`
+	ApprovedVersion int64  `json:"approved_version,omitempty"`
 	// Notes are the file's entries in short, for what is new since the
 	// user last looked (core's read marks).
 	Notes []Note `json:"-"`

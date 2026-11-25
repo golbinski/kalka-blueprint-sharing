@@ -76,6 +76,8 @@ export interface Unread {
   mine?: boolean
   comments: number
   deviations: number
+  /** Approvals by the owner (spec 6.18). */
+  approvals?: number
   authors: string[]
   /** Someone else's blueprint that arrived and was never opened here. */
   never?: boolean
@@ -144,6 +146,9 @@ export interface BlueprintInfo {
   issue?: string
   /** Archived: lists hide it unless asked to show archived ones. */
   archived?: boolean
+  /** A team document's approval state (spec 6.18), and the version approved. */
+  approval?: Approval['state']
+  approved_version?: number
 }
 
 /** What a tracker says about an issue, through the reader's plugin (spec 10.5). */
@@ -197,10 +202,33 @@ export interface Exported {
   comment_id?: string
 }
 
+/** A team document's approval state (spec 6.18), computed from its review log. */
+export interface Approval {
+  state: 'draft' | 'approved' | 'changed'
+  /** The approved version, for approved and changed. */
+  version?: number
+  /** The approved entry that applies. */
+  entry?: string
+}
+
+export interface ApproveResult {
+  path: string
+  team?: string
+  version: number
+  /** Unreleased edits were released first. */
+  released: boolean
+  /** False when nothing was appended: approved already. */
+  changed: boolean
+  entry?: string
+  state: string
+}
+
 export interface ExportState {
   can: boolean
   why?: string
   version?: number
+  /** The approval state of what is exported, in words. */
+  approval?: string
   last?: Exported
   last_at?: string
   last_by?: string
@@ -212,6 +240,8 @@ export interface ExportResult {
   version: number
   url?: string
   updated?: boolean
+  approved?: boolean
+  approval?: string
 }
 
 export interface Heading {
@@ -259,6 +289,8 @@ export interface Entry {
   release?: { version: number; plan: string; owner: string; deleted?: boolean; incorporates?: number; note?: string }
   /** An exported entry as the daemon read it (spec 10.5). */
   exported?: Exported
+  /** An approved entry as the daemon read it (spec 6.18); ignored says why it does not count. */
+  approved?: { version: number; note?: string; ignored?: string }
 }
 
 /** A diagnostic (spec 6.17), as kalka check reports it. */
@@ -475,6 +507,8 @@ export interface Doc {
   export?: ExportState
   /** When it was archived. */
   archived?: string
+  /** A team document's approval state (spec 6.18). */
+  approval?: Approval
   /** The document's place in the plan graph (spec 6.18); absent outside it. */
   plan?: PlanView
   /** kalka_issue's key, such as DEV-123, shown in the title. */
@@ -487,10 +521,10 @@ export interface Crumb {
   rel?: string
   title: string
   issue?: string
-  closed?: boolean
 }
 
-export type GoalState = 'unclaimed' | 'claimed' | 'ready' | 'delivered' | 'open'
+/** Goals are unclaimed or claimed; criteria carry no state (spec 6.18). */
+export type GoalState = 'unclaimed' | 'claimed'
 
 export interface GoalStep {
   keyword: 'given' | 'when' | 'then'
@@ -503,7 +537,7 @@ export interface GoalNode {
   kind: 'goal' | 'criterion'
   id: string
   text: string
-  state: GoalState
+  state?: GoalState
   doc?: string
   title?: string
   issue?: string
@@ -523,7 +557,6 @@ export interface PlanView {
   goals: GoalNode[]
   children: Crumb[]
   breakdown?: 'decomposed' | 'adopted'
-  closed?: boolean
 }
 
 /** A card or an item of the graph canvas (spec 6.18, 11.1; kalka graph). */
@@ -544,6 +577,8 @@ export interface GraphNode {
   owner?: string
   domain?: string
   version?: number
+  /** A team document's approval state, as kalka graph computes it. */
+  approval?: Approval
   focus?: boolean
   child?: boolean
   placeholder?: boolean
@@ -943,9 +978,11 @@ export const api = {
   bud: (r: { path: string; from?: string; title: string; problem?: string; why?: string }) => call<BudResult>('POST', '/api/seeds', r),
   backlink: (seed: string) => call<{ entry: string }>('POST', '/api/backlink', { seed }),
   promote: (path: string, status = 'draft') => call<{ ok: boolean }>('POST', '/api/promote', { path, status }),
-  close: (path: string, reopen = false) => call<{ ok: boolean }>('POST', '/api/close', { path, reopen }),
+  approve: (path: string, note: string, incorporates: string[], takeOver = false) =>
+    call<ApproveResult>('POST', '/api/approve', { path, note, incorporates, take_over: takeOver }),
+  /** The graph, and the reader's tracker status of its cards' issues: an overlay, never in kalka graph. */
   graph: (where: { path: string } | { team: string; id: string }) =>
-    call<{ graph: Graph; rel: string }>(
+    call<{ graph: Graph; rel: string; issues?: Record<string, IssueView> }>(
       'GET',
       '/api/graph?' + ('path' in where ? 'path=' + encodeURIComponent(where.path) : 'team=' + encodeURIComponent(where.team) + '&id=' + encodeURIComponent(where.id)),
     ),

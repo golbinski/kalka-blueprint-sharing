@@ -18,7 +18,7 @@ goal G2: A held copy is not lent to anyone else
 goal G3: Members can see their queue position
 ```
 
-`G3` has no leaf yet. While the epic is open that is a warning; once its owner closes it (`kalka_status: closed`), the same rule is an error.
+`G3` has no leaf yet. That is a warning, whether the epic is a draft or approved: approving a plan says its review is done, not that every goal is served.
 
 ## Invariants
 

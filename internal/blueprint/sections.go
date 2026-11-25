@@ -72,6 +72,9 @@ func Append(d *Document, kind, author string, at time.Time, anchor, re, quote, b
 	if kind == KindRelease {
 		return nil, errors.New("release entries are created by releasing the document, not written by hand")
 	}
+	if kind == KindApproved {
+		return nil, errors.New("approved entries are created by approving the document (kalka approve), not written by hand")
+	}
 	anchor = strings.TrimPrefix(strings.TrimSpace(anchor), "§")
 	if anchor != "" {
 		slug, node, hasNode := strings.Cut(anchor, "#")

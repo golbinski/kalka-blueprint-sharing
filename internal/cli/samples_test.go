@@ -90,6 +90,12 @@ func TestSamples(t *testing.T) {
 				t.Errorf("%s: trace block %d is invalid", rel, i)
 			}
 		}
+		// kalka tracks no delivery: no sample carries a status that once
+		// meant it, and no goal or criterion has a state beyond claimed.
+		raw, _ := os.ReadFile(p)
+		if strings.Contains(string(raw), "kalka_status: closed") {
+			t.Errorf("%s: kalka_status: closed is only a label now", rel)
+		}
 		return nil
 	})
 	if err != nil {
@@ -97,5 +103,28 @@ func TestSamples(t *testing.T) {
 	}
 	if len(seen) != len(want) {
 		t.Errorf("samples %v, want %d files", seen, len(want))
+	}
+}
+
+// The story of the library samples in kalka graph and kalka context: its
+// goal states are unclaimed or claimed, and a sample in Personal has no
+// approval state, since approval exists for team documents only.
+func TestSampleStoryStates(t *testing.T) {
+	root := filepath.Join("..", "..", "samples", "blueprints")
+	story := filepath.Join(root, "library", "holds-on-return.md")
+	for _, cmd := range []string{"graph", "context"} {
+		var out, errb bytes.Buffer
+		if code := Run([]string{cmd, "--json", story, "--domain", filepath.Join(root, "library")}, nil, &out, &errb); code != exitOK {
+			t.Fatalf("%s: exit %d: %s", cmd, code, errb.String())
+		}
+		s := out.String()
+		for _, gone := range []string{`"state": "delivered"`, `"state": "ready"`, `"state": "open"`, `"closed"`, `"approval"`} {
+			if strings.Contains(s, gone) {
+				t.Errorf("kalka %s prints %s:\n%s", cmd, gone, s)
+			}
+		}
+		if cmd == "graph" && (!strings.Contains(s, `"state": "unclaimed"`) || !strings.Contains(s, `"state": "claimed"`)) {
+			t.Errorf("kalka graph has no goal states:\n%s", s)
+		}
 	}
 }

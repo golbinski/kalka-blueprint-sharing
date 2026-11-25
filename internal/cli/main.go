@@ -103,7 +103,6 @@ func usage(w io.Writer) {
   %[1]s seed <parent> --title <t> [--from <entry id>] [-m <problem>] [--why <text>] [--json]   split off a seed
   %[1]s seed backlink <seed> [--json]   add a missing backlink to the seed's parent
   %[1]s promote <file> [--status <s>] [--json]   a seed becomes a blueprint (default draft)
-  %[1]s close <file> [--reopen] [--json]   the owner confirms the document delivered
   %[1]s context <file> [--domain <path>] [--json]   the plan and domain path for an agent
   %[1]s graph <file> [--domain <path>] [--json]     the graph canvas's lens: documents, items, open items
   %[1]s seeds [--team <t>|personal] [--json]   list the pre-backlog
@@ -120,6 +119,7 @@ func usage(w io.Writer) {
   %[1]s join --forget <id, link or token>   stop a join in progress, or clear a failed one
   %[1]s publish <file> [--team <name>] [-m <note>]   move a Personal document into a team
   %[1]s release <file> [-m <text>] [--incorporates <id>,...]   release the next version
+  %[1]s approve <file> [-m <note>] [--incorporates <id>,...] [--json]   the owner approves the plan (releasing edits first)
   %[1]s handoff <file> <email> [--json]   make another member the owner
   %[1]s reassign <file> <email> [--json]  team owners: make any member the owner
   %[1]s copy|move <file> --to <team> [--json]   offer a document to another team

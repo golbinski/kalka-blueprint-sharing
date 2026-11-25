@@ -51,7 +51,6 @@ const (
 	MarkDivergence   = "divergence:"  // prefix: a trace divergence, by class
 	MarkNotHere      = "not-here"     // a placeholder
 	MarkArchived     = "archived"     //
-	MarkClosed       = "closed"       //
 	MarkGoalPrefix   = "state:"       // prefix: a goal or criterion state
 	MarkDeviation    = "deviation"    // a deviation entry on the item
 	MarkUnseenPrefix = "new:"         // prefix: entries not seen yet (app only)
@@ -93,6 +92,10 @@ type GraphNode struct {
 	Owner   string `json:"owner,omitempty"`
 	Domain  string `json:"domain,omitempty"`
 	Version int64  `json:"version,omitempty"`
+	// Approval is a team document's approval state (spec 6.18): computed
+	// from its review log, as the file says or, in the app, from the
+	// entries that count.
+	Approval *bp.Approval `json:"approval,omitempty"`
 	// Focus marks the focus's card; Child a child of it; Placeholder a
 	// document this copy does not hold.
 	Focus       bool `json:"focus,omitempty"`
@@ -271,8 +274,8 @@ func (b *graphBuilder) card(d *bp.Document, id, band string) {
 	if _, ok := d.Archived(); ok {
 		n.Markers = append(n.Markers, MarkArchived)
 	}
-	if d.IsClosed() {
-		n.Markers = append(n.Markers, MarkClosed)
+	if band != "domain" {
+		n.Approval = b.o.approval(d)
 	}
 	for _, p := range Document(d, b.o.Options).Problems {
 		switch p.Severity {

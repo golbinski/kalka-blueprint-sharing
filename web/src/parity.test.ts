@@ -13,7 +13,9 @@ const declared = new Set(Object.keys(ACTIONS))
 const inTable = new Set(parity.rows.flatMap((r) => (r.action ? [r.action] : [])))
 const used = new Map<string, string[]>()
 for (const [file, src] of Object.entries(sources)) {
-  for (const m of src.matchAll(/\bact\(\s*['"]([a-z]+\.[a-z]+)['"]\s*\)/g)) {
+  // act('<id>') on a control, or action: '<id>' on a Menu item, which
+  // the menu puts on its button with act.
+  for (const m of src.matchAll(/\b(?:act\(\s*|action:\s*)['"]([a-z]+\.[a-z]+)['"]/g)) {
     used.set(m[1], [...(used.get(m[1]) ?? []), file])
   }
 }

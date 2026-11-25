@@ -73,6 +73,9 @@ type DocView struct {
 	Export *ExportState `json:"export,omitempty"`
 	// Archived is when the document was archived (kalka_archived).
 	Archived string `json:"archived,omitempty"`
+	// Approval is a team document's approval state (spec 6.18), computed
+	// over the entries that count; nil for one that has none.
+	Approval *bp.Approval `json:"approval,omitempty"`
 	// Plan is the document's place in the plan graph (spec 6.18): the
 	// breadcrumbs, the goal tree and the children; nil outside it.
 	Plan *PlanView `json:"plan,omitempty"`
@@ -130,6 +133,16 @@ type EntryView struct {
 	Release *ReleaseView `json:"release,omitempty"`
 	// Exported is an exported entry as the core reads it (spec 10.5).
 	Exported *bp.Exported `json:"exported,omitempty"`
+	// Approved is an approved entry as the core reads it (spec 6.18).
+	Approved *ApprovedView `json:"approved,omitempty"`
+}
+
+// ApprovedView is a parsed approved entry; Ignored says why it does not
+// count, when it does not.
+type ApprovedView struct {
+	Version int64  `json:"version"`
+	Note    string `json:"note,omitempty"`
+	Ignored string `json:"ignored,omitempty"`
 }
 
 // ReleaseView is a parsed release entry.
@@ -225,6 +238,13 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 			v.Transfer = d.transferInfo(th, doc)
 		}
 	}
+	var approval bp.Approval
+	if snapshot == 0 {
+		approval = d.approvalAt(path, doc)
+		if approval.State != "" {
+			v.Approval = &approval
+		}
+	}
 	rev := doc.Rev()
 	for _, it := range doc.Items() {
 		e := it.Entry
@@ -258,6 +278,13 @@ func (d *Node) docView(_ context.Context, path string, doc *bp.Document, snapsho
 		}
 		if x, ok := e.Exported(); ok {
 			ev.Exported = &x
+		}
+		if e.Kind == bp.KindApproved {
+			x, _ := e.Approved()
+			ev.Approved = &ApprovedView{Version: x.Version, Note: x.Note, Ignored: approval.Ignored[e.ID]}
+			if approval.State == "" {
+				ev.Approved.Ignored = "this document has no approval state here"
+			}
 		}
 		if id, title, ok := e.Budded(); ok {
 			ev.BuddedSeed, ev.BuddedTitle = id, title

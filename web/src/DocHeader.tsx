@@ -15,6 +15,7 @@ import { Modal } from './Modal'
 import { attestedText } from './scope'
 import { TransferDialog } from './Transfer'
 import { archiveRole } from './Issue'
+import { ApprovalBadge, ApproveDialog, approveRole, approveVersion } from './approval'
 import { ownNodes } from './Goals'
 import { docHref, plural, warningOf } from './util'
 
@@ -24,6 +25,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const [panel, setPanel] = useState<Panel>('')
   const [transfer, setTransfer] = useState<'' | 'copy' | 'move'>('')
   const [releasing, setReleasing] = useState(false)
+  const [approving, setApproving] = useState<'' | 'owner' | 'take-over'>('')
   const [note, setNote] = useState('')
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
@@ -56,8 +58,8 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
   const [askErr, setAskErr] = useState(false)
   const [agent, setAgent] = useState(false)
   const more: MenuItem[] = []
-  // The owner confirms a plan-graph document delivered, or reopens it (spec 6.18).
-  const closable = !dm && !!doc.plan && (doc.role === 'owner' || doc.role === 'local')
+  // Approve vN: the owner's release of the approved version (spec 6.18).
+  const approver = approveRole(doc)
   if (!dm?.viewing) more.push({ label: 'Context for an agent', sub: 'the goals, invariants and terms above this document', onSelect: () => setAgent(true) })
   if (live && (t!.can_act || t!.team_owner) && st.primary !== 'choose') {
     more.push({
@@ -77,13 +79,18 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
     const undo = !!doc.archived
     more.push({
       label: (undo ? 'Unarchive' : 'Archive') + (archiver === 'take-over' ? ' (take over)' : ''),
-      sub: undo ? 'list it again' : archiver === 'take-over' ? 'you become its owner, then archive it' : 'hide it from the lists; it still replicates',
+      sub: undo
+        ? 'list it again'
+        : archiver === 'take-over'
+          ? 'you become its owner, then archive it'
+          : 'abandoned or superseded: hide it from the lists; it still replicates',
       sep: true,
       action: 'doc.archive',
       onSelect: () => run(() => api.archive(doc.rel, !undo, archiver === 'take-over')),
     })
   }
   if (takeOver) more.push({ label: 'Take over and release…', sub: 'you become its owner, then release it', sep: true, onSelect: () => setPanel('take-release') })
+  if (approver === 'take-over') more.push({ label: 'Take over and approve…', sub: 'you become its owner, then approve it', action: 'doc.approve', onSelect: () => setApproving('take-over') })
   if (live && t!.can_act) more.push({ label: 'Delete for the team…', danger: true, sep: true, onSelect: () => setPanel('delete') })
   if (takeOver) more.push({ label: 'Take over and delete…', danger: true, onSelect: () => setPanel('take-delete') })
 
@@ -95,7 +102,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
         <div className="grow">
           <div className="doc-head-state">{st.head}</div>
           <div className="doc-head-sub">
-            {doc.archived && <span className="badge">archived</span>} {doc.plan?.closed && <span className="badge">closed</span>} {st.sub}
+            <ApprovalBadge a={doc.approval} /> {doc.archived && <span className="badge">archived</span>} {st.sub}
             {dm?.viewing ? (
               <>
                 {' '}
@@ -127,6 +134,11 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
               </button>
             )}
           </form>
+        )}
+        {approver === 'owner' && (
+          <button type="button" className={st.primary ? '' : 'primary'} {...act('doc.approve')} onClick={() => setApproving('owner')}>
+            Approve v{approveVersion(doc, approver)}…
+          </button>
         )}
         {st.primary === 'domain-release' && (
           <button type="button" className="primary" onClick={() => setReleasing(true)}>
@@ -232,11 +244,6 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
       {doc.plan && !dm && (
         <div className="doc-head-line row center">
           <span className="grow">{planLine(doc)}</span>
-          {closable && (
-            <button type="button" className={doc.plan.closed ? '' : 'primary'} {...act('doc.close')} disabled={busy} onClick={() => run(() => api.close(doc.rel, !!doc.plan!.closed))}>
-              {doc.plan.closed ? 'Reopen' : 'Close as delivered'}
-            </button>
-          )}
         </div>
       )}
       {doc.transfer?.from && <div className="doc-head-line">{attestedText(doc.transfer)}</div>}
@@ -249,6 +256,17 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
       {warn && <div className="warn-box">{warn}</div>}
 
       {agent && <AgentContextDialog doc={doc} onClose={() => setAgent(false)} />}
+      {approving && (
+        <ApproveDialog
+          doc={doc}
+          takeOver={approving === 'take-over'}
+          onClose={() => setApproving('')}
+          onDone={() => {
+            setApproving('')
+            reload()
+          }}
+        />
+      )}
       {transfer && <TransferDialog doc={doc} mode={transfer} onClose={() => setTransfer('')} onDone={reload} />}
       {releasing && (
         <ReleaseDialog
@@ -265,7 +283,7 @@ export function DocHeader({ doc, reload, onSeed, onPublish }: { doc: Doc; reload
 }
 
 // planLine sums up the document's place in the plan graph: how many of
-// its goals are claimed, ready or delivered, and its children (spec 6.18).
+// its goals are claimed or unclaimed, and its children (spec 6.18).
 function planLine(doc: Doc): string {
   const p = doc.plan!
   const goals = p.goals.filter((g) => g.kind === 'goal')
@@ -273,13 +291,12 @@ function planLine(doc: Doc): string {
   const parts: string[] = []
   if (goals.length > 0) {
     const n = (s: string) => goals.filter((g) => g.state === s).length
-    const by = ['unclaimed', 'claimed', 'ready', 'delivered'].filter((s) => n(s) > 0).map((s) => `${n(s)} ${s}`)
+    const by = ['unclaimed', 'claimed'].filter((s) => n(s) > 0).map((s) => `${n(s)} ${s}`)
     parts.push(`${plural(goals.length, 'goal')}: ${by.join(', ')}`)
   }
   if (criteria.length > 0) parts.push(plural(criteria.length, 'acceptance criterion', 'acceptance criteria'))
   if (p.children.length > 0) parts.push(plural(p.children.length, 'child', 'children'))
   if (p.breakdown) parts.push(p.breakdown === 'adopted' ? 'breakdown adopted from outside kalka' : 'broken down in kalka')
-  if (p.closed) parts.push('closed: the owner confirmed it delivered')
   return parts.join(' · ') || 'Part of a plan.'
 }
 

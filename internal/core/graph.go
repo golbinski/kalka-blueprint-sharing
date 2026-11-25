@@ -23,7 +23,7 @@ func (d *Node) Graph(path string) (check.Graph, string, error) {
 		return check.Graph{}, "", err
 	}
 	o := check.GraphOptions{
-		Options:     check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path)},
+		Options:     check.Options{Domains: storeDomains{d}, Docs: d.docsAt(f.Path), Approval: d.approvalOf},
 		Where:       d.graphWhere,
 		Divergences: d.readerDivergences,
 		Unseen:      d.unseen,

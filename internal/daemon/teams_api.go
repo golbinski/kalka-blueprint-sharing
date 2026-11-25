@@ -195,6 +195,30 @@ func (d *Daemon) mountTeams(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, res)
 	})
+	// Approval (spec 6.18): releases unreleased edits, then appends the
+	// approved entry; a team owner takes the document over first (7.4).
+	mux.HandleFunc("POST /api/approve", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Path         string   `json:"path"`
+			Note         string   `json:"note"`
+			Incorporates []string `json:"incorporates"`
+			TakeOver     bool     `json:"take_over"`
+		}
+		if err := readBody(r, &q); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		approve := d.Approve
+		if q.TakeOver {
+			approve = d.TakeOverApprove
+		}
+		res, err := approve(q.Path, q.Note, q.Incorporates)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := d.scope(w, r)
 		if !ok {
@@ -492,9 +516,11 @@ func (c *Client) Archive(ctx context.Context, path string, archived bool) error 
 	return c.do(ctx, http.MethodPost, "/api/archive", map[string]any{"path": path, "archived": archived}, nil)
 }
 
-// Close confirms a document delivered, or reopens it (spec 6.18).
-func (c *Client) Close(ctx context.Context, path string, reopen bool) error {
-	return c.do(ctx, http.MethodPost, "/api/close", map[string]any{"path": path, "reopen": reopen}, nil)
+// Approve releases unreleased edits and approves the latest release
+// (spec 6.18).
+func (c *Client) Approve(ctx context.Context, path, note string, incorporates []string) (core.ApproveResult, error) {
+	var v core.ApproveResult
+	return v, c.do(ctx, http.MethodPost, "/api/approve", map[string]any{"path": path, "note": note, "incorporates": incorporates}, &v)
 }
 
 // Promote turns a seed into a blueprint (spec 6.11).

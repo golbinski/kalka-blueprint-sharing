@@ -238,4 +238,6 @@ func (d *Node) releaseState(in *store.Info) {
 	}
 	in.Version = head.Release.Version
 	in.Unreleased = head.Release.Plan != f.Doc.PlanHash()
+	a := d.approvalAt(in.Path, f.Doc)
+	in.Approval, in.ApprovedVersion = a.State, a.Version
 }

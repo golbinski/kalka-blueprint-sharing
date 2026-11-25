@@ -19,6 +19,7 @@ import (
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
+	"github.com/golbinski/kalka/internal/check"
 	"github.com/golbinski/kalka/internal/plugin"
 )
 
@@ -387,6 +388,30 @@ func (d *Node) IssuesIn(sc Scope) IssuesView {
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].String() < refs[j].String() })
 	return IssuesView{Caps: d.issues.summary(notify), Issues: d.issues.lookup(refs, notify)}
+}
+
+// GraphIssues is what the reader's plugins know about the issues of a
+// graph's cards: the tracker status the canvas shows on a card (spec
+// 11.1). It is an overlay of the API only, from the reader's cache, so
+// kalka graph stays the same with and without one; kalka never reads
+// anything into the status.
+func (d *Node) GraphIssues(g check.Graph) map[string]IssueView {
+	var refs []bp.IssueRef
+	seen := map[string]bool{}
+	for _, n := range g.Nodes {
+		if n.Card != "" || n.Issue == "" || seen[n.Issue] {
+			continue
+		}
+		if r, ok := bp.ParseIssue(n.Issue); ok {
+			seen[n.Issue] = true
+			refs = append(refs, r)
+		}
+	}
+	if len(refs) == 0 {
+		return map[string]IssueView{}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].String() < refs[j].String() })
+	return d.issues.lookup(refs, func() { d.bus.Publish(BusEvent{Type: "issues"}) })
 }
 
 // issueView is the open document's issue, or nil.

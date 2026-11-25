@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	bp "github.com/golbinski/kalka/internal/blueprint"
@@ -48,17 +49,26 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// cmdClose is `kalka close <file> [--reopen]`: the owner confirms the
-// document delivered (kalka_status: closed), or reopens it (spec 6.18).
-func cmdClose(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("close", flag.ContinueOnError)
+// cmdApprove is `kalka approve <file> [-m <note>] [--incorporates <ids>]`:
+// the owner's release of the approved version (spec 6.18). Unreleased
+// edits are released first; with none, the latest release is approved.
+// It never exports: `kalka export` is its own step.
+func cmdApprove(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("approve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print JSON")
-	reopen := fs.Bool("reopen", false, "take a closed document back to open")
+	note := fs.String("m", "", "a note: on the release when there are unreleased edits, else on the approval")
+	inc := fs.String("incorporates", "", "comma-separated ids of the deviations the release takes up")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil || len(pos) != 1 {
-		fmt.Fprintf(stderr, "usage: %s close <file> [--reopen] [--json]\n", name.Binary)
+		fmt.Fprintf(stderr, "usage: %s approve <file> [-m <note>] [--incorporates <id>,...] [--json]\n", name.Binary)
 		return exitUsage
+	}
+	var ids []string
+	for _, x := range strings.Split(*inc, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			ids = append(ids, x)
+		}
 	}
 	c, code := daemonFor(*asJSON, stdout, stderr)
 	if c == nil {
@@ -66,18 +76,21 @@ func cmdClose(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	path := absPath(pos[0])
-	if err := c.Close(ctx, path, *reopen); err != nil {
+	r, err := c.Approve(ctx, absPath(pos[0]), *note, ids)
+	if err != nil {
 		return failWith(*asJSON, stdout, stderr, err)
 	}
-	what := "closed"
-	if *reopen {
-		what = "reopened"
-	}
 	if *asJSON {
-		writeJSON(stdout, map[string]string{what: path})
+		writeJSON(stdout, r)
 		return exitOK
 	}
-	fmt.Fprintf(stdout, "%s %s\n", pos[0], what)
+	switch {
+	case !r.Changed:
+		fmt.Fprintf(stdout, "%s is %s already; nothing to do\n", pos[0], r.State)
+	case r.Released:
+		fmt.Fprintf(stdout, "released and approved version %d of %s; it replicates to the members of %s\n", r.Version, pos[0], r.Team)
+	default:
+		fmt.Fprintf(stdout, "approved version %d of %s; it replicates to the members of %s\n", r.Version, pos[0], r.Team)
+	}
 	return exitOK
 }

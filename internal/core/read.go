@@ -36,8 +36,10 @@ type Unread struct {
 	Owner    string `json:"owner,omitempty"`
 	Mine     bool   `json:"mine,omitempty"`
 	Comments int    `json:"comments"`
-	// Deviations are counted apart: what was done differently.
+	// Deviations are counted apart: what was done differently; and
+	// approvals, by the owner (spec 6.18).
 	Deviations int      `json:"deviations"`
+	Approvals  int      `json:"approvals"`
 	Authors    []string `json:"authors"`
 	// Never: someone else's document arrived and was never opened here.
 	Never bool      `json:"never,omitempty"`
@@ -45,7 +47,7 @@ type Unread struct {
 }
 
 // newKinds are the entries that count as new to read.
-var newKinds = map[string]bool{"comment": true, "deviation": true}
+var newKinds = map[string]bool{bp.KindComment: true, bp.KindDeviation: true, bp.KindApproved: true}
 
 func (d *Node) readPath() string { return filepath.Join(d.dir, ReadFile) }
 
@@ -158,9 +160,12 @@ func (d *Node) Unread() []Unread {
 			if known[n.ID] || !newKinds[n.Kind] || bp.SameEmail(n.Author, d.self.Email) {
 				continue
 			}
-			if n.Kind == "deviation" {
+			switch n.Kind {
+			case bp.KindDeviation:
 				u.Deviations++
-			} else {
+			case bp.KindApproved:
+				u.Approvals++
+			default:
 				u.Comments++
 			}
 			if !who[n.Author] {
@@ -171,7 +176,7 @@ func (d *Node) Unread() []Unread {
 				u.Since = n.At
 			}
 		}
-		if u.Comments+u.Deviations == 0 && !u.Never {
+		if u.Comments+u.Deviations+u.Approvals == 0 && !u.Never {
 			continue
 		}
 		if u.Authors == nil {
@@ -186,12 +191,12 @@ func (d *Node) Unread() []Unread {
 	return out
 }
 
-// UnreadCounts is the number of unseen comments and deviations per
-// document path, for the lists' "N new".
+// UnreadCounts is the number of unseen comments, deviations and
+// approvals per document path, for the lists' "N new".
 func (d *Node) UnreadCounts() map[string]int {
 	out := map[string]int{}
 	for _, u := range d.Unread() {
-		out[u.Path] = u.Comments + u.Deviations
+		out[u.Path] = u.Comments + u.Deviations + u.Approvals
 	}
 	return out
 }

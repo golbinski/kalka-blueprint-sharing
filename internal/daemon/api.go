@@ -103,7 +103,6 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /api/seeds", d.apiBud)
 	mux.HandleFunc("POST /api/backlink", d.apiBacklink)
 	mux.HandleFunc("POST /api/promote", d.apiPromote)
-	mux.HandleFunc("POST /api/close", d.apiClose)
 	mux.HandleFunc("GET /api/context", d.apiContext)
 	mux.HandleFunc("GET /api/graph", d.apiGraph)
 	d.mountTeams(mux)
@@ -329,22 +328,6 @@ func (d *Daemon) apiBacklink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"entry": id})
 }
 
-func (d *Daemon) apiClose(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path   string `json:"path"`
-		Reopen bool   `json:"reopen"`
-	}
-	if err := readBody(r, &req); err != nil {
-		fail(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := d.Close(req.Path, req.Reopen); err != nil {
-		fail(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
 // apiContext is the agent context of a document (spec 6.18), the same as
 // kalka context prints.
 func (d *Daemon) apiContext(w http.ResponseWriter, r *http.Request) {
@@ -378,7 +361,9 @@ func (d *Daemon) apiGraph(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"graph": g, "rel": rel})
+	// The tracker status of the cards is the reader's, beside the graph,
+	// never in it (spec 10.5, 11.1).
+	writeJSON(w, http.StatusOK, map[string]any{"graph": g, "rel": rel, "issues": d.GraphIssues(g)})
 }
 
 func (d *Daemon) apiPromote(w http.ResponseWriter, r *http.Request) {

@@ -38,6 +38,19 @@ type Options struct {
 	// Plugins, when set, resolves reference targets (--with-plugins).
 	Plugins Plugins
 	Ctx     context.Context
+	// Approval is a document's approval state (spec 6.18); nil computes it
+	// as the file says. The daemon sets it to compute the same state over
+	// the entries that count in the team.
+	Approval func(*bp.Document) bp.Approval
+}
+
+// approval is doc's approval state without the reasons, nil for a
+// document that has none.
+func (o Options) approval(doc *bp.Document) *bp.Approval {
+	if o.Approval != nil {
+		return o.Approval(doc).Short()
+	}
+	return doc.FileApproval().Short()
 }
 
 // Result is what the checker found in one document.

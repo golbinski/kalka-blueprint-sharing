@@ -186,6 +186,17 @@ func TestCommandTable(t *testing.T) {
 	}
 }
 
+// kalka close is gone with the delivered states: a usage error (spec
+// 6.18); approve takes its place.
+func TestCloseIsGone(t *testing.T) {
+	if code, _, errs := runCLI("close", "plan.md"); code != exitUsage || !strings.Contains(errs, "unknown command") {
+		t.Fatalf("close: exit %d %s", code, errs)
+	}
+	if _, ok := commandByName("approve"); !ok {
+		t.Fatal("no approve command")
+	}
+}
+
 // The error kinds: every kind the code declares is in the spec's list,
 // and every one in the list is declared (spec 12.3).
 func TestErrorKinds(t *testing.T) {

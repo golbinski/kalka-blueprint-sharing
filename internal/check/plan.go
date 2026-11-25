@@ -24,13 +24,11 @@ type Docs interface {
 	Children(id string) []*bp.Document
 }
 
-// States of goals and criteria (spec 6.18).
+// States of goals (spec 6.18). Criteria carry no state of their own:
+// kalka does not track implementation progress.
 const (
 	GoalUnclaimed = "unclaimed" // nothing realizes it
-	GoalClaimed   = "claimed"   // something does, not all of it delivered
-	GoalReady     = "ready"     // every claimant delivered: ready to close
-	GoalDelivered = "delivered" // ready, and its document closed
-	CriterionOpen = "open"      // its document is not closed
+	GoalClaimed   = "claimed"   // a child goal or a criterion realizes it
 )
 
 // PlanPath is the chain of plan nodes from the root to doc's parent, root
@@ -66,7 +64,7 @@ type GoalNode struct {
 	Kind  string `json:"kind"`
 	ID    string `json:"id"`
 	Text  string `json:"text"`
-	State string `json:"state"`
+	State string `json:"state,omitempty"`
 	// Doc is the kalka_id of the document that holds it, Title its title,
 	// Issue its kalka_issue; Own is set for the document viewed.
 	Doc   string `json:"doc,omitempty"`
@@ -120,12 +118,9 @@ func realizesOwn(doc *bp.Document, g bp.Goal) bool {
 
 func criterionNode(doc *bp.Document, g bp.Goal, own bool) GoalNode {
 	n := GoalNode{Kind: g.Kind, ID: g.ID, Text: g.Text, Doc: doc.KalkaID(), Title: doc.Title(), Own: own, Section: g.Section, Line: g.Line,
-		Realizes: g.Realizes, Steps: g.Steps, State: CriterionOpen}
+		Realizes: g.Realizes, Steps: g.Steps}
 	if r, ok := doc.Issue(); ok {
 		n.Issue = r.String()
-	}
-	if doc.IsClosed() {
-		n.State = GoalDelivered
 	}
 	n.CoveredBy = doc.CoveredBy(g.ID)
 	return n
@@ -162,7 +157,10 @@ func goalNode(doc *bp.Document, g bp.Goal, docs Docs, seen map[string]bool, dept
 			}
 		}
 	}
-	n.State = goalState(doc, n.Claimants)
+	n.State = GoalClaimed
+	if len(n.Claimants) == 0 {
+		n.State = GoalUnclaimed
+	}
 	return n
 }
 
@@ -176,21 +174,6 @@ func children(docs Docs, id string) []*bp.Document {
 		return strings.Compare(a.KalkaID(), b.KalkaID())
 	})
 	return cs
-}
-
-func goalState(doc *bp.Document, claimants []GoalNode) string {
-	if len(claimants) == 0 {
-		return GoalUnclaimed
-	}
-	for _, c := range claimants {
-		if c.State != GoalDelivered && c.State != GoalReady {
-			return GoalClaimed
-		}
-	}
-	if doc.IsClosed() {
-		return GoalDelivered
-	}
-	return GoalReady
 }
 
 // planProblems are the plan-graph rules of doc (P010 to P032, and I020
@@ -279,8 +262,8 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 			}
 		}
 	}
-	// Goal coverage: unclaimed is a warning while open, an error once
-	// closed; with an adopted breakdown, a finding to decide.
+	// Goal coverage: an unclaimed goal is a warning, approved or not;
+	// with an adopted breakdown, a finding to decide.
 	if !searched && doc.KalkaID() != "" && (docs == nil || len(docs.Children(doc.KalkaID())) == 0) {
 		if hasGoal(doc) && (missing == "" || !hasParent) {
 			out = append(out, bp.NewProblem("P011", 1, "the plan nodes below were not looked up, only the files checked, so goal coverage was not checked; check with --domain <folder>"))
@@ -289,23 +272,12 @@ func planProblems(doc *bp.Document, docs Docs) []bp.Problem {
 	}
 	adopted := doc.Breakdown() == bp.BreakdownAdopted
 	for _, n := range GoalTree(doc, docs) {
-		if n.Kind != bp.KindGoal {
+		if n.Kind != bp.KindGoal || n.State != GoalUnclaimed {
 			continue
 		}
-		var rule, msg string
-		switch {
-		case n.State == GoalUnclaimed && adopted:
+		rule, msg := "P030", "no child goal and no criterion claims it yet (realizes parent#"+n.ID+")"
+		if adopted {
 			rule, msg = "P032", "no story claims it; decide whether one is missing, or say in the plan why none is needed"
-		case n.State == GoalUnclaimed && doc.IsClosed():
-			rule, msg = "P031", "the document is closed and nothing claims this goal; claim it with a child goal or a criterion (realizes parent#"+n.ID+"), or reopen the document"
-		case n.State == GoalUnclaimed:
-			rule, msg = "P030", "no child goal and no criterion claims it yet (realizes parent#"+n.ID+")"
-		case n.State == GoalClaimed && doc.IsClosed() && adopted:
-			rule, msg = "P032", "the document is closed and not everything claiming this goal is delivered: "+undelivered(n)
-		case n.State == GoalClaimed && doc.IsClosed():
-			rule, msg = "P031", "the document is closed and not everything claiming this goal is delivered: "+undelivered(n)
-		default:
-			continue
 		}
 		p := bp.NewProblem(rule, n.Line, fmt.Sprintf("goal %s: %s", n.ID, msg))
 		p.Node = n.ID
@@ -338,20 +310,3 @@ func cycleMessage(doc *bp.Document, path []*bp.Document) string {
 	}
 	return "following kalka_parent leads back to this document; the plan is a tree, so its root has no kalka_parent"
 }
-
-// undelivered names a goal's claimants that are not delivered.
-func undelivered(n GoalNode) string {
-	var out []string
-	for _, c := range n.Claimants {
-		if c.State != GoalDelivered && c.State != GoalReady {
-			s := c.Kind + " " + c.ID
-			if !c.Own {
-				s += " of " + strconvQuote(c.Title)
-			}
-			out = append(out, s+" ("+c.State+")")
-		}
-	}
-	return strings.Join(out, ", ")
-}
-
-func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }

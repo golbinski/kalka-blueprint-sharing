@@ -17,6 +17,9 @@ const (
 	KindNotShared    = "not-shared"
 	KindDisputed     = "disputed"
 	KindDomainExists = "domain-exists"
+	// KindNoApproval: seeds, domain documents and tombstones have no
+	// approval state (spec 6.18).
+	KindNoApproval = "no-approval"
 
 	KindTransferPending = "transfer-pending"
 	KindTransferDecided = "transfer-decided"

@@ -147,8 +147,9 @@ criterion AC1: The queue head is notified exactly once
 ````
 
 - A goal at a middle level realizes a goal of its own parent: `goal G4: …` with `realizes parent#G1`. It may name several goals of the same parent.
-- A goal's state is computed, never written: *unclaimed* (nothing realizes it), *claimed*, *ready* (everything claiming it is delivered) and *delivered* (ready, and its document closed). A leaf is delivered when its owner closes it: `kalka close <file>` writes `kalka_status: closed`.
-- An unclaimed goal is a warning while its node is open (`P030`) and an error once it is closed (`P031`). With `kalka_breakdown: adopted` (the stories came from outside kalka), coverage is a finding to decide on (`P032`); `decomposed` says kalka was used to make the split.
+- A goal's state is computed, never written: *unclaimed* (nothing realizes it) or *claimed*. Criteria carry no state: kalka does not record whether anything is implemented; the tracker, git and CI do.
+- A team document also has an approval state, computed from its review log: *draft*, *approved vN* or *changed since approved vN*. The owner approves with `kalka approve <file>`; never write it by hand. `kalka context` names each level's state: it says where the review stands, not whether the work is done.
+- An unclaimed goal is a warning (`P030`), on a draft or an approved document alike. With `kalka_breakdown: adopted` (the stories came from outside kalka), coverage is a finding to decide on (`P032`); `decomposed` says kalka was used to make the split.
 - In a trace, a business step names the criterion it demonstrates with `covers AC1`. One chain then runs from the epic's goal through the criterion and the business steps to code with a `ref`.
 
 *Why agents benefit:* the goals above a blueprint say why it exists and what it must not break, and the criteria say when it is done. An agent that reads `kalka context` before starting works toward the epic's goals instead of only the words of one story, and a reviewer sees at once which goal nothing serves yet.
@@ -452,9 +453,8 @@ The exit code is 0 when there is nothing to fix, 1 for errors, 2 for warnings on
 | `P021` | error | **parent# with no parent.** The document writes `parent#<id>` and has no `kalka_parent:`. |
 | `P022` | error | **covers names no such criterion.** A trace step's `covers` names an id that is not a criterion of the document. |
 | `P023` | error | **Inherited invariant redefined.** The document defines an invariant with the id of one it inherits from a plan node above it. |
-| `P030` | warning | **Goal unclaimed.** In an open plan node, no child goal and no criterion names the goal with `realizes`. |
-| `P031` | error | **Closed with an undelivered goal.** The document is closed (`kalka_status: closed`) and a goal is unclaimed, or a claimant (a child goal or a criterion) is not delivered. |
-| `P032` | info | **Goal coverage to decide.** With `kalka_breakdown: adopted`, a goal that is unclaimed or not delivered: a finding for a person to decide on, not a planning error. |
+| `P030` | warning | **Goal unclaimed.** No child goal and no criterion names the goal with `realizes`. It is reported the same whether the document is a draft or approved. |
+| `P032` | info | **Goal coverage to decide.** With `kalka_breakdown: adopted`, a goal that no child goal or criterion claims: a finding for a person to decide on, not a planning error. |
 
 #### Domain tree (D)
 

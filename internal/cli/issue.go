@@ -45,6 +45,11 @@ func cmdExport(args []string, stdout, stderr io.Writer) int {
 		verb = "exported again, replacing the earlier export:"
 	}
 	fmt.Fprintf(stdout, "%s v%d %s %s\n", pos[0], res.Version, verb, res.Issue)
+	if res.Approved {
+		fmt.Fprintf(stdout, "v%d is the approved version\n", res.Version)
+	} else if res.Approval != "" {
+		fmt.Fprintf(stdout, "v%d is not approved (%s)\n", res.Version, res.Approval)
+	}
 	if res.URL != "" {
 		fmt.Fprintln(stdout, res.URL)
 	}

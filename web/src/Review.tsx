@@ -265,6 +265,20 @@ function ExportLine({ e }: { e: Entry }) {
   )
 }
 
+// ApprovalLine is an approval of a released version (spec 6.18): history,
+// like a release. One that does not count says why, the same on every
+// peer.
+function ApprovalLine({ e }: { e: Entry }) {
+  const x = e.approved!
+  return (
+    <div className={'version-line approval-line' + (x.ignored ? ' ignored' : '')} id={'e-' + e.id}>
+      <b>Approved v{x.version}</b> · {localTime(e.timestamp)} · {shortName(e.author)}
+      {x.note && <> · {x.note.replace(/\s+/g, ' ')}</>}
+      {x.ignored && <span className="warn-text"> · ignored: {x.ignored}</span>}
+    </div>
+  )
+}
+
 // SeedLine is a seed split off from an entry, under the entry.
 function SeedLine({ e }: { e: Entry }) {
   return (
@@ -304,6 +318,7 @@ export function EntryCard({
   const [why, setWhy] = useState('')
   if (e.kind === 'release') return <VersionLine e={e} />
   if (e.kind === 'exported' && e.exported) return <ExportLine e={e} />
+  if (e.kind === 'approved' && e.approved) return <ApprovalLine e={e} />
   if (e.kind === 'budded' && e.budded_seed) return <SeedLine e={e} />
   if (e.incorporated_in && !unfolded) {
     return (

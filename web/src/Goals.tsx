@@ -1,20 +1,19 @@
 // The plan graph in the document view (spec 6.18, 11.1): a goals block
-// drawn as goals and acceptance criteria with their computed states, each
-// goal with the tree of child goals and criteria that claim it.
+// drawn as goals and acceptance criteria, each goal with its computed
+// state (unclaimed or claimed) and the tree of child goals and criteria
+// that claim it. Criteria carry no state: kalka tracks no delivery.
 import { CodeWithNote, Linked } from './Aids'
 import type { Doc, GoalNode, GoalState } from './api'
 import { docHref, plural } from './util'
 
 const STATE: Record<GoalState, { label: string; title: string; tone: string }> = {
   unclaimed: { label: 'unclaimed', title: 'No child goal and no criterion realizes it yet', tone: 'div' },
-  claimed: { label: 'claimed', title: 'Realized by child goals or criteria, not all of them delivered', tone: 'outline' },
-  ready: { label: 'ready', title: 'Everything claiming it is delivered: the owner can close the document', tone: 'ok' },
-  delivered: { label: 'delivered', title: 'Ready, and its document is closed', tone: 'ok' },
-  open: { label: 'open', title: 'Its document is not closed yet', tone: 'outline' },
+  claimed: { label: 'claimed', title: 'A child goal or a criterion realizes it', tone: 'outline' },
 }
 
-export function StateBadge({ state }: { state: GoalState }) {
-  const s = STATE[state]
+export function StateBadge({ state }: { state?: GoalState }) {
+  const s = state ? STATE[state] : undefined
+  if (!s) return null
   return (
     <span className={'tbadge goal-state ' + s.tone} title={s.title}>
       {s.label}

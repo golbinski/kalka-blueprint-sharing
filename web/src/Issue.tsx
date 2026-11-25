@@ -95,7 +95,6 @@ function ExportDialog({ doc, onClose, reload }: { doc: Doc; onClose: () => void;
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [done, setDone] = useState<ExportResult | null>(null)
-  const [archived, setArchived] = useState(false)
   const issue = doc.issue!
   const st = doc.export!
   const what = [
@@ -104,7 +103,6 @@ function ExportDialog({ doc, onClose, reload }: { doc: Doc; onClose: () => void;
   ]
     .filter(Boolean)
     .join(' and ')
-  const role = archiveRole(doc)
   const run = async (f: () => Promise<void>) => {
     setBusy(true)
     setErr('')
@@ -127,6 +125,13 @@ function ExportDialog({ doc, onClose, reload }: { doc: Doc; onClose: () => void;
             <p className="muted small">
               Version {st.last.version} was exported {st.last_at ? 'on ' + localTime(st.last_at) : ''}
               {st.last_by ? ' by ' + st.last_by : ''}; this replaces that attachment and updates the same comment.
+            </p>
+          )}
+          {st.approval && (
+            <p className={st.approval.startsWith('approved') ? 'small' : 'small warn-text'}>
+              {st.approval.startsWith('approved')
+                ? `Version ${st.version} is the approved version (${st.approval}).`
+                : `Version ${st.version} is not approved: ${st.approval}.`}
             </p>
           )}
           <p className="muted small">Only the released version goes; edits after it stay in kalka. Nothing in the issue comes back into the blueprint.</p>
@@ -162,30 +167,10 @@ function ExportDialog({ doc, onClose, reload }: { doc: Doc; onClose: () => void;
               </a>
             )}
           </p>
-          {role && !doc.archived && !archived && (
-            <p className="muted">
-              The plan is kept where the work is tracked now. Archive it to take it out of the lists here; it still replicates and can be unarchived.
-            </p>
-          )}
-          {archived && <p>Archived. It is hidden from the lists unless you show archived blueprints.</p>}
+          {done.approval && <p className="muted small">{done.approved ? 'It is the approved version.' : `It is not approved: ${done.approval}.`}</p>}
+          <p className="muted small">The plan stays here, as the reference the work is done against and the context later plans are read in.</p>
           {err && <p className="error-text">{err}</p>}
           <div className="row end">
-            {role && !doc.archived && !archived && (
-              <button
-                type="button"
-                {...act('doc.archive')}
-                disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    await api.archive(doc.rel, true, role === 'take-over')
-                    setArchived(true)
-                    reload()
-                  })
-                }
-              >
-                {role === 'take-over' ? 'Take over and archive' : 'Archive'}
-              </button>
-            )}
             <button type="button" className="primary" onClick={onClose} disabled={busy}>
               Done
             </button>

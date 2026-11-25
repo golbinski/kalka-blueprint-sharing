@@ -166,7 +166,6 @@
       "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
       "item": "AC1",
       "text": "The queue head is notified exactly once",
-      "state": "open",
       "anchor": "acceptance-criteria#AC1"
     },
     {
@@ -175,7 +174,6 @@
       "card": "plan:3e9b7a60-1f24-4d8e-b0c5-7a2d91e4f803",
       "item": "AC2",
       "text": "A held copy is refused to other members",
-      "state": "open",
       "anchor": "acceptance-criteria#AC2"
     },
     {

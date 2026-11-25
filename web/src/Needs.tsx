@@ -136,6 +136,7 @@ function newText(u: Unread): string {
   const parts = []
   if (u.comments > 0) parts.push(plural(u.comments, 'new comment'))
   if (u.deviations > 0) parts.push(plural(u.deviations, 'deviation'))
+  if ((u.approvals ?? 0) > 0) parts.push(plural(u.approvals!, 'approval'))
   if (parts.length === 0) return u.never ? 'new blueprint' : 'new'
   return parts.join(', ')
 }

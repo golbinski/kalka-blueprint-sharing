@@ -5,7 +5,9 @@
 // person stands out, and the side panel lists it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invElementId } from './Aids'
-import { api, type Doc, type Graph, type GraphNode, type GoalState, type OpenItem, type Trace } from './api'
+import { api, type Doc, type Graph, type GraphNode, type GoalState, type IssueView, type OpenItem, type Trace } from './api'
+import { ApprovalBadge } from './approval'
+import { STATUS_LABEL } from './groups'
 import { StateBadge } from './Goals'
 import { CARD_W, criteriaLeadingTo, emptyExpansion, layoutGraph, type CardBox, type Expansion, type ItemBox } from './graphLayout'
 import { badgeText } from './Trace'
@@ -55,7 +57,6 @@ const MARKER_WORDS: Record<string, string> = {
   inconsistent: 'inconsistent ancestor versions on two paths',
   'not-here': 'not here',
   archived: 'archived',
-  closed: 'closed',
 }
 
 /** markerWords says what a node's markers mean, divergences in the Trace
@@ -80,7 +81,7 @@ export function openText(g: Graph, o: OpenItem): string {
   return o.text
 }
 
-const quiet = new Set(['archived', 'closed'])
+const quiet = new Set(['archived'])
 const loud = (n: GraphNode) => (n.markers ?? []).some((m) => !quiet.has(m))
 
 function cardLabel(n: GraphNode): string {
@@ -106,6 +107,7 @@ function itemHref(card: GraphNode | undefined, n: GraphNode): { href: string; la
 function Card({
   c,
   exp,
+  issue,
   selected,
   onToggle,
   onSelect,
@@ -113,6 +115,8 @@ function Card({
 }: {
   c: CardBox
   exp: Expansion
+  /** The tracker status the reader's plugin knows, shown as the tracker says it. */
+  issue?: IssueView
   selected: string
   onToggle: (id: string) => void
   onSelect: (id: string) => void
@@ -150,7 +154,12 @@ function Card({
         <span className="gcard-title">{n.placeholder ? (n.kind === 'domain' ? `${n.domain}@v${n.version}` : n.title) : cardLabel(n)}</span>
         <span className="gcard-chips small">
           {n.placeholder && <span className="tbadge div">not here</span>}
-          {(n.markers ?? []).includes('closed') && <span className="tbadge ok">closed</span>}
+          {!n.placeholder && <ApprovalBadge a={n.approval} small />}
+          {issue?.meta?.ok && issue.meta.status && (
+            <span className={'tbadge outline issue-status ' + issue.meta.status.category} title={`${issue.payload} in the tracker: ${STATUS_LABEL[issue.meta.status.category] ?? ''}`}>
+              {issue.meta.status.name || STATUS_LABEL[issue.meta.status.category]}
+            </span>
+          )}
           {(n.markers ?? []).includes('archived') && <span className="tbadge outline">archived</span>}
           {(n.markers ?? []).includes('ambiguous') && <span className="tbadge div">ambiguous</span>}
           {(n.markers ?? []).includes('inconsistent') && <span className="tbadge div">inconsistent versions</span>}
@@ -213,7 +222,7 @@ function Item({
       <span className="gitem-text">{n.kind === 'term' ? <b>{n.item}</b> : n.text}</span>
       {(n.threads ?? 0) > 0 && <span className="gcount muted small">{n.threads}</span>}
       {(n.new ?? 0) > 0 && <span className="gdot" title="New since you last looked" />}
-      {(n.kind === 'goal' || n.kind === 'criterion') && n.state && n.state !== 'open' && <StateBadge state={n.state as GoalState} />}
+      {n.kind === 'goal' && n.state && <StateBadge state={n.state as GoalState} />}
       {(n.markers ?? []).filter((m) => m in MARKER_WORDS).map((m) => (
         <span key={m} className="tbadge div small" title={MARKER_WORDS[m]}>
           {m}
@@ -367,6 +376,7 @@ function wireClass(kind: string, dashed?: boolean, marker?: string): string {
 
 export function GraphPage({ doc }: { doc: Doc }) {
   const [g, setG] = useState<Graph | null>(null)
+  const [issues, setIssues] = useState<Record<string, IssueView>>({})
   const [err, setErr] = useState('')
   const [exp, setExp] = useState<Expansion>(emptyExpansion)
   const [selected, setSelected] = useState('')
@@ -379,6 +389,7 @@ export function GraphPage({ doc }: { doc: Doc }) {
       (r) => {
         if (!live) return
         setG(r.graph)
+        setIssues(r.issues ?? {})
         setErr('')
         if (focusRef.current !== r.graph.focus) {
           focusRef.current = r.graph.focus
@@ -476,7 +487,7 @@ export function GraphPage({ doc }: { doc: Doc }) {
               ))}
             {layout.cards.map((c) => (
               <div key={c.id}>
-                <Card c={c} exp={exp} selected={selected} onSelect={setSelected} onExpand={update} onToggle={(id) => update({ ...exp, cards: toggle(exp.cards, id) })} />
+                <Card c={c} exp={exp} issue={c.node.issue ? issues[c.node.issue] : undefined} selected={selected} onSelect={setSelected} onExpand={update} onToggle={(id) => update({ ...exp, cards: toggle(exp.cards, id) })} />
                 {c.groups.map((grp) => (
                   <div key={grp.under || 'other'} className="ggroup muted small" style={{ left: c.x + CARD_W + 24, top: c.y + grp.y }}>
                     {grp.label}

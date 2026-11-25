@@ -142,10 +142,13 @@ Everything appears in *Blueprints · Personal* within a second. Then:
 7. Create `team-lending`, publish the two domain documents of `library/`
    (the root first), then `holds-on-return.md` and `return-creates-hold.md`.
    Open the story: the breadcrumb leads to the epic, the goals block
-   shows the criteria with their states, and *More*, *Context for an
-   agent* shows what an agent would read. The *Graph* tab draws the epic, the
-   story and the domain tree as one graph, with what needs attention.
-   Close the story (*Close as delivered*) and watch the epic's goals
-   become ready.
+   shows the goals as claimed or unclaimed and the criteria that claim
+   them, and *More*, *Context for an agent* shows what an agent would
+   read. The *Graph* tab draws the epic, the story and the domain tree as
+   one graph, with what needs attention. Approve the story (*Approve v1*
+   in its header, or `kalka approve <file>`): the header, the Blueprints
+   list and its card in the graph say "approved v1", and the epic's
+   unclaimed `G3` is still a warning. Edit the story's body and release
+   it: it is "changed since approved v1" until it is approved again.
 
 To start over, delete what you copied; nothing else holds the samples.

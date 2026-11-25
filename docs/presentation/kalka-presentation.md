@@ -34,9 +34,9 @@ A wrong turn caught in a plan costs a comment. Caught in a pull request, it cost
 - Not a tracker: Jira stays.
 - Not code review: pull requests stay.
 
-Once a plan is accepted, it moves on: into the repository, the ticket or the wiki.
+Once a plan is approved, it stays: the reference agents implement against, and the context later plans are read in. Progress is tracked where it already is.
 
-**Speaker notes:** Blueprints are volatile by design. kalka doesn't compete with Confluence or Jira; it covers the short phase where a plan is drafted, argued about and agreed. That's also why it can be serverless: losing a finished plan from kalka loses nothing, because it already moved on.
+**Speaker notes:** kalka doesn't compete with Confluence or Jira. It covers the phase where a plan is drafted, argued about and agreed, and it ends that phase with one step: the owner approves a version. Approved plans stay in the team as context for agents; kalka never tracks whether the work is done, because that lives in the tracker, git and CI.
 
 ## 4. A blueprint: one Markdown file, three parts
 
@@ -128,8 +128,8 @@ Each domain is a versioned document holding the ubiquitous language from DDD. Do
 3. **Trace · Business step:** covers AC1, and is realized by code steps.
 4. **Code · `ref gh:…`:** the lines that do it, shown beside the plan.
 
-- States are computed: unclaimed, claimed, ready, delivered.
-- The owner closes a story as delivered; the epic's goals follow.
+- States are computed: a goal is unclaimed or claimed.
+- Review ends when the owner approves a version: draft, approved vN, changed since approved vN.
 - An epic's invariants hold in every plan below it.
 
 **Speaker notes:** Plans form a tree through one key, `kalka_parent`. There are no level names and any depth works; a single blueprint can hold goals, criteria and a trace together. Nothing about state is written by hand: kalka works out which goals nothing claims yet, and flags them. `kalka_breakdown` says whether the stories were split in kalka or adopted from an existing backlog.
@@ -217,15 +217,15 @@ Updates download in the background; nothing restarts until you click **Restart t
 
 **Speaker notes:** kalka looks for a release shortly after it starts and every six hours. Before 1.0 it installs updates within the same minor version on its own, and offers the rest. The release key's public half is built into kalka, so a release signed with any other key is refused. SECURITY.md shows how to check a download by hand with minisign. Code signing of the programs themselves (Windows SmartScreen, macOS notarization) is not in place yet.
 
-## 16. Trackers: Jira, linked, read locally, exported when final
+## 16. Trackers: Jira, linked, read locally, attached when approved
 
 1. **Link · Name the issue:** `kalka_issue: jira:DEV-123` in the frontmatter.
 2. **Read · Title, status, parents:** with your own login, cached on your machine.
-3. **Export · The released version:** attached to the issue, with a comment.
-4. **Archive · Out of the lists:** it still replicates and opens from links.
+3. **Export · The approved version:** attached to the issue, with a comment; the app asks after approving.
+4. **Archive · Abandoned or superseded:** out of the lists; it still replicates and opens from links.
 
 - Nothing from Jira is written into the file or sent to peers.
-- Blueprints group by parent issue or by status.
+- Blueprints group by approval state, parent issue or status.
 - A plugin does the talking; the core never knows it is Jira.
 
 **Speaker notes:** This is how a plan leaves kalka when it is done: the owner exports the released version to its issue, and kalka records that as a signed entry. Each teammate sees the issue as their own Jira account does. kalka-plugin-jira works with Jira Cloud and Data Center, and keeps its token in the system's credential store.

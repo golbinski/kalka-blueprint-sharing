@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { act } from './actions'
 import { api, type BlueprintInfo, type IssuesView, type JoinPreview, type SeedRow, type Status, type Team } from './api'
 import { groupOptions, groupRows, levels, loadGroupBy, loadShowArchived, saveGroupBy, saveShowArchived, STATUS_LABEL, usable, type GroupChoice } from './groups'
+import { ApprovalBadge } from './approval'
 import { PublishDialog } from './Dialogs'
 import { PERSONAL, shortName } from './scope'
 import { blueprintRows, sectionOfRow } from './section'
@@ -261,8 +262,8 @@ export function Blueprints({
     )
   }
   const mine = (b: BlueprintInfo) => !!b.owner && b.owner.toLowerCase() === status.email.toLowerCase()
-  const options = groupOptions(issues?.caps)
-  const by = usable(choice, issues?.caps)
+  const options = groupOptions(issues?.caps, personal)
+  const by = usable(choice, issues?.caps, personal)
   const lv = levels(issues?.issues ?? {})
   const groups = groupRows(sorted, by, issues?.issues ?? {}, lv[by.level - 1]?.label)
   const cols = personal ? 5 : 4
@@ -276,6 +277,7 @@ export function Blueprints({
               Group by
               <select aria-label="Group by" value={by.by} onChange={(e) => setChoice({ by: e.target.value as GroupChoice['by'], level: by.level })}>
                 <option value="none">nothing</option>
+                {options.includes('approval') && <option value="approval">approval state</option>}
                 {options.includes('parent') && <option value="parent">parent issue</option>}
                 {options.includes('status') && <option value="status">issue status</option>}
               </select>
@@ -335,6 +337,7 @@ export function Blueprints({
                   <tr key={b.path} className={b.archived ? 'archived' : undefined}>
                     <td>
                       <a href={docHref(b.rel)}>{b.title || b.rel}</a>
+                      {b.approval && <ApprovalBadge a={{ state: b.approval, version: b.approved_version }} />}
                       {b.archived && <span className="badge">archived</span>}
                       {b.issue && (
                         <span className="badge issue" title={iv?.meta?.ok ? iv.meta.title : b.issue}>

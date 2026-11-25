@@ -32,7 +32,7 @@
     { "command": "seed", "class": "workflow", "action": "seed.create" },
     { "command": "seed backlink", "class": "workflow", "action": "seed.backlink" },
     { "command": "promote", "class": "workflow", "action": "seed.promote" },
-    { "command": "close", "class": "workflow", "action": "doc.close" },
+    { "command": "approve", "class": "workflow", "action": "doc.approve" },
     { "command": "context", "class": "view", "place": "Document view, More, Context for an agent" },
     { "command": "graph", "class": "view", "place": "The Graph tab of the document bar" },
     { "command": "seeds", "class": "view", "place": "Seeds" },
